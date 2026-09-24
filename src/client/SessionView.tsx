@@ -1,0 +1,271 @@
+/**
+ * One remote conversation.
+ *
+ * It follows a session for as long as it is mounted and renders what the node sends.
+ * The panel does **not** reuse the official conversation components: those read a
+ * root-scoped single `sessions` service bound to the local host, that service cannot be
+ * replaced by a plugin, and `slots.installScope('session')` is boot-once — so a remote
+ * session cannot be handed to them. This is the documented consequence of choosing the
+ * panel route, not an oversight.
+ *
+ * What it *does* reuse is the rendering layer: `MarkdownText` for message bodies and
+ * the `--dsw-*` tokens for everything else, so a message looks like a message from the
+ * local conversation instead of plain text in a foreign frame.
+ *
+ * @module dsh-master/client/SessionView
+ */
+
+import {
+  Button,
+  IconSendOutline14,
+  IconWarningOutline16,
+  MarkdownText,
+  Pill,
+  StateDot,
+} from '@deepseek-ai/dsh-client-ui-primitives'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactElement } from 'react'
+import { ApiError, followSession, sendPrompt } from './api.js'
+import { COPY, MARKDOWN_LABELS } from './copy.js'
+import { readEvent, readSnapshot, readStreamFrame, type ConversationRow } from './wire.js'
+
+/** What the view needs to open one session. */
+export interface SessionViewProps {
+  readonly nodeId: string
+  readonly sessionId: string
+  readonly title: string
+  /** Whether the deployment enabled sending prompts. */
+  readonly promptEnabled: boolean
+}
+
+/** How the follow stream is doing, for the header chip. */
+type Phase = 'connecting' | 'live' | 'ended' | 'failed'
+
+/** Describe one row for its role label. */
+function roleLabel(row: ConversationRow): string {
+  switch (row.kind) {
+    case 'user': return COPY.roleUser
+    case 'assistant': return COPY.roleAssistant
+    case 'tool-call': return COPY.roleToolCall
+    case 'tool-result': return COPY.roleToolResult
+    case 'notice': return COPY.roleNotice
+  }
+}
+
+/**
+ * Render one conversation row.
+ *
+ * Assistant and user bodies go through `MarkdownText`; tool traffic stays a labelled
+ * block with the raw payload in a code surface, because a tool's arguments are JSON and
+ * rendering them as prose would hide their structure.
+ *
+ * @param row - the row.
+ * @returns the row element.
+ */
+function Row({ row }: { readonly row: ConversationRow }): ReactElement {
+  if (row.kind === 'tool-call' || row.kind === 'tool-result') {
+    return (
+      <div className="dsh-master-tool" data-failed={row.failed === true ? 'true' : 'false'}>
+        <div className="dsh-master-tool-head">
+          {row.failed === true ? <IconWarningOutline16 /> : null}
+          <span>{roleLabel(row)}</span>
+          <span>·</span>
+          <span>{row.text}</span>
+        </div>
+        {row.detail === undefined ? null : <pre className="dsh-master-code">{row.detail}</pre>}
+      </div>
+    )
+  }
+  if (row.kind === 'notice') {
+    return (
+      <div className="dsh-master-notice">
+        <span>{roleLabel(row)}</span>
+        <span>·</span>
+        <span>{row.text}</span>
+        {row.detail === undefined ? null : <span>— {row.detail}</span>}
+      </div>
+    )
+  }
+  if (row.kind === 'user') {
+    return (
+      <div className="dsh-master-turn" data-role="user">
+        <div className="dsh-master-role">{roleLabel(row)}</div>
+        <div className="dsh-master-bubble">{row.text}</div>
+      </div>
+    )
+  }
+  return (
+    <div className="dsh-master-turn">
+      <div className="dsh-master-role">
+        {roleLabel(row)}
+        {row.detail === undefined ? '' : ` ${row.detail}`}
+      </div>
+      <div className="dsh-master-text">
+        <MarkdownText text={row.text} labels={MARKDOWN_LABELS} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Follow and render one session.
+ * @param props - the session to open, plus whether prompting is enabled.
+ * @returns the conversation view.
+ */
+export function SessionView(props: SessionViewProps): ReactElement {
+  const { nodeId, sessionId, promptEnabled } = props
+  const [rows, setRows] = useState<readonly ConversationRow[]>([])
+  const [unrendered, setUnrendered] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [cwd, setCwd] = useState<string | undefined>(undefined)
+  const [streaming, setStreaming] = useState(false)
+  const [phase, setPhase] = useState<Phase>('connecting')
+  const [error, setError] = useState<string | undefined>(undefined)
+  const [draft, setDraft] = useState('')
+  const [mode, setMode] = useState<'queue' | 'steer'>('queue')
+  const [sending, setSending] = useState(false)
+  const logRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setRows([])
+    setUnrendered(0)
+    setHasMore(false)
+    setCwd(undefined)
+    setStreaming(false)
+    setError(undefined)
+    setPhase('connecting')
+
+    followSession(nodeId, sessionId, controller.signal, (record) => {
+      switch (record.type) {
+        case 'open':
+          setPhase('live')
+          return
+        case 'data': {
+          const snapshot = readSnapshot(record.value)
+          if (snapshot !== undefined) {
+            setRows(snapshot.rows)
+            setUnrendered(snapshot.unrendered)
+            setHasMore(snapshot.hasMore)
+            setCwd(snapshot.cwd)
+            return
+          }
+          const contribution = readEvent(record.value)
+          if (contribution !== undefined) {
+            setRows(previous => [...previous, ...contribution.rows])
+            setUnrendered(count => count + contribution.unrendered)
+            return
+          }
+          const frame = readStreamFrame(record.value)
+          if (frame === 'started') setStreaming(true)
+          else if (frame === 'settled') setStreaming(false)
+          return
+        }
+        case 'end':
+          setStreaming(false)
+          setPhase('ended')
+          return
+        case 'error':
+          setStreaming(false)
+          setPhase('failed')
+          setError(`${record.error.code}: ${record.error.message}`)
+          return
+      }
+    }).catch((cause: unknown) => {
+      // An abort is this effect being cleaned up, not a failure to report.
+      if (controller.signal.aborted) return
+      setPhase('failed')
+      setError(cause instanceof Error ? cause.message : String(cause))
+    })
+
+    return () => { controller.abort() }
+  }, [nodeId, sessionId])
+
+  useEffect(() => {
+    const log = logRef.current
+    if (log !== null) log.scrollTop = log.scrollHeight
+  }, [rows, streaming])
+
+  const submit = useCallback((): void => {
+    const text = draft.trim()
+    if (text === '' || sending) return
+    setSending(true)
+    setError(undefined)
+    void sendPrompt(nodeId, sessionId, text, mode)
+      .then(() => { setDraft('') })
+      .catch((cause: unknown) => {
+        setError(cause instanceof ApiError ? `${cause.code}: ${cause.message}` : String(cause))
+      })
+      .finally(() => { setSending(false) })
+  }, [draft, mode, nodeId, sending, sessionId])
+
+  const phaseText = streaming
+    ? COPY.streaming
+    : phase === 'live' ? COPY.live
+      : phase === 'ended' ? COPY.ended
+        : phase === 'failed' ? COPY.failed
+          : COPY.connecting
+
+  return (
+    <div className="dsh-master-body">
+      <div className="dsh-master-head">
+        <span className="dsh-master-label" title={props.title}>{props.title}</span>
+        {cwd === undefined ? null : <span className="dsh-master-meta">{cwd}</span>}
+        {streaming ? <StateDot state="ongoing" /> : null}
+        <span className="dsh-master-meta">{phaseText}</span>
+      </div>
+
+      {error === undefined ? null : <div className="dsh-master-error">{error}</div>}
+
+      <div className="dsh-master-log" ref={logRef}>
+        {hasMore ? <div className="dsh-master-hint">{COPY.loadOlderPending}</div> : null}
+        {rows.length === 0
+          ? <div className="dsh-master-hint">{COPY.emptyConversation}</div>
+          : rows.map(row => <Row key={row.key} row={row} />)}
+        {unrendered === 0 ? null : (
+          <div className="dsh-master-hint">另有 {unrendered} 条事件本版本未渲染（例如思考块、压缩、子代理等）。</div>
+        )}
+      </div>
+
+      <div className="dsh-master-composer">
+        <textarea
+          value={draft}
+          placeholder={promptEnabled ? COPY.composerPlaceholder : COPY.composerDisabled}
+          disabled={!promptEnabled || sending}
+          onChange={(event) => { setDraft(event.currentTarget.value) }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault()
+              submit()
+            }
+          }}
+        />
+        <div className="dsh-master-composer-actions">
+          <span className="dsh-master-modes">
+            <Pill
+              active={mode === 'queue'}
+              onClick={promptEnabled ? () => { setMode('queue') } : undefined}
+            >
+              {COPY.queue}
+            </Pill>
+            <Pill
+              active={mode === 'steer'}
+              onClick={promptEnabled ? () => { setMode('steer') } : undefined}
+            >
+              {COPY.steer}
+            </Pill>
+          </span>
+          <span className="dsh-master-label dsh-master-meta">{COPY.sendHint}</span>
+          <Button
+            variant={promptEnabled && draft.trim() !== '' ? 'primary' : 'ghost'}
+            icon={<IconSendOutline14 />}
+            disabled={!promptEnabled || sending || draft.trim() === ''}
+            onClick={submit}
+          >
+            {sending ? COPY.sending : COPY.send}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}

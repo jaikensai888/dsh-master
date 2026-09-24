@@ -1,0 +1,209 @@
+.group {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 34px;
+  margin-top: 4px;
+}
+
+.expanded {
+  flex: 1 1 0%;
+  min-height: 34px;
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  border-radius: 8px;
+}
+
+.content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.groupToggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 8px 0 4px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--dsw-alias-label-caption);
+}
+
+.disclosureSlot {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-label-caption);
+}
+
+.disclosureSlot::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-top: -3px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.disclosureSlot[data-expanded='false']::before {
+  margin-top: 0;
+  margin-left: -3px;
+  transform: rotate(-45deg);
+}
+
+.groupToggle:hover,
+.nodeRow:not(:disabled):hover,
+.sessionRow:hover,
+.railNode:not(:disabled):hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.groupTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.nodeRow,
+.sessionRow {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+}
+
+.nodeRow {
+  cursor: pointer;
+}
+
+.nodeRow:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.nodeIcon {
+  flex: none;
+  width: 16px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.nodeRow:disabled .nodeIcon {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.nodeTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.offlineDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 2px 0 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-dimmed);
+}
+
+.sessionRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px 0 28px;
+  cursor: pointer;
+  color: var(--dsw-alias-label-primary);
+}
+
+.sessionTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.sessionAge {
+  flex: none;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.message {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.railNode {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-primary);
+}
+
+.railNode:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.railDot {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+}

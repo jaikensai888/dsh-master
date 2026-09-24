@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    // DOM is here for the client half (`src/client/**`) only. `tsconfig` cannot
+    // scope a `lib`, so the guard is a test: `test/host-purity.test.ts` fails if a
+    // non-client host file reaches for a DOM global, and asserts the client files
+    // it scans actually exist (otherwise a rename makes the guard pass vacuously).
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    // The client half is React; `react-jsx` keeps the runtime import automatic.
+    // React stays an external of the client bundle, so this affects type-checking
+    // and the bundle's jsx transform only — it adds no runtime dependency.
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "types": ["node"],
+    "baseUrl": "."
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "tsdown.config.ts", "vitest.config.ts"],
+  "exclude": ["lib", "node_modules"]
+}

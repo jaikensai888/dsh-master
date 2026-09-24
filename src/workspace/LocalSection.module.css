@@ -1,0 +1,29 @@
+[data-dsh-local-section] {
+  flex: 1;
+  min-height: 0;
+}
+
+[data-dsh-local-section][data-collapsed="true"],
+[data-dsh-local-section][data-wide="false"] {
+  flex: none;
+}
+
+[data-dsh-local-disclosure] {
+  color: var(--dsw-alias-label-caption);
+}
+
+[data-dsh-local-disclosure]::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-top: -3px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+
+[data-dsh-local-disclosure][aria-expanded="false"]::before {
+  margin-top: 0;
+  margin-left: -3px;
+  transform: rotate(-45deg);
+}

@@ -1,0 +1,5 @@
+allowBuilds:
+  # esbuild ships its platform binary through a postinstall script. pnpm blocks that
+  # by default and writes this stub, which would leave `vitest` unable to start on a
+  # clean machine — esbuild's service launcher fails with `spawn EPERM`.
+  esbuild: true

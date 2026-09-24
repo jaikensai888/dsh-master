@@ -1,0 +1,6 @@
+- id: ui-workspace
+  disabled: true
+
+- insert:
+    - id: dsh-master
+      name: 'dsh-master'
