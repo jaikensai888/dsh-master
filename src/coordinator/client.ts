@@ -351,7 +351,7 @@ export class CoordinatorClient {
         method: 'POST',
         headers: this.#headers({ 'content-type': 'application/json' }),
         body: JSON.stringify({ nodeId, sessionId, assistantStream: true }),
-        signal: this.#deadline(signal),
+        ...(signal === undefined ? {} : { signal }),
       })
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)

@@ -97,6 +97,25 @@ describe('CoordinatorClient.listSessions', () => {
 })
 
 describe('CoordinatorClient.follow', () => {
+  it('does not apply the unary request timeout to a long-lived stream', async () => {
+    const { client, calls } = clientWith(() => ndjson([
+      { type: 'open', streamId: 'stream-1', endpoint: 'session/follow' },
+      { type: 'end', count: 0 },
+    ]))
+    for await (const _value of client.follow('node-1', 's-1')) { /* drain */ }
+    expect(calls[0]?.init.signal).toBeUndefined()
+  })
+
+  it('keeps caller cancellation on a long-lived stream', async () => {
+    const controller = new AbortController()
+    const { client, calls } = clientWith(() => ndjson([
+      { type: 'open', streamId: 'stream-1', endpoint: 'session/follow' },
+      { type: 'end', count: 0 },
+    ]))
+    for await (const _value of client.follow('node-1', 's-1', controller.signal)) { /* drain */ }
+    expect(calls[0]?.init.signal).toBe(controller.signal)
+  })
+
   it('yields data values in order and stops at end', async () => {
     const { client } = clientWith(() => ndjson([
       { type: 'open', streamId: 'stream-1', endpoint: 'session/follow' },
