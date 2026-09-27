@@ -29,7 +29,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { ApiError, followSession, sendPrompt } from './api.js'
 import { COPY, MARKDOWN_LABELS } from './copy.js'
-import { readEvent, readSnapshot, readStreamFrame, type ConversationRow } from './wire.js'
+import { mergeRows, readEvent, readSnapshot, readStreamFrame, type ConversationRow } from './wire.js'
 
 /** What the view needs to open one session. */
 export interface SessionViewProps {
@@ -57,25 +57,49 @@ function roleLabel(row: ConversationRow): string {
 /**
  * Render one conversation row.
  *
- * Assistant and user bodies go through `MarkdownText`; tool traffic stays a labelled
- * block with the raw payload in a code surface, because a tool's arguments are JSON and
- * rendering them as prose would hide their structure.
+ * Assistant and user bodies go through `MarkdownText`; tool calls follow the Web UI's
+ * compact disclosure row and reveal their input/output only when expanded.
  *
  * @param row - the row.
  * @returns the row element.
  */
 function Row({ row }: { readonly row: ConversationRow }): ReactElement {
   if (row.kind === 'tool-call' || row.kind === 'tool-result') {
+    const isCall = row.kind === 'tool-call'
+    const output = isCall ? row.output : row.text
+    const running = isCall && output === undefined
+    const state = row.failed === true ? 'error' : running ? 'running' : 'ok'
+    const summary = output?.split(/\r?\n/u, 1)[0] ?? COPY.toolRunning
+    const expandable = row.detail !== undefined || output !== undefined
     return (
-      <div className="dsh-master-tool" data-failed={row.failed === true ? 'true' : 'false'}>
-        <div className="dsh-master-tool-head">
-          {row.failed === true ? <IconWarningOutline16 /> : null}
-          <span>{roleLabel(row)}</span>
-          <span>·</span>
-          <span>{row.text}</span>
-        </div>
-        {row.detail === undefined ? null : <pre className="dsh-master-code">{row.detail}</pre>}
-      </div>
+      <details className="dsh-master-tool" data-state={state} data-expandable={expandable || undefined}>
+        <summary className="dsh-master-tool-row">
+          <span className="dsh-master-tool-marker" aria-hidden="true">
+            {row.failed === true
+              ? <IconWarningOutline16 />
+              : running ? <StateDot state="ongoing" /> : <span className="dsh-master-tool-dot" />}
+          </span>
+          <span className="dsh-master-tool-title">{isCall ? row.text : COPY.roleToolResult}</span>
+          <span className="dsh-master-tool-separator" aria-hidden="true" />
+          <span className="dsh-master-tool-summary">{summary}</span>
+        </summary>
+        {expandable ? (
+          <div className="dsh-master-tool-body">
+            {row.detail === undefined ? null : (
+              <div className="dsh-master-tool-section">
+                <span className="dsh-master-tool-caption">{COPY.toolInput}</span>
+                <pre className="dsh-master-tool-content">{row.detail}</pre>
+              </div>
+            )}
+            {output === undefined ? null : (
+              <div className="dsh-master-tool-section">
+                <span className="dsh-master-tool-caption">{COPY.toolOutput}</span>
+                <pre className="dsh-master-tool-content" data-error={row.failed === true || undefined}>{output}</pre>
+              </div>
+            )}
+          </div>
+        ) : null}
+      </details>
     )
   }
   if (row.kind === 'notice') {
@@ -154,7 +178,7 @@ export function SessionView(props: SessionViewProps): ReactElement {
           }
           const contribution = readEvent(record.value)
           if (contribution !== undefined) {
-            setRows(previous => [...previous, ...contribution.rows])
+            setRows(previous => mergeRows(previous, contribution.rows))
             setUnrendered(count => count + contribution.unrendered)
             return
           }

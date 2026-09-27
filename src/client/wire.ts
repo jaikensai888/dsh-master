@@ -19,13 +19,15 @@
 
 /** One line in the remote conversation. */
 export interface ConversationRow {
-  /** Stable React key. Derived from the event seq, so it survives an append. */
+  /** Stable React key; tool lifecycle rows use callId so results update their call. */
   readonly key: string
   readonly kind: 'user' | 'assistant' | 'tool-call' | 'tool-result' | 'notice'
   /** The line's main text. */
   readonly text: string
   /** Secondary text — tool arguments, a note. */
   readonly detail?: string
+  /** Tool output, joined to its call by call id. */
+  readonly output?: string
   /** Set on a failed tool result, so the panel can mark it without parsing text. */
   readonly failed?: boolean
 }
@@ -90,6 +92,7 @@ function blockText(block: unknown): string | undefined {
   const record = asRecord(block)
   if (record === undefined) return typeof block === 'string' ? block : undefined
   const type = str(record, 'type')
+  if (type === 'tool-call') return undefined
   const text = str(record, 'text')
   if ((type === 'text' || type === 'reasoning') && text !== undefined) return text
   const nested = record['content']
@@ -139,6 +142,14 @@ function toolResult(data: Record<string, unknown>): { text: string; failed: bool
   return { text: body === '' ? '(no output)' : body, failed: false }
 }
 
+/** Call ids appear directly on calls and on the source of their result message. */
+function toolCallId(data: Record<string, unknown>): string | undefined {
+  const message = asRecord(data['message'])
+  const source = asRecord(message?.['source'])
+  const id = str(data, 'callId') ?? (source === undefined ? undefined : str(source, 'callId'))
+  return id === '' ? undefined : id
+}
+
 /**
  * Build the row for one `SessionWireEvent`.
  *
@@ -172,8 +183,9 @@ function rowOf(event: Record<string, unknown>): ConversationRow | undefined {
     case 'tool/call': {
       const name = str(data, 'name') ?? 'tool'
       const args = str(data, 'arguments')
+      const callId = toolCallId(data)
       return {
-        key,
+        key: callId === undefined ? key : `tool-call:${callId}`,
         kind: 'tool-call',
         text: name,
         ...(args === undefined || args.trim() === '' ? {} : { detail: truncate(args, 800) }),
@@ -181,8 +193,9 @@ function rowOf(event: Record<string, unknown>): ConversationRow | undefined {
     }
     case 'tool/result': {
       const result = toolResult(data)
+      const callId = toolCallId(data)
       return {
-        key,
+        key: callId === undefined ? key : `tool-call:${callId}`,
         kind: 'tool-result',
         text: truncate(result.text, 4000),
         ...(result.failed ? { failed: true } : {}),
@@ -241,7 +254,7 @@ export function readSnapshot(value: unknown): SnapshotView | undefined {
   const title = values === undefined ? undefined : str(values, 'title')
   const cwd = header === undefined ? undefined : str(header, 'cwd')
   return {
-    rows,
+    rows: mergeRows([], rows),
     unrendered,
     hasMore: record['hasMore'] === true,
     ...(title === undefined || title.trim() === '' ? {} : { title }),
@@ -265,7 +278,42 @@ function contributionOf(entry: unknown): EventContribution {
   const event = asRecord(record['event'])
   if (event === undefined) return { rows: [], unrendered: 1 }
   const row = rowOf(event)
-  return row === undefined ? { rows: [], unrendered: 1 } : { rows: [row], unrendered: 0 }
+  if (row !== undefined) return { rows: [row], unrendered: 0 }
+  if (toolCallOnlyAssistant(event)) return { rows: [], unrendered: 0 }
+  return { rows: [], unrendered: 1 }
+}
+
+/** The official chat view renders these blocks from the corresponding tool events. */
+function toolCallOnlyAssistant(event: Record<string, unknown>): boolean {
+  if (str(event, 'type') !== 'assistant/message') return false
+  const data = asRecord(event['data'])
+  const message = asRecord(data?.['message'])
+  const content = message?.['content']
+  return Array.isArray(content) && content.length > 0
+    && content.every(block => str(asRecord(block) ?? {}, 'type') === 'tool-call')
+}
+
+/** Append rows while folding a tool result into its matching call row. */
+export function mergeRows(previous: readonly ConversationRow[], incoming: readonly ConversationRow[]): ConversationRow[] {
+  const rows = [...previous]
+  const positions = new Map(rows.map((row, index) => [row.key, index]))
+  for (const next of incoming) {
+    const index = positions.get(next.key)
+    if (index === undefined) {
+      rows.push(next)
+      positions.set(next.key, rows.length - 1)
+      continue
+    }
+    const current = rows[index]
+    if (current?.kind === 'tool-call' && next.kind === 'tool-result') {
+      rows[index] = { ...current, output: next.text, ...(next.failed === true ? { failed: true } : {}) }
+    } else if (current?.kind === 'tool-result' && next.kind === 'tool-call') {
+      rows[index] = { ...next, output: current.text, ...(current.failed === true ? { failed: true } : {}) }
+    } else {
+      rows[index] = next
+    }
+  }
+  return rows
 }
 
 /**

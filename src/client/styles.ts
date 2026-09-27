@@ -138,36 +138,108 @@ const CSS = `
   line-height: calc(22px + var(--dsh-content-font-delta, 0px));
   color: var(--dsw-alias-label-primary);
 }
-.dsh-master-code {
-  margin-top: 4px;
-  padding: 8px 10px;
-  border-radius: var(--dsl-code-block-border-radius, 8px);
-  border: .5px solid var(--dsw-alias-border-l2);
-  background: var(--dsl-code-block-background, var(--dsw-alias-bg-layer-2));
+.dsh-master-tool { display: flex; flex-direction: column; margin: 0 0 4px; }
+.dsh-master-tool-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: calc(24px + var(--dsh-content-font-delta, 0px));
+  min-width: 0;
+  overflow: hidden;
+  list-style: none;
+}
+.dsh-master-tool-row::-webkit-details-marker { display: none; }
+.dsh-master-tool[data-expandable] .dsh-master-tool-row { cursor: pointer; }
+.dsh-master-tool-marker {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(16px + var(--dsh-content-font-delta, 0px));
+  height: calc(16px + var(--dsh-content-font-delta, 0px));
+  margin-right: 6px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.dsh-master-tool-marker svg { width: 14px; height: 14px; }
+.dsh-master-tool-marker::after {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-label-secondary);
+  content: '›';
+  font-size: 20px;
+  line-height: 16px;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+.dsh-master-tool:hover .dsh-master-tool-marker::after,
+.dsh-master-tool[open] .dsh-master-tool-marker::after { opacity: 1; }
+.dsh-master-tool[open] .dsh-master-tool-marker::after { content: '⌄'; font-size: 12px; }
+.dsh-master-tool:hover .dsh-master-tool-marker > *,
+.dsh-master-tool[open] .dsh-master-tool-marker > * { opacity: 0; }
+.dsh-master-tool-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--dsw-alias-label-caption); }
+.dsh-master-tool-title {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  font-weight: 400;
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
+}
+.dsh-master-tool-separator {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  margin: 0 8px;
+  border-radius: 1px;
+  background: var(--dsw-alias-label-caption);
+}
+.dsh-master-tool-summary {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1 1 auto;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsh-master-tool[data-state='error'] .dsh-master-tool-summary { color: var(--dsw-alias-state-error-primary); }
+.dsh-master-tool-body { display: flex; flex-direction: column; }
+.dsh-master-tool-section {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 14px;
+  align-items: baseline;
+  max-height: 150px;
+  margin: 4px 0 4px 4px;
+  padding: 10px 14px;
+  overflow: auto;
+  border: .5px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+  background: var(--dsw-alias-markdown-code-block, var(--dsw-alias-bg-layer-2));
+}
+.dsh-master-tool-caption {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  color: var(--dsw-alias-label-caption);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dsh-master-tool-content {
+  min-width: 0;
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
   font-family: var(--ds-font-family-code);
   font-size: 12px;
   line-height: 18px;
-  color: var(--dsw-alias-label-secondary);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  max-height: 220px;
-  overflow: auto;
 }
-.dsh-master-tool { margin: 0 0 10px; }
-.dsh-master-tool[data-failed='true'] .dsh-master-code {
-  border-color: var(--dsw-alias-state-error-primary);
-}
-.dsh-master-tool-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--dsh-content-font-size-secondary, 13px);
-  line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
-}
-.dsh-master-tool[data-failed='true'] .dsh-master-tool-head {
-  color: var(--dsw-alias-state-error-primary);
-}
+.dsh-master-tool-content[data-error] { color: var(--dsw-alias-state-error-primary); }
 .dsh-master-notice {
   display: flex;
   align-items: center;

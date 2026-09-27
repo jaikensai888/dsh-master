@@ -89,6 +89,57 @@ describe('readEvent', () => {
     expect(contribution?.rows[0]?.text).toBe('一\n\n二')
   })
 
+  it('keeps tool-call protocol blocks out of assistant prose', () => {
+    const contribution = readEvent(entry(6, 'assistant/message', {
+      turn: 1,
+      step: 1,
+      message: {
+        id: 'a1',
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '开始执行' },
+          { type: 'tool-call', id: 'c1', name: 'todo_write', arguments: '{"todos":[]}' },
+        ],
+      },
+    }))
+    expect(contribution?.rows).toEqual([{ key: 'assistant/message:6', kind: 'assistant', text: '开始执行' }])
+  })
+
+  it('groups a tool call and its result into one snapshot row', () => {
+    const view = readSnapshot(snapshot([
+      entry(1, 'assistant/message', {
+        turn: 1,
+        step: 1,
+        message: {
+          id: 'a1',
+          role: 'assistant',
+          content: [{ type: 'tool-call', id: 'c1', name: 'todo_write', arguments: '{"todos":[]}' }],
+        },
+      }),
+      entry(2, 'tool/call', {
+        turn: 1, step: 1, callId: 'c1', name: 'todo_write', arguments: '{"todos":[]}',
+      }),
+      entry(3, 'tool/result', {
+        turn: 1,
+        step: 1,
+        message: {
+          id: 'r1',
+          role: 'tool',
+          source: { kind: 'tool', callId: 'c1' },
+          content: [{ type: 'text', text: 'Updated todo list' }],
+        },
+      }),
+    ]))
+    expect(view?.rows).toEqual([{
+      key: 'tool-call:c1',
+      kind: 'tool-call',
+      text: 'todo_write',
+      detail: '{"todos":[]}',
+      output: 'Updated todo list',
+    }])
+    expect(view?.unrendered).toBe(0)
+  })
+
   it('keeps an unknown content block as JSON instead of dropping it', () => {
     const contribution = readEvent(entry(7, 'assistant/message', {
       turn: 1,
