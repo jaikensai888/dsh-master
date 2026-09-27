@@ -9,6 +9,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => {
     IconChevronDownOutline14: PrimitiveStub,
     IconChevronRightOutline14: PrimitiveStub,
     IconRefreshOutline14: PrimitiveStub,
+    IconPlusOutline16: PrimitiveStub,
     IconSendOutline14: PrimitiveStub,
     IconWarningOutline16: PrimitiveStub,
     MarkdownText: PrimitiveStub,
@@ -37,6 +38,20 @@ describe('remote session panel', () => {
     expect(markup).not.toContain('远程工作区')
     expect(markup).toContain('my-desktop · dsh-master 插件设计')
     expect(markup).toContain('class="dsh-master-body"')
+  })
+
+  it('keeps the scroll viewport full-width while grouping conversation content in a centered column', () => {
+    setRemoteSelection({
+      nodeId: 'node-1',
+      sessionId: 'session-1',
+      nodeName: 'my-desktop',
+      sessionTitle: 'dsh-master 插件设计',
+    })
+
+    const markup = renderToStaticMarkup(createElement(RemotePanel))
+
+    expect(markup).toContain('<div class="dsh-master-log"><div class="dsh-master-log-column">')
+    expect(markup).toContain('</div></div><div class="dsh-master-composer">')
   })
 
   it('prompts the user to choose a remote session from the sidebar when none is selected', () => {

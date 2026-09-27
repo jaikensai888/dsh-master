@@ -17,6 +17,8 @@
 
 import {
   Button,
+  IconChevronDownOutline14,
+  IconPlusOutline16,
   IconSendOutline14,
   IconWarningOutline16,
   MarkdownText,
@@ -218,17 +220,20 @@ export function SessionView(props: SessionViewProps): ReactElement {
       {error === undefined ? null : <div className="dsh-master-error">{error}</div>}
 
       <div className="dsh-master-log" ref={logRef}>
-        {hasMore ? <div className="dsh-master-hint">{COPY.loadOlderPending}</div> : null}
-        {rows.length === 0
-          ? <div className="dsh-master-hint">{COPY.emptyConversation}</div>
-          : rows.map(row => <Row key={row.key} row={row} />)}
-        {unrendered === 0 ? null : (
-          <div className="dsh-master-hint">另有 {unrendered} 条事件本版本未渲染（例如思考块、压缩、子代理等）。</div>
-        )}
+        <div className="dsh-master-log-column">
+          {hasMore ? <div className="dsh-master-hint">{COPY.loadOlderPending}</div> : null}
+          {rows.length === 0
+            ? <div className="dsh-master-hint">{COPY.emptyConversation}</div>
+            : rows.map(row => <Row key={row.key} row={row} />)}
+          {unrendered === 0 ? null : (
+            <div className="dsh-master-hint">另有 {unrendered} 条事件本版本未渲染（例如思考块、压缩、子代理等）。</div>
+          )}
+        </div>
       </div>
 
       <div className="dsh-master-composer">
         <textarea
+          className="dsh-master-composer-input"
           value={draft}
           placeholder={promptEnabled ? COPY.composerPlaceholder : COPY.composerDisabled}
           disabled={!promptEnabled || sending}
@@ -240,30 +245,88 @@ export function SessionView(props: SessionViewProps): ReactElement {
             }
           }}
         />
-        <div className="dsh-master-composer-actions">
-          <span className="dsh-master-modes">
-            <Pill
-              active={mode === 'queue'}
-              onClick={promptEnabled ? () => { setMode('queue') } : undefined}
+        <div className="dsh-master-composer-toolbar">
+          <div className="dsh-master-composer-leading">
+            <div className="dsh-master-attachment-controls">
+              <button
+                type="button"
+                className="dsh-master-toolbar-icon"
+                data-control="attachment"
+                aria-label={COPY.attachmentUnavailable}
+                title={COPY.attachmentUnavailable}
+                disabled
+              >
+                <IconPlusOutline16 />
+              </button>
+              <button
+                type="button"
+                className="dsh-master-toolbar-icon"
+                data-control="attachment"
+                aria-label={COPY.attachmentUnavailable}
+                title={COPY.attachmentUnavailable}
+                disabled
+              >
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none">
+                  <path d="M5.5 8.75 9.9 4.3a2.15 2.15 0 0 1 3.05 3.04L7.2 13.1a3.45 3.45 0 0 1-4.88-4.88l6.1-6.1" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+            <button
+              type="button"
+              className="dsh-master-toolbar-select"
+              data-control="permission"
+              aria-label={COPY.permissionUnavailable}
+              title={COPY.permissionUnavailable}
+              disabled
             >
-              {COPY.queue}
-            </Pill>
-            <Pill
-              active={mode === 'steer'}
-              onClick={promptEnabled ? () => { setMode('steer') } : undefined}
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none">
+                <path d="M8 1.6 13 3.5v3.7c0 3.2-2.1 5.6-5 7.2-2.9-1.6-5-4-5-7.2V3.5L8 1.6Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
+                <path d="m6.1 7.9 1.25 1.25L10 6.45" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span>{COPY.unavailableShort}</span>
+              <IconChevronDownOutline14 />
+            </button>
+            <span className="dsh-master-modes">
+              <Pill
+                active={mode === 'queue'}
+                className="dsh-master-mode-pill"
+                onClick={promptEnabled ? () => { setMode('queue') } : undefined}
+              >
+                {COPY.queue}
+              </Pill>
+              <Pill
+                active={mode === 'steer'}
+                className="dsh-master-mode-pill"
+                onClick={promptEnabled ? () => { setMode('steer') } : undefined}
+              >
+                {COPY.steer}
+              </Pill>
+            </span>
+          </div>
+          <div className="dsh-master-composer-trailing">
+            <span className="dsh-master-label dsh-master-meta dsh-master-send-hint">{COPY.sendHint}</span>
+            <button
+              type="button"
+              className="dsh-master-toolbar-select dsh-master-model-select"
+              data-control="model"
+              aria-label={COPY.modelUnavailable}
+              title={COPY.modelUnavailable}
+              disabled
             >
-              {COPY.steer}
-            </Pill>
-          </span>
-          <span className="dsh-master-label dsh-master-meta">{COPY.sendHint}</span>
-          <Button
-            variant={promptEnabled && draft.trim() !== '' ? 'primary' : 'ghost'}
-            icon={<IconSendOutline14 />}
-            disabled={!promptEnabled || sending || draft.trim() === ''}
-            onClick={submit}
-          >
-            {sending ? COPY.sending : COPY.send}
-          </Button>
+              <span>{COPY.unavailableShort}</span>
+              <IconChevronDownOutline14 />
+            </button>
+            {streaming ? <StateDot state="ongoing" /> : null}
+            <Button
+              className="dsh-master-send"
+              variant="primary"
+              icon={<IconSendOutline14 />}
+              aria-label={sending ? COPY.sending : COPY.send}
+              title={sending ? COPY.sending : COPY.send}
+              disabled={!promptEnabled || sending || draft.trim() === ''}
+              onClick={submit}
+            />
+          </div>
         </div>
       </div>
     </div>
