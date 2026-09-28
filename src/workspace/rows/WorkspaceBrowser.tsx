@@ -35,6 +35,7 @@ import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from '..
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.js'
 import { FLAT_SESSION_ORDER_KEY } from '../stores.js'
 import { WorkspacePickFlow } from '../WorkspacePicker.js'
+import { runSessionAction } from '../navigation.js'
 import { WorkspaceBrowserCss as css } from '../styles.generated.js'
 
 /**
@@ -1020,6 +1021,15 @@ export function WorkspaceBrowser({
   const [sessionRenameDraft, setSessionRenameDraft] = useState('')
   const [sessionRenaming, setSessionRenaming] = useState(false)
   const [sessionRenameError, setSessionRenameError] = useState<string | null>(null)
+  const [sessionActionError, setSessionActionError] = useState<string | null>(null)
+  const reportSessionActionError = (reason: unknown) => {
+    console.warn('workspace session action failed:', reason)
+    setSessionActionError(reason instanceof Error ? reason.message : String(reason))
+  }
+  const requestStartSession = (workspaceId?: WorkspaceId): void => {
+    setSessionActionError(null)
+    runSessionAction(() => startSession(workspaceId), reportSessionActionError)
+  }
   const sessionRenameTrimmed = sessionRenameDraft.trim()
   const sessionRenameBlocked = sessionRenaming || sessionRenameTrimmed === '' || sessionRenameTarget === null
   const closeSessionRename = () => {
@@ -1047,12 +1057,10 @@ export function WorkspaceBrowser({
 
   // Archive is dialog-free: not destructive (the log and the accounting slot
   // remain), so the menu action commits directly; the row disappears when the
-  // archive-set echo lands. Failures are non-fatal console diagnostics, the
-  // same posture as reorder rejections.
+  // archive-set echo lands. Failures stay non-fatal but are also shown inline.
   const onSessionArchive = (sessionId: SessionNode['id']) => {
-    archiveSession(sessionId).catch((reason: unknown) => {
-      console.warn('session archive rejected:', reason)
-    })
+    setSessionActionError(null)
+    runSessionAction(() => archiveSession(sessionId), reportSessionActionError)
   }
 
   // Delete dialog is separate from the row so a successful removal can
@@ -1238,7 +1246,7 @@ export function WorkspaceBrowser({
           side="right"
           onPick={(workspaceId) => {
             setWsPickerOpen(false)
-            startSession(workspaceId)
+            requestStartSession(workspaceId)
           }}
           onClose={() => { setWsPickerOpen(false) }}
         />
@@ -1310,7 +1318,7 @@ export function WorkspaceBrowser({
                 syncSessionOrderAccount={actions.syncSessionOrderAccount}
                 setSessionOrder={actions.setSessionOrder}
                 archivedSessionIds={archivedSessionIds}
-                startSession={startSession}
+                startSession={requestStartSession}
                 open={open}
                 insertWorkspaceBefore={insertWorkspaceBefore}
                 insertSessionBefore={insertSessionBefore}
@@ -1331,6 +1339,10 @@ export function WorkspaceBrowser({
           </div>
         )}
       </div>
+
+      {wide && sessionActionError !== null && (
+        <div className={css.renameError} role="alert">{sessionActionError}</div>
+      )}
 
       {wide && remoteSection}
       {!wide && <div className={css.listArea}>{renderRemoteSection({

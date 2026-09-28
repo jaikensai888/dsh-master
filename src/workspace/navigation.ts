@@ -17,6 +17,17 @@ import type {
   IWorkspaces, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { openLocalSession, type PanelNavigation } from '../client/selection.js'
+
+/** Run an injected session action from either the shipped void API or this fork's Promise API. */
+export function runSessionAction(action: () => void | Promise<void>, onError: (reason: unknown) => void): void {
+  try {
+    const result = action()
+    if (result !== undefined) void result.catch(onError)
+  } catch (reason) {
+    onError(reason)
+  }
+}
 
 /** Workspace archive and directory operations consumed by Client UI domains. */
 export interface UiWorkspace {
@@ -30,7 +41,7 @@ export interface UiWorkspace {
    * Start a New Session flow and navigate to its Session.
    * @param workspaceId - explicit target; absent inherits the current or most recent Workspace.
    */
-  startSession(workspaceId?: WorkspaceId): void
+  startSession(workspaceId?: WorkspaceId): Promise<void>
   /**
    * Archive a Session and clear it when it is the current selection.
    * @param sessionId - Session to archive.
@@ -83,12 +94,14 @@ class UiWorkspaceService extends Service implements UiWorkspace {
    * @param directoryPicker - the directory-picking Remote namespace.
    * @param workspaces - pure Workspace Controller.
    * @param sessions - pure Session Controller.
+   * @param layout - the main-panel navigation API.
    */
   constructor(
     ctx: Context,
     private readonly directoryPicker: ClientRemote['directoryPicker'],
     private readonly workspaces: IWorkspaces,
     private readonly sessions: ISessions,
+    private readonly layout: PanelNavigation,
   ) {
     super(ctx, 'uiWorkspace')
     ctx.effect(() => this.watchNavigation(), 'ui-workspace: Workspace navigation policy')
@@ -118,7 +131,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     return attempt
   }
 
-  startSession(workspaceId?: WorkspaceId): void {
+  async startSession(workspaceId?: WorkspaceId): Promise<void> {
     const workspace = this.workspaces.list.getSnapshot()
     const sessions = this.sessions.list.getSnapshot()
     const current = sessions.current
@@ -133,10 +146,8 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       this.sessions.clear()
       return
     }
-    void this.connectWorkspace(target).then(
-      (sessionId) => { this.sessions.open(sessionId) },
-      (reason: unknown) => { console.warn('new session failed:', reason) },
-    )
+    const sessionId = await this.connectWorkspace(target)
+    openLocalSession(this.layout, this.sessions, sessionId)
   }
 
   async archiveSession(sessionId: SessionId): Promise<void> {

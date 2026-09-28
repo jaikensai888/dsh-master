@@ -147,17 +147,15 @@ export function applyWorkspaceBrowser(
 
   // `uiWorkspace` is provided by constructing the service, so "already there" is
   // exactly "the shipped plugin is still enabled". See the module note.
-  const shipped = scoped.get('uiWorkspace', false) !== undefined
-  if (!shipped) {
-    // Constructing provides it; the instance is reached through `ctx.uiWorkspace`.
-    void new UiWorkspaceService(ctx, scoped.remote.directoryPicker, workspaces, sessions)
-  } else {
-    log('dsh-master: ui-workspace is still enabled; the remote sidebar keeps its own tree, but "Add workspace…" stays with the shipped picker')
-  }
-
-  const uiWorkspace = scoped.get('uiWorkspace') as {
-    startSession(workspaceId?: string): void
+  const existingUiWorkspace = scoped.get('uiWorkspace', false) as {
+    startSession(workspaceId?: string): void | Promise<void>
     archiveSession(sessionId: string): Promise<void>
+  } | undefined
+  const shipped = existingUiWorkspace !== undefined
+  const uiWorkspace = existingUiWorkspace
+    ?? new UiWorkspaceService(ctx, scoped.remote.directoryPicker, workspaces, sessions, layout)
+  if (shipped) {
+    log('dsh-master: ui-workspace is still enabled; the remote sidebar keeps its own tree, but "Add workspace…" stays with the shipped picker')
   }
 
   // The global seat every workspace-aware surface reads, including the conversation
@@ -186,7 +184,7 @@ export function applyWorkspaceBrowser(
       directoryFlow: shipped ? { getSnapshot: () => false, subscribe: () => () => undefined } : occupancy(scoped.slots, SIDEBAR_FLOW),
       hostInfo,
     },
-    startSession: (workspaceId?: string) => { uiWorkspace.startSession(workspaceId) },
+    startSession: (workspaceId?: string) => uiWorkspace.startSession(workspaceId),
     open: (sessionId: string) => { openLocalSession(layout, sessions, sessionId) },
     openRemoteSession,
     renderRemoteSection: (props: RemoteSectionProps) => createElement(RemoteSection, props),

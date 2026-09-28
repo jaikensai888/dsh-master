@@ -121,7 +121,8 @@ export type WorkspaceBrowserInjected = {
    * open it; without an explicit workspace, inherit the current Session
    * Workspace, then the recent Workspace, or clear into the New Session view.
    */
-  startSession: (workspaceId?: WorkspaceId) => void
+  /** The shipped service is fire-and-forget; dsh-master's replacement also reports failures. */
+  startSession: (workspaceId?: WorkspaceId) => void | Promise<void>
   /** Open a real Session. */
   open: (sessionId: SessionId) => void
   /** Open a remote Session in dsh-master's keyed main panel. */
