@@ -49,4 +49,13 @@ describe('remote workspace row model', () => {
       hiddenCount: 0,
     })
   })
+
+  it('keeps archived sessions hidden while calculating the five-row overflow', () => {
+    const rows = [session('archived'), session('s1'), session('s2'), session('s3'), session('s4'), session('s5'), session('s6')]
+
+    expect(visibleRemoteSessions(rows, false, ['archived', 's1'])).toEqual({
+      sessions: [session('s2'), session('s3'), session('s4'), session('s5'), session('s6')],
+      hiddenCount: 0,
+    })
+  })
 })

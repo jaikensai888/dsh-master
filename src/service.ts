@@ -10,8 +10,9 @@
  * @module dsh-master/service
  */
 
-import type { CoordinatorClient } from './coordinator/client.js'
+import { MasterUpstreamError, type CoordinatorClient } from './coordinator/client.js'
 import type {
+  MasterArchiveValue,
   MasterNodesValue,
   MasterSessionsValue,
   MasterStatus,
@@ -87,7 +88,25 @@ export class MasterService {
    */
   async sessions(nodeId: string, signal?: AbortSignal): Promise<MasterSessionsValue> {
     const sessions = await this.#client.listSessions(nodeId, signal)
-    return { nodeId, sessions }
+    try {
+      const archivedSessionIds = await this.#client.workspaceArchiveIds(nodeId, signal)
+      return { nodeId, sessions, archivedSessionIds }
+    } catch (error) {
+      if (signal?.aborted === true) throw error
+      return {
+        nodeId,
+        sessions,
+        archivedSessionIds: [],
+        archiveError: error instanceof MasterUpstreamError
+          ? error.toWire()
+          : { code: 'master/internal', message: error instanceof Error ? error.message : 'unknown failure' },
+      }
+    }
+  }
+
+  /** Archive one session on its owning remote node. */
+  async archiveSession(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<MasterArchiveValue> {
+    return { archivedSessionIds: await this.#client.archiveSession(nodeId, sessionId, signal) }
   }
 
   /**

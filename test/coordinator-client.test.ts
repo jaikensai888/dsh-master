@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CoordinatorClient, MasterUpstreamError } from '../src/coordinator/client.js'
+import { MasterService } from '../src/service.js'
 
 /** One recorded request. */
 interface Call {
@@ -93,6 +94,100 @@ describe('CoordinatorClient.listSessions', () => {
     await client.listSessions('node-7')
     expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ nodeId: 'node-7' })
     expect(calls[0]?.url).toBe('http://127.0.0.1:39472/api/sessions')
+  })
+})
+
+describe('CoordinatorClient remote workspace actions', () => {
+  it('archives a session through the workspace Remote with its named request', async () => {
+    const { client, calls } = clientWith(() => envelope({
+      ok: true,
+      value: { archivedSessionIds: ['already-hidden', 'session-1'] },
+    }))
+
+    await expect(client.archiveSession('node-1', 'session-1')).resolves.toEqual([
+      'already-hidden', 'session-1',
+    ])
+    expect(calls[0]?.url).toBe('http://127.0.0.1:39472/api/invoke')
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+      nodeId: 'node-1',
+      endpoint: 'workspace/archiveSession',
+      args: { request: { sessionId: 'session-1' } },
+    })
+  })
+
+  it('reads the archive set from the workspace follow baseline and closes the stream', async () => {
+    let cancelled = false
+    const encoder = new TextEncoder()
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode([
+          JSON.stringify({ type: 'open', endpoint: 'workspace/follow' }),
+          JSON.stringify({
+            type: 'data',
+            value: { type: 'baseline', value: { items: [], archivedSessionIds: ['hidden-session'] } },
+          }),
+        ].join('\n') + '\n'))
+      },
+      cancel() { cancelled = true },
+    }), { headers: { 'content-type': 'application/x-ndjson' } })
+    const { client, calls } = clientWith(() => response)
+
+    await expect(client.workspaceArchiveIds('node-2')).resolves.toEqual(['hidden-session'])
+    expect(calls[0]?.url).toBe('http://127.0.0.1:39472/api/stream')
+    expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
+      nodeId: 'node-2', endpoint: 'workspace/follow', args: {},
+    })
+    expect(cancelled).toBe(true)
+  })
+
+  it('preserves pre-stream coordinator errors instead of treating the JSON envelope as NDJSON', async () => {
+    const { client } = clientWith(() => envelope({
+      ok: false,
+      error: { code: 'coordinator/endpoint-not-found', message: 'workspace/follow is unavailable' },
+    }, 404))
+
+    await expect(client.workspaceArchiveIds('older-node')).rejects.toMatchObject({
+      code: 'coordinator/endpoint-not-found',
+    })
+  })
+
+  it('returns the host-confirmed archive set with the node session list', async () => {
+    const { client } = clientWith(({ url }) => url.endsWith('/api/sessions')
+      ? envelope({
+        ok: true,
+        value: { items: [{ sessionId: 'session-1', updatedAt: 10, running: false, blank: false }] },
+      })
+      : ndjson([
+        { type: 'open', endpoint: 'workspace/follow' },
+        { type: 'data', value: { type: 'baseline', value: { items: [], archivedSessionIds: ['session-old'] } } },
+        { type: 'end', count: 1 },
+      ]))
+    const master = new MasterService(client, false)
+
+    await expect(master.sessions('node-1')).resolves.toEqual({
+      nodeId: 'node-1',
+      sessions: [{
+        sessionId: 'session-1', title: 'session-1', updatedAt: 10, running: false, blank: false,
+      }],
+      archivedSessionIds: ['session-old'],
+    })
+  })
+
+  it('keeps the session list usable when a node lacks workspace archive support', async () => {
+    const { client } = clientWith(({ url }) => url.endsWith('/api/sessions')
+      ? envelope({ ok: true, value: { items: [] } })
+      : ndjson([
+        { type: 'open', endpoint: 'workspace/follow' },
+        { type: 'error', error: { code: 'coordinator/endpoint-not-found', message: 'workspace/follow is unavailable' } },
+      ]))
+    const master = new MasterService(client, false)
+
+    await expect(master.sessions('older-node')).resolves.toMatchObject({
+      nodeId: 'older-node',
+      sessions: [],
+      archivedSessionIds: [],
+      archiveError: { code: 'coordinator/endpoint-not-found', message: 'workspace/follow is unavailable' },
+    })
   })
 })
 

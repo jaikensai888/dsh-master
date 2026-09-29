@@ -166,6 +166,7 @@ export function SessionView(props: SessionViewProps): ReactElement {
       switch (record.type) {
         case 'open':
           setPhase('live')
+          setError(undefined)
           return
         case 'data': {
           const snapshot = readSnapshot(record.value)

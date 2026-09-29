@@ -85,6 +85,11 @@ export interface MasterSession {
   readonly cwd?: string
 }
 
+/** Host-confirmed archive state returned alongside a remote session list. */
+export interface MasterArchiveValue {
+  readonly archivedSessionIds: readonly string[]
+}
+
 /** `GET /dsh-master/api/nodes`. */
 export interface MasterNodesValue {
   readonly coordinator: MasterCoordinatorFacts
@@ -95,6 +100,9 @@ export interface MasterNodesValue {
 export interface MasterSessionsValue {
   readonly nodeId: string
   readonly sessions: readonly MasterSession[]
+  readonly archivedSessionIds: readonly string[]
+  /** Present when the node can list sessions but does not expose workspace archive state. */
+  readonly archiveError?: MasterError
 }
 
 /**

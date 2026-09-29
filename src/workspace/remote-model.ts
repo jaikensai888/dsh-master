@@ -46,8 +46,10 @@ export function nodeIsOffline(node: MasterNode): boolean {
 export function visibleRemoteSessions(
   sessions: readonly MasterSession[],
   expanded: boolean,
+  archivedSessionIds: readonly string[] = [],
 ): { sessions: MasterSession[]; hiddenCount: number } {
-  const visibleSessions = sessions.filter(session => !session.blank)
+  const archived = new Set(archivedSessionIds)
+  const visibleSessions = sessions.filter(session => !session.blank && !archived.has(session.sessionId))
   const hiddenCount = Math.max(0, visibleSessions.length - REMOTE_SESSION_LIMIT)
   return {
     sessions: expanded ? visibleSessions : visibleSessions.slice(0, REMOTE_SESSION_LIMIT),

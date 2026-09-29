@@ -192,6 +192,29 @@ describe('the prompt gate', () => {
     expect(seen[0]?.slice(0, 4)).toEqual(['n1', 's1', '检查类型错误', 'queue'])
   })
 
+  it('archives the requested remote session and returns the complete archive set', async () => {
+    const seen: unknown[][] = []
+    const master = service({
+      archiveSession: (...args: unknown[]) => {
+        seen.push(args)
+        return Promise.resolve({ archivedSessionIds: ['previously-archived', 'session-1'] })
+      },
+    })
+    const response = await call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/archive',
+      headers: { host: '127.0.0.1:43120', 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'node-1', sessionId: 'session-1' }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(response.json).toEqual({
+      ok: true,
+      value: { archivedSessionIds: ['previously-archived', 'session-1'] },
+    })
+    expect(seen[0]).toEqual(['node-1', 'session-1'])
+  })
+
   it('honours an explicit steer mode', async () => {
     const seen: unknown[][] = []
     const master = service({

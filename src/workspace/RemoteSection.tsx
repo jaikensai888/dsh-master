@@ -9,16 +9,19 @@ import {
   Button,
   IconChevronDownOutline14,
   IconChevronRightOutline14,
+  IconArchiveOutline20,
+  IconEllipsisOutline16,
   IconGlobeOutline14,
   IconRefreshOutline14,
+  Menu,
   StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactElement } from 'react'
 import type { MasterCoordinatorFacts, MasterNode, MasterSession } from '../protocol.js'
-import { ApiError, fetchNodes, fetchSessions, fetchStatus } from '../client/api.js'
+import { ApiError, archiveRemoteSession, fetchNodes, fetchSessions, fetchStatus } from '../client/api.js'
 import { timeAgo } from '../client/copy.js'
-import { getRemoteSelection, subscribeRemoteSelection } from '../client/selection.js'
+import { getRemoteSelection, setRemoteSelection, subscribeRemoteSelection } from '../client/selection.js'
 import type { RemoteSessionSelection } from '../client/selection.js'
 import type { RemoteSectionProps } from './contract/slots.js'
 import { nodeIsOffline, orderRemoteNodes, visibleRemoteSessions } from './remote-model.js'
@@ -47,22 +50,34 @@ export function RemoteSessionItem({
   session,
   selection,
   now,
+  menuOpen,
+  archiveAvailable,
+  onMenuOpenChange,
   onOpenRemoteSession,
+  onArchiveRemoteSession,
+  t,
 }: {
   nodeId: string
   nodeName: string
   session: MasterSession
   selection: RemoteSessionSelection | undefined
   now: number
+  menuOpen: boolean
+  archiveAvailable: boolean
+  onMenuOpenChange: (open: boolean) => void
   onOpenRemoteSession: (nodeId: string, sessionId: string, nodeName: string, sessionTitle: string) => void
+  onArchiveRemoteSession: (nodeId: string, sessionId: string) => void
+  t: (key: string, params?: Record<string, unknown>) => string
 }): ReactElement {
   const selected = selection?.nodeId === nodeId && selection.sessionId === session.sessionId
+  const menuItems = [
+    { id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> },
+  ]
 
   return (
-    <button
-      type="button"
+    <div
       role="treeitem"
-      className={clsx(RowsCss.sessionRow, css.sessionRow, selected && RowsCss.selected)}
+      className={clsx(RowsCss.sessionRow, css.sessionRow, selected && RowsCss.selected, menuOpen && RowsCss.menuOpen)}
       aria-selected={selected}
       title={session.sessionId}
       onClick={() => { onOpenRemoteSession(nodeId, session.sessionId, nodeName, session.title) }}
@@ -71,7 +86,32 @@ export function RemoteSessionItem({
       {session.running
         ? <StateDot state="ongoing" />
         : <span className={css.sessionAge}>{timeAgo(session.updatedAt, now)}</span>}
-    </button>
+      {!archiveAvailable ? null : (
+        <span className={RowsCss.rowActions}>
+          <Menu
+            open={menuOpen}
+            onClose={() => { onMenuOpenChange(false) }}
+            items={menuItems}
+            onSelect={(id) => {
+              onMenuOpenChange(false)
+              if (id === 'archive') onArchiveRemoteSession(nodeId, session.sessionId)
+            }}
+            portal
+            closeOnPointerLeave
+            anchor={(
+              <button
+                type="button"
+                className={RowsCss.iconButton}
+                aria-label={t('actions.session.aria', { name: session.title })}
+                onClick={(event) => { event.stopPropagation(); onMenuOpenChange(!menuOpen) }}
+              >
+                <IconEllipsisOutline16 />
+              </button>
+            )}
+          />
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -99,11 +139,14 @@ export function RemoteSection({
   const [coordinator, setCoordinator] = useState<MasterCoordinatorFacts | undefined>(undefined)
   const [nodes, setNodes] = useState<readonly MasterNode[]>([])
   const [sessions, setSessions] = useState<Readonly<Record<string, readonly MasterSession[]>>>({})
+  const [archivedSessionIds, setArchivedSessionIds] = useState<Readonly<Record<string, readonly string[]>>>({})
+  const [archiveErrors, setArchiveErrors] = useState<Readonly<Record<string, string>>>({})
   const [loadingSessions, setLoadingSessions] = useState<Readonly<Record<string, boolean>>>({})
   const [sessionErrors, setSessionErrors] = useState<Readonly<Record<string, string>>>({})
   const [sessionOverflow, setSessionOverflow] = useState<readonly string[]>([])
   const [error, setError] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
+  const [openSessionMenu, setOpenSessionMenu] = useState<{ nodeId: string; sessionId: string } | undefined>(undefined)
   const sessionCache = useRef(sessions)
   sessionCache.current = sessions
   const expandedNode = useRef(expandedNodeId)
@@ -133,6 +176,13 @@ export function RemoteSection({
       const result = await fetchSessions(nodeId, controller.signal)
       if (sessionRequests.current[nodeId] !== request || rosterRequest.current !== rosterAtStart) return
       setSessions(previous => ({ ...previous, [nodeId]: result.sessions }))
+      setArchivedSessionIds(previous => ({ ...previous, [nodeId]: result.archivedSessionIds }))
+      setArchiveErrors(previous => {
+        const next = { ...previous }
+        if (result.archiveError === undefined) delete next[nodeId]
+        else next[nodeId] = `${result.archiveError.code}: ${result.archiveError.message}`
+        return next
+      })
     } catch (cause) {
       if (!controller.signal.aborted && sessionRequests.current[nodeId] === request
         && rosterRequest.current === rosterAtStart) {
@@ -161,6 +211,8 @@ export function RemoteSection({
       if (!status.coordinator.reachable) {
         setNodes([])
         setSessions({})
+        setArchivedSessionIds({})
+        setArchiveErrors({})
         setSessionErrors({})
         return
       }
@@ -172,6 +224,12 @@ export function RemoteSection({
       setNodes(ordered)
       const present = new Set(ordered.map(node => node.nodeId))
       setSessions(previous => Object.fromEntries(
+        Object.entries(previous).filter(([nodeId]) => present.has(nodeId)),
+      ))
+      setArchivedSessionIds(previous => Object.fromEntries(
+        Object.entries(previous).filter(([nodeId]) => present.has(nodeId)),
+      ))
+      setArchiveErrors(previous => Object.fromEntries(
         Object.entries(previous).filter(([nodeId]) => present.has(nodeId)),
       ))
       setSessionErrors(previous => Object.fromEntries(
@@ -187,6 +245,8 @@ export function RemoteSection({
       if (controller.signal.aborted || rosterRequest.current !== request) return
       setNodes([])
       setSessions({})
+      setArchivedSessionIds({})
+      setArchiveErrors({})
       setCoordinator(undefined)
       setError(describe(cause))
     } finally {
@@ -196,6 +256,22 @@ export function RemoteSection({
       }
     }
   }, [loadSessions])
+
+  const archiveSession = useCallback(async (nodeId: string, sessionId: string): Promise<void> => {
+    setSessionErrors(previous => {
+      const next = { ...previous }
+      delete next[nodeId]
+      return next
+    })
+    try {
+      const result = await archiveRemoteSession(nodeId, sessionId)
+      setArchivedSessionIds(previous => ({ ...previous, [nodeId]: result.archivedSessionIds }))
+      if (selection?.nodeId === nodeId && selection.sessionId === sessionId) setRemoteSelection(undefined)
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') return
+      setSessionErrors(previous => ({ ...previous, [nodeId]: describe(cause) }))
+    }
+  }, [selection])
 
   useEffect(() => {
     void refresh()
@@ -297,7 +373,11 @@ export function RemoteSection({
             const nodeExpanded = expandedNodeId === node.nodeId
             const nodeOffline = nodeIsOffline(node)
             const allSessions = sessions[node.nodeId] ?? []
-            const visible = visibleRemoteSessions(allSessions, sessionOverflow.includes(node.nodeId))
+            const visible = visibleRemoteSessions(
+              allSessions,
+              sessionOverflow.includes(node.nodeId),
+              archivedSessionIds[node.nodeId] ?? [],
+            )
             return (
               <div key={node.nodeId}>
                 <button
@@ -330,6 +410,9 @@ export function RemoteSection({
                     {sessionErrors[node.nodeId] === undefined
                       ? null
                       : <div className={css.message} role="status">{sessionErrors[node.nodeId]}</div>}
+                    {archiveErrors[node.nodeId] === undefined
+                      ? null
+                      : <div className={css.message} role="status">{t('remote.archiveUnavailable')} · {archiveErrors[node.nodeId]}</div>}
                     {Object.hasOwn(sessions, node.nodeId) && visible.sessions.length === 0
                       ? <div className={css.message}>{t('remote.noSessions')}</div>
                       : null}
@@ -341,7 +424,19 @@ export function RemoteSection({
                         session={session}
                         selection={selection}
                         now={now}
+                        menuOpen={openSessionMenu?.nodeId === node.nodeId && openSessionMenu.sessionId === session.sessionId}
+                        archiveAvailable={archiveErrors[node.nodeId] === undefined}
+                        onMenuOpenChange={open => {
+                          setOpenSessionMenu(current => {
+                            if (open) return { nodeId: node.nodeId, sessionId: session.sessionId }
+                            return current?.nodeId === node.nodeId && current.sessionId === session.sessionId
+                              ? undefined
+                              : current
+                          })
+                        }}
                         onOpenRemoteSession={onOpenRemoteSession}
+                        onArchiveRemoteSession={(targetNodeId, sessionId) => { void archiveSession(targetNodeId, sessionId) }}
+                        t={t}
                       />
                     ))}
                     {visible.hiddenCount > 0 || sessionOverflow.includes(node.nodeId)

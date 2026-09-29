@@ -13,6 +13,7 @@
 import {
   ROUTE_PREFIX,
   type MasterEnvelope,
+  type MasterArchiveValue,
   type MasterNodesValue,
   type MasterSessionsValue,
   type MasterStatus,
@@ -39,6 +40,37 @@ export class ApiError extends Error {
 function unwrap<T>(envelope: MasterEnvelope<T>): T {
   if (envelope.ok) return envelope.value
   throw new ApiError(envelope.error.code, envelope.error.message)
+}
+
+const FOLLOW_RETRY_INITIAL_MS = 1_000
+const FOLLOW_RETRY_MAX_MS = 30_000
+
+/** Wait before reconnecting, but let a closed panel cancel the delay immediately. */
+function waitForFollowRetry(signal: AbortSignal, delayMs: number): Promise<void> {
+  if (signal.aborted) return Promise.resolve()
+  return new Promise(resolve => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const finish = (): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      signal.removeEventListener('abort', finish)
+      resolve()
+    }
+    signal.addEventListener('abort', finish, { once: true })
+    timer = setTimeout(finish, delayMs)
+    if (signal.aborted) finish()
+  })
+}
+
+/** Turn a connection failure into the same record shape used by the stream route. */
+function followFailure(cause: unknown): MasterStreamRecord {
+  return {
+    type: 'error',
+    error: {
+      code: cause instanceof ApiError ? cause.code : 'master/follow-failed',
+      message: cause instanceof Error ? cause.message : String(cause),
+    },
+    count: 0,
+  }
 }
 
 /**
@@ -103,6 +135,20 @@ export async function fetchSessions(nodeId: string, signal?: AbortSignal): Promi
   return unwrap(await envelopeOf(response) as MasterEnvelope<MasterSessionsValue>)
 }
 
+/** Archive one remote session without deleting its transcript. */
+export async function archiveRemoteSession(
+  nodeId: string,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<MasterArchiveValue> {
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/archive`, init(signal, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ nodeId, sessionId }),
+  }))
+  return unwrap(await envelopeOf(response) as MasterEnvelope<MasterArchiveValue>)
+}
+
 /**
  * Send a prompt to a remote session.
  *
@@ -135,8 +181,8 @@ export async function sendPrompt(
  *
  * Streaming through a callback rather than returning an async iterator keeps the
  * caller in control of React state: an iterator driven from an effect would need the
- * same bookkeeping anyway, and this way a closed panel ends the loop by aborting one
- * signal.
+ * same bookkeeping anyway. Disconnects and terminal stream records reconnect with
+ * bounded backoff; a closed panel ends the loop by aborting one signal.
  *
  * @param nodeId - target node.
  * @param sessionId - target session.
@@ -150,37 +196,64 @@ export async function followSession(
   onRecord: (record: MasterStreamRecord) => void,
 ): Promise<void> {
   const query = new URLSearchParams({ nodeId, sessionId })
-  const response = await fetch(`${ROUTE_PREFIX}/api/session/follow?${query.toString()}`, init(signal, {
-    headers: { accept: 'application/x-ndjson' },
-  }))
+  let retry = 0
+  while (!signal.aborted) {
+    let opened = false
+    try {
+      const response = await fetch(`${ROUTE_PREFIX}/api/session/follow?${query.toString()}`, init(signal, {
+        headers: { accept: 'application/x-ndjson' },
+      }))
 
-  if (response.status !== 200 || response.body === null) {
-    // The host answers a pre-stream failure — a missing parameter, an unmounted
-    // service — as JSON. Past the first byte it answers NDJSON instead, which is why
-    // only this branch parses an envelope.
-    unwrap(await envelopeOf(response) as MasterEnvelope<unknown>)
-    throw new ApiError('master/unreadable', 'the follow route answered without a body')
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffered = ''
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffered += decoder.decode(value, { stream: true })
-      let newline = buffered.indexOf('\n')
-      while (newline !== -1) {
-        const line = buffered.slice(0, newline).trim()
-        buffered = buffered.slice(newline + 1)
-        if (line !== '') onRecord(JSON.parse(line) as MasterStreamRecord)
-        newline = buffered.indexOf('\n')
+      if (response.status !== 200 || response.body === null) {
+        // The host answers a pre-stream failure as JSON. Past the first byte it
+        // answers NDJSON instead, which is why only this branch parses an envelope.
+        unwrap(await envelopeOf(response) as MasterEnvelope<unknown>)
+        throw new ApiError('master/unreadable', 'the follow route answered without a body')
       }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffered = ''
+      let terminal = false
+      const emit = (line: string): void => {
+        const record = JSON.parse(line) as MasterStreamRecord
+        if (record.type === 'open') opened = true
+        if (record.type === 'end' || record.type === 'error') terminal = true
+        onRecord(record)
+      }
+      try {
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffered += decoder.decode(value, { stream: true })
+          let newline = buffered.indexOf('\n')
+          while (newline !== -1) {
+            const line = buffered.slice(0, newline).trim()
+            buffered = buffered.slice(newline + 1)
+            if (line !== '') emit(line)
+            if (terminal) break
+            newline = buffered.indexOf('\n')
+          }
+          if (terminal) break
+        }
+        if (!terminal) {
+          const tail = buffered.trim()
+          if (tail !== '') emit(tail)
+        }
+      } finally {
+        await reader.cancel().catch(() => undefined)
+      }
+      if (!terminal && !signal.aborted) {
+        onRecord(followFailure(new ApiError('master/follow-ended', 'the follow stream ended unexpectedly')))
+      }
+    } catch (cause: unknown) {
+      if (signal.aborted) return
+      onRecord(followFailure(cause))
     }
-    const tail = buffered.trim()
-    if (tail !== '') onRecord(JSON.parse(tail) as MasterStreamRecord)
-  } finally {
-    await reader.cancel().catch(() => undefined)
+
+    if (signal.aborted) return
+    const delayMs = Math.min(FOLLOW_RETRY_INITIAL_MS * 2 ** retry, FOLLOW_RETRY_MAX_MS)
+    await waitForFollowRetry(signal, delayMs)
+    retry = opened ? 0 : Math.min(retry + 1, 5)
   }
 }

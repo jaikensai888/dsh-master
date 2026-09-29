@@ -329,6 +329,66 @@ export class CoordinatorClient {
   }
 
   /**
+   * Read the node's durable archive set from the first workspace follow baseline.
+   * The stream is cancelled immediately after that baseline; no long-lived follow is
+   * left attached to the node just to hydrate the sidebar.
+   * @param nodeId - target node.
+   * @param signal - caller cancellation.
+   * @returns the complete archived session ID set.
+   */
+  async workspaceArchiveIds(nodeId: string, signal?: AbortSignal): Promise<string[]> {
+    for await (const frame of this.#followWorkspace(nodeId, signal)) {
+      const record = asRecord(frame)
+      if (str(record ?? {}, 'type') !== 'baseline') {
+        throw new MasterUpstreamError(toMasterError(
+          'master/coordinator-unreadable',
+          'workspace/follow did not begin with a baseline',
+        ))
+      }
+      return readArchivedSessionIds(asRecord(record?.['value']))
+    }
+    throw new MasterUpstreamError(toMasterError(
+      'master/coordinator-unreadable',
+      'workspace/follow ended before its baseline',
+    ))
+  }
+
+  /** Archive one remote session using the node's workspace Remote. */
+  async archiveSession(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<string[]> {
+    const value = await this.#call('/api/invoke', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        nodeId,
+        endpoint: 'workspace/archiveSession',
+        args: { request: { sessionId } },
+      }),
+    }, signal)
+    return readArchivedSessionIds(asRecord(value))
+  }
+
+  async *#followWorkspace(nodeId: string, signal?: AbortSignal): AsyncGenerator<unknown> {
+    let response: Response
+    try {
+      response = await this.#fetch(`${this.#baseUrl}/api/stream`, {
+        method: 'POST',
+        headers: this.#headers({ 'content-type': 'application/json' }),
+        body: JSON.stringify({
+          nodeId,
+          endpoint: 'workspace/follow',
+          args: {},
+          timeoutMs: this.#timeoutMs,
+        }),
+        ...(signal === undefined ? {} : { signal }),
+      })
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new MasterUpstreamError(toMasterError('master/coordinator-unreachable', detail))
+    }
+    yield* readCoordinatorStream(response, 'workspace/follow')
+  }
+
+  /**
    * Follow one session, yielding the raw frames the node emits.
    *
    * The coordinator's `session/follow` is a long NDJSON stream whose records are
@@ -358,44 +418,7 @@ export class CoordinatorClient {
       throw new MasterUpstreamError(toMasterError('master/coordinator-unreachable', detail))
     }
 
-    if (response.body === null) {
-      throw new MasterUpstreamError(toMasterError(
-        'master/coordinator-unreadable',
-        'session/follow answered without a body',
-        { status: response.status },
-      ))
-    }
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffered = ''
-    try {
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffered += decoder.decode(value, { stream: true })
-        // NDJSON: a partial trailing line stays buffered until its newline arrives.
-        let newline = buffered.indexOf('\n')
-        while (newline !== -1) {
-          const line = buffered.slice(0, newline).trim()
-          buffered = buffered.slice(newline + 1)
-          if (line !== '') {
-            const record = parseNdjsonRecord(line, response.status)
-            if (record !== undefined) yield* emitFollowRecord(record, response.status)
-          }
-          newline = buffered.indexOf('\n')
-        }
-      }
-      const tail = buffered.trim()
-      if (tail !== '') {
-        const record = parseNdjsonRecord(tail, response.status)
-        if (record !== undefined) yield* emitFollowRecord(record, response.status)
-      }
-    } finally {
-      // Abort the carrier too: closing the panel must not leave the node holding a
-      // stream open. `reader.cancel` is the polite path; the signal covers the rest.
-      await reader.cancel().catch(() => undefined)
-    }
+    yield* readCoordinatorStream(response, 'session/follow')
   }
 
   /**
@@ -439,13 +462,13 @@ export class CoordinatorClient {
  * @returns the parsed record, or `undefined` for a JSON value that is not an object.
  * @throws {MasterUpstreamError} when the line is not JSON.
  */
-function parseNdjsonRecord(line: string, status: number): Record<string, unknown> | undefined {
+function parseNdjsonRecord(line: string, status: number, endpoint: string): Record<string, unknown> | undefined {
   try {
     return asRecord(JSON.parse(line))
   } catch {
     throw new MasterUpstreamError(toMasterError(
       'master/coordinator-unreadable',
-      `session/follow emitted a line that is not JSON (HTTP ${String(status)})`,
+      `${endpoint} emitted a line that is not JSON (HTTP ${String(status)})`,
     ))
   }
 }
@@ -462,7 +485,7 @@ function parseNdjsonRecord(line: string, status: number): Record<string, unknown
  * @yields the `data` record's value.
  * @throws {MasterUpstreamError} on an `error` record.
  */
-function* emitFollowRecord(record: Record<string, unknown>, status: number): Generator<unknown> {
+function* emitFollowRecord(record: Record<string, unknown>, status: number, endpoint: string): Generator<unknown> {
   const type = str(record, 'type')
   switch (type) {
     case 'open':
@@ -483,7 +506,74 @@ function* emitFollowRecord(record: Record<string, unknown>, status: number): Gen
     default:
       throw new MasterUpstreamError(toMasterError(
         'master/coordinator-unreadable',
-        `session/follow emitted an unknown record type (HTTP ${String(status)})`,
+        `${endpoint} emitted an unknown record type (HTTP ${String(status)})`,
       ))
+  }
+}
+
+/** Read the complete archive-ID field at the remote trust boundary. */
+function readArchivedSessionIds(value: Record<string, unknown> | undefined): string[] {
+  const ids = value?.['archivedSessionIds']
+  if (!Array.isArray(ids) || !ids.every(id => typeof id === 'string')) {
+    throw new MasterUpstreamError(toMasterError(
+      'master/coordinator-unreadable',
+      'workspace archive response did not contain a string ID array',
+    ))
+  }
+  return ids
+}
+
+/** Consume one coordinator NDJSON stream; returning early cancels its upstream reader. */
+async function* readCoordinatorStream(response: Response, endpoint: string): AsyncGenerator<unknown> {
+  if (!response.ok) {
+    let parsed: unknown
+    try {
+      parsed = await response.json()
+    } catch {
+      parsed = undefined
+    }
+    const envelope = asRecord(parsed)
+    const failure = asRecord(envelope?.['error'])
+    throw new MasterUpstreamError(toMasterError(
+      (failure === undefined ? undefined : str(failure, 'code')) ?? 'master/coordinator-refused',
+      (failure === undefined ? undefined : str(failure, 'message'))
+        ?? `${endpoint} answered HTTP ${String(response.status)} without an error body`,
+      failure?.['details'],
+    ))
+  }
+  if (response.body === null) {
+    throw new MasterUpstreamError(toMasterError(
+      'master/coordinator-unreadable',
+      `${endpoint} answered without a body`,
+      { status: response.status },
+    ))
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffered = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffered += decoder.decode(value, { stream: true })
+      let newline = buffered.indexOf('\n')
+      while (newline !== -1) {
+        const line = buffered.slice(0, newline).trim()
+        buffered = buffered.slice(newline + 1)
+        if (line !== '') {
+          const record = parseNdjsonRecord(line, response.status, endpoint)
+          if (record !== undefined) yield* emitFollowRecord(record, response.status, endpoint)
+        }
+        newline = buffered.indexOf('\n')
+      }
+    }
+    const tail = buffered.trim()
+    if (tail !== '') {
+      const record = parseNdjsonRecord(tail, response.status, endpoint)
+      if (record !== undefined) yield* emitFollowRecord(record, response.status, endpoint)
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined)
   }
 }

@@ -299,6 +299,47 @@ export function createMasterRouteHandler(
         return
       }
 
+      if (route === '/api/session/archive') {
+        if (method !== 'POST') {
+          response.setHeader('allow', 'POST')
+          sendFailure(response, 405, failure('master/method-not-allowed', `${method} is not allowed here`))
+          return
+        }
+        const service = deps.service()
+        if (service === undefined) {
+          sendFailure(response, 503, failure('master/unavailable', 'the master service is not mounted'))
+          return
+        }
+        let body: Record<string, unknown>
+        try {
+          body = await readJsonBody(request)
+        } catch (error) {
+          const code = error instanceof Error && error.name.startsWith('master/')
+            ? error.name
+            : 'master/invalid-arguments'
+          const message = error instanceof Error ? error.message : 'unreadable request body'
+          sendFailure(response, code === 'master/too-large' ? 413 : 400, failure(code, message))
+          return
+        }
+        const nodeId = bodyText(body, 'nodeId')
+        const sessionId = bodyText(body, 'sessionId')
+        if (nodeId === undefined || sessionId === undefined) {
+          sendFailure(response, 400, failure(
+            'master/invalid-arguments',
+            'nodeId and sessionId are required non-empty strings',
+          ))
+          return
+        }
+        try {
+          const value = await service.archiveSession(nodeId, sessionId)
+          sendJson(response, 200, { ok: true, value })
+        } catch (error) {
+          const mapped = classify(error)
+          sendFailure(response, mapped.status, mapped.error)
+        }
+        return
+      }
+
       if (route === '/api/session/prompt') {
         if (method !== 'POST') {
           response.setHeader('allow', 'POST')
