@@ -191,6 +191,73 @@ describe('CoordinatorClient remote workspace actions', () => {
   })
 })
 
+describe('CoordinatorClient remote questions', () => {
+  it('reads pending questions through the session-scoped node Remote', async () => {
+    const requests = [{
+      requestId: 'request-1',
+      sessionId: 'session-1',
+      questions: [{ id: 'q1', question: '继续吗？', options: [{ label: '是' }] }],
+    }]
+    const { client, calls } = clientWith(() => envelope({ ok: true, value: { requests } }))
+
+    await expect(client.pendingQuestions('node-1', 'session-1')).resolves.toEqual({ requests })
+    expect(calls[0]?.url).toBe('http://127.0.0.1:39472/api/invoke')
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+      nodeId: 'node-1',
+      endpoint: 'nodeQuestions/pending',
+      args: { sessionId: 'session-1' },
+    })
+  })
+
+  it('answers and cancels the exact pending request without sending a prompt', async () => {
+    const { client, calls } = clientWith(() => envelope({ ok: true, value: { accepted: true } }))
+    const answer = { answers: [{ id: 'q1', selected: ['是'], custom: '备注' }] }
+
+    await expect(client.answerQuestion('node-1', 'session-1', 'request-1', answer)).resolves.toEqual({ accepted: true })
+    await expect(client.cancelQuestion('node-1', 'session-1', 'request-1')).resolves.toEqual({ accepted: true })
+    expect(calls.map(call => JSON.parse(String(call.init.body)))).toEqual([
+      {
+        nodeId: 'node-1', endpoint: 'nodeQuestions/answer',
+        args: { sessionId: 'session-1', requestId: 'request-1', answer },
+      },
+      {
+        nodeId: 'node-1', endpoint: 'nodeQuestions/cancel',
+        args: { sessionId: 'session-1', requestId: 'request-1' },
+      },
+    ])
+  })
+
+  it('preserves unsupported-node capability errors', async () => {
+    const { client } = clientWith(() => envelope({
+      ok: false,
+      error: { code: 'node/capability-unavailable', message: 'nodeQuestions/pending is unavailable' },
+    }))
+    await expect(client.pendingQuestions('older-node', 'session-1')).rejects.toMatchObject({
+      code: 'node/capability-unavailable',
+    })
+  })
+
+  it('rejects blank or duplicate question identifiers from a node', async () => {
+    const malformedRequests = [
+      [{ requestId: ' ', sessionId: 'session-1', questions: [] }],
+      [{ requestId: 'r1', sessionId: 'session-1', questions: [
+        { id: 'q1', question: '选一个' }, { id: 'q1', question: '再选一个' },
+      ] }],
+      [
+        { requestId: 'r1', sessionId: 'session-1', questions: [] },
+        { requestId: 'r1', sessionId: 'session-1', questions: [] },
+      ],
+    ]
+
+    for (const requests of malformedRequests) {
+      const { client } = clientWith(() => envelope({ ok: true, value: { requests } }))
+      await expect(client.pendingQuestions('node-1', 'session-1')).rejects.toMatchObject({
+        code: 'master/coordinator-unreadable',
+      })
+    }
+  })
+})
+
 describe('CoordinatorClient.follow', () => {
   it('does not apply the unary request timeout to a long-lived stream', async () => {
     const { client, calls } = clientWith(() => ndjson([

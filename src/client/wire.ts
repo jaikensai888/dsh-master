@@ -316,6 +316,11 @@ export function mergeRows(previous: readonly ConversationRow[], incoming: readon
   return rows
 }
 
+/** Whether the session history still contains an unanswered `ask_user_question` call. */
+export function hasPendingUserQuestion(rows: readonly ConversationRow[]): boolean {
+  return rows.some(row => row.kind === 'tool-call' && row.text === 'ask_user_question' && row.output === undefined)
+}
+
 /**
  * Read one appended follow frame.
  *

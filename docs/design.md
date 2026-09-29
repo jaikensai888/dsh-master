@@ -75,12 +75,13 @@
 | 对话渲染 | ⚠️ 自建，覆盖主要事件；视觉已用官方原子组件与 `--dsw-*` token 对齐 | 官方对话组件不导出；`ui-primitives` 的 `MarkdownText` / `Button` / `StateDot` / `Pill` / 图标是唯一可复用的官方视觉层 |
 | 工具卡片 / diff / 计划 / todo / 子代理视图 | ❌ 暂缺 | 目前只渲染文本、工具调用与结果、少量 notice；其余事件计数显示 |
 | token 级流式增量 | ⚠️ 只显示「输出中」 | `assistant-stream` 的 `chunk` 是 provider 形状，**不猜**；等 durable `assistant/message` |
-| 工具授权审批 / `ask_user_question` | ❌ 不通 | 走的是 forwarded Remote Event，coordinator 没透传；且无头节点上会 **fail closed（直接拒绝）** |
+| `ask_user_question` 结构化提问 | ✅ 已支持 | `dsh-node` 暴露 session-scoped pending/answer/cancel；`dsh-master` 经现有 `/api/invoke` 轮询并提交原始结构化答案；需升级节点插件 |
+| 工具授权审批 | ❌ 未实现 | 与提问交互不同；仍需单独设计节点应答与转发协议 |
 | 会话生命周期通知（新建会话自动出现） | ❌ 不通 | `api-session/*` 走 `$events`，需要手动刷新 |
 | 队列 / 插话 / 模型切换 | ⚠️ 只有 queue / steer | `session/control`、`session/selectModel` 尚未接入 |
 | 向上翻页加载更早历史 | ❌ 暂缺 | snapshot 的 `hasMore` 已读到并展示提示，未实现分页 |
 
-**结论**：数据面可以做到同构，交互面目前只能做到「接近」。要补齐审批与提问，需要**节点侧增加一个伴生插件**（注册 `approval/request` 应答者与本地 userQuestions listener），再用 coordinator 的一条常驻 `/api/stream` 做反向通道。这是 P2，且必须显式决定是否纳入本项目范围。
+**结论**：会话数据面保持同构。`ask_user_question` 已通过 `dsh-node` 的 session-scoped 桥接完成结构化问答；工具授权审批仍是独立缺口，不能与提问混为一谈，后续需单独设计节点应答与转发协议。
 
 ---
 
@@ -111,7 +112,7 @@
 5. 远程面板会话列表的搜索、按 `updatedAt` 排序与手动刷新。
 
 **P2（需要显式决策）**
-6. 审批 / 提问隧道：**需要节点侧伴生插件**，加一条常驻 `/api/stream` 反向通道。
+6. 工具授权审批：设计独立的节点应答与转发通道；不要复用 `ask_user_question` 的结构化问答接口。
 7. 会话生命周期：常驻订阅，让远程新建会话自动出现。
 8. 文件变更 / diff：`workspaceFiles/changes` 流。
 

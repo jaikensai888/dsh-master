@@ -24,6 +24,11 @@ import type {
   MasterCoordinatorFacts,
   MasterError,
   MasterNode,
+  MasterPendingQuestionsValue,
+  MasterQuestion,
+  MasterQuestionAccepted,
+  MasterQuestionAnswer,
+  MasterQuestionOption,
   MasterSession,
 } from '../protocol.js'
 
@@ -93,6 +98,79 @@ function num(source: Record<string, unknown>, key: string): number | undefined {
 function bool(source: Record<string, unknown>, key: string): boolean | undefined {
   const value = source[key]
   return typeof value === 'boolean' ? value : undefined
+}
+
+/** Parse a JSON question defensively; malformed remote data is not safe to render. */
+function readQuestion(value: unknown): MasterQuestion | undefined {
+  const row = asRecord(value)
+  const id = row === undefined ? undefined : str(row, 'id')
+  const question = row === undefined ? undefined : str(row, 'question')
+  if (row === undefined || id === undefined || id.trim() === '' || question === undefined || question.trim() === '') return undefined
+  const detail = str(row, 'detail')
+  const header = str(row, 'header')
+  const multiSelect = bool(row, 'multiSelect')
+  const rawIntent = asRecord(row['intent'])
+  const intent = rawIntent?.['kind'] === 'plan-review' && typeof rawIntent['approve'] === 'string'
+    ? { kind: 'plan-review' as const, approve: rawIntent['approve'] }
+    : undefined
+  const rawOptions = row['options']
+  let options: MasterQuestionOption[] | undefined
+  if (rawOptions !== undefined) {
+    if (!Array.isArray(rawOptions)) return undefined
+    options = []
+    for (const rawOption of rawOptions) {
+      const option = asRecord(rawOption)
+      const label = option === undefined ? undefined : str(option, 'label')
+      const description = option === undefined ? undefined : str(option, 'description')
+      if (option === undefined || label === undefined || label.trim() === '') return undefined
+      options.push({ label, ...(description === undefined ? {} : { description }) })
+    }
+  }
+  return {
+    id,
+    question,
+    ...(detail === undefined ? {} : { detail }),
+    ...(header === undefined ? {} : { header }),
+    ...(options === undefined ? {} : { options }),
+    ...(multiSelect === undefined ? {} : { multiSelect }),
+    ...(intent === undefined ? {} : { intent }),
+  }
+}
+
+/** Parse the `pending()` payload and ensure it cannot cross the requested session. */
+function readPendingQuestions(value: unknown, sessionId: string): MasterPendingQuestionsValue {
+  const record = asRecord(value)
+  const requests = record?.['requests']
+  if (!Array.isArray(requests)) {
+    throw new MasterUpstreamError(toMasterError('master/coordinator-unreadable', 'nodeQuestions/pending did not return a requests array'))
+  }
+  const parsed = requests.map((value) => {
+    const row = asRecord(value)
+    const requestId = row === undefined ? undefined : str(row, 'requestId')
+    const owner = row === undefined ? undefined : str(row, 'sessionId')
+    const questions = row?.['questions']
+    if (row === undefined || requestId === undefined || requestId.trim() === '' || owner !== sessionId || !Array.isArray(questions)) return undefined
+    const parsedQuestions = questions.map(readQuestion)
+    if (parsedQuestions.some(question => question === undefined)) return undefined
+    const validQuestions = parsedQuestions as MasterQuestion[]
+    if (new Set(validQuestions.map(question => question.id)).size !== validQuestions.length) return undefined
+    return { requestId, sessionId: owner, questions: validQuestions }
+  })
+  if (parsed.some(request => request === undefined)) {
+    throw new MasterUpstreamError(toMasterError('master/coordinator-unreadable', 'nodeQuestions/pending returned an invalid or cross-session request'))
+  }
+  const validRequests = parsed as MasterPendingQuestionsValue['requests']
+  if (new Set(validRequests.map(request => request.requestId)).size !== validRequests.length) {
+    throw new MasterUpstreamError(toMasterError('master/coordinator-unreadable', 'nodeQuestions/pending returned duplicate request IDs'))
+  }
+  return { requests: validRequests }
+}
+
+function readAccepted(value: unknown, endpoint: string): MasterQuestionAccepted {
+  if (asRecord(value)?.['accepted'] !== true) {
+    throw new MasterUpstreamError(toMasterError('master/coordinator-unreadable', `${endpoint} did not confirm acceptance`))
+  }
+  return { accepted: true }
 }
 
 /**
@@ -355,16 +433,50 @@ export class CoordinatorClient {
 
   /** Archive one remote session using the node's workspace Remote. */
   async archiveSession(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<string[]> {
-    const value = await this.#call('/api/invoke', {
+    const value = await this.#invokeNode(nodeId, 'workspace/archiveSession', { request: { sessionId } }, signal)
+    return readArchivedSessionIds(asRecord(value))
+  }
+
+  /** List outstanding ask_user_question requests for one remote session. */
+  async pendingQuestions(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<MasterPendingQuestionsValue> {
+    const value = await this.#invokeNode(nodeId, 'nodeQuestions/pending', { sessionId }, signal)
+    return readPendingQuestions(value, sessionId)
+  }
+
+  /** Return the structured answer to the node's original waiting tool call. */
+  async answerQuestion(
+    nodeId: string,
+    sessionId: string,
+    requestId: string,
+    answer: MasterQuestionAnswer,
+    signal?: AbortSignal,
+  ): Promise<MasterQuestionAccepted> {
+    const value = await this.#invokeNode(nodeId, 'nodeQuestions/answer', { sessionId, requestId, answer }, signal)
+    return readAccepted(value, 'nodeQuestions/answer')
+  }
+
+  /** Cancel one outstanding question without sending a new session prompt. */
+  async cancelQuestion(
+    nodeId: string,
+    sessionId: string,
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<MasterQuestionAccepted> {
+    const value = await this.#invokeNode(nodeId, 'nodeQuestions/cancel', { sessionId, requestId }, signal)
+    return readAccepted(value, 'nodeQuestions/cancel')
+  }
+
+  async #invokeNode(
+    nodeId: string,
+    endpoint: string,
+    args: Readonly<Record<string, unknown>>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return this.#call('/api/invoke', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        nodeId,
-        endpoint: 'workspace/archiveSession',
-        args: { request: { sessionId } },
-      }),
+      body: JSON.stringify({ nodeId, endpoint, args }),
     }, signal)
-    return readArchivedSessionIds(asRecord(value))
   }
 
   async *#followWorkspace(nodeId: string, signal?: AbortSignal): AsyncGenerator<unknown> {

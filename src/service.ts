@@ -14,6 +14,9 @@ import { MasterUpstreamError, type CoordinatorClient } from './coordinator/clien
 import type {
   MasterArchiveValue,
   MasterNodesValue,
+  MasterPendingQuestionsValue,
+  MasterQuestionAccepted,
+  MasterQuestionAnswer,
   MasterSessionsValue,
   MasterStatus,
 } from './protocol.js'
@@ -107,6 +110,32 @@ export class MasterService {
   /** Archive one session on its owning remote node. */
   async archiveSession(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<MasterArchiveValue> {
     return { archivedSessionIds: await this.#client.archiveSession(nodeId, sessionId, signal) }
+  }
+
+  /** Read pending structured questions for one remote session. */
+  pendingQuestions(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<MasterPendingQuestionsValue> {
+    return this.#client.pendingQuestions(nodeId, sessionId, signal)
+  }
+
+  /** Resolve one pending question using its structured answer. */
+  answerQuestion(
+    nodeId: string,
+    sessionId: string,
+    requestId: string,
+    answer: MasterQuestionAnswer,
+    signal?: AbortSignal,
+  ): Promise<MasterQuestionAccepted> {
+    return this.#client.answerQuestion(nodeId, sessionId, requestId, answer, signal)
+  }
+
+  /** Cancel one pending question without invoking session/prompt. */
+  cancelQuestion(
+    nodeId: string,
+    sessionId: string,
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<MasterQuestionAccepted> {
+    return this.#client.cancelQuestion(nodeId, sessionId, requestId, signal)
   }
 
   /**

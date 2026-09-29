@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readEvent, readSnapshot, readStreamFrame, truncate } from '../src/client/wire.js'
+import { hasPendingUserQuestion, readEvent, readSnapshot, readStreamFrame, truncate } from '../src/client/wire.js'
 
 /** Wrap one event as the wire envelope both the snapshot window and the live tail use. */
 function entry(seq: number, type: string, data: unknown): unknown {
@@ -195,6 +195,20 @@ describe('readStreamFrame', () => {
   it('returns undefined for anything else', () => {
     expect(readStreamFrame({ type: 'event', event: {} })).toBeUndefined()
     expect(readStreamFrame({ type: 'assistant-stream' })).toBeUndefined()
+  })
+})
+
+describe('hasPendingUserQuestion', () => {
+  it('only matches an unresolved ask_user_question tool call', () => {
+    expect(hasPendingUserQuestion([
+      { key: 'call', kind: 'tool-call', text: 'ask_user_question' },
+    ])).toBe(true)
+    expect(hasPendingUserQuestion([
+      { key: 'done', kind: 'tool-call', text: 'ask_user_question', output: 'answered' },
+    ])).toBe(false)
+    expect(hasPendingUserQuestion([
+      { key: 'other', kind: 'tool-call', text: 'todo_write' },
+    ])).toBe(false)
   })
 })
 

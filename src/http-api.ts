@@ -23,7 +23,12 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isTrustedMasterRequest } from './net/trust-fence.js'
-import { ROUTE_PREFIX, type MasterError, type MasterStreamRecord } from './protocol.js'
+import {
+  ROUTE_PREFIX,
+  type MasterError,
+  type MasterQuestionAnswer,
+  type MasterStreamRecord,
+} from './protocol.js'
 import type { MasterService } from './service.js'
 
 /** Largest prompt body accepted, in bytes. A prompt is text; anything larger is a mistake. */
@@ -135,6 +140,32 @@ async function readJsonBody(request: IncomingMessage): Promise<Record<string, un
 function bodyText(body: Record<string, unknown>, key: string): string | undefined {
   const value = body[key]
   return typeof value === 'string' && value.trim() !== '' ? value : undefined
+}
+
+/** Validate the JSON-safe shape before forwarding a user answer to the node. */
+function questionAnswer(value: unknown): MasterQuestionAnswer | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const answers = (value as Record<string, unknown>)['answers']
+  if (!Array.isArray(answers) || answers.length === 0) return undefined
+  const ids = new Set<string>()
+  const result: MasterQuestionAnswer['answers'][number][] = []
+  for (const value of answers) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+    const row = value as Record<string, unknown>
+    const id = bodyText(row, 'id')
+    const selected = row['selected']
+    const custom = row['custom']
+    if (id === undefined || ids.has(id) || !Array.isArray(selected)
+      || !selected.every(option => typeof option === 'string')
+      || (custom !== undefined && typeof custom !== 'string')) return undefined
+    ids.add(id)
+    result.push({
+      id,
+      selected: selected as string[],
+      ...(typeof custom === 'string' ? { custom } : {}),
+    })
+  }
+  return { answers: result }
 }
 
 /**
@@ -282,6 +313,85 @@ export function createMasterRouteHandler(
         }
         try {
           sendJson(response, 200, { ok: true, value: await service.sessions(nodeId) })
+        } catch (error) {
+          const mapped = classify(error)
+          sendFailure(response, mapped.status, mapped.error)
+        }
+        return
+      }
+
+      if (route === '/api/session/questions') {
+        if (method !== 'GET' && method !== 'HEAD') {
+          response.setHeader('allow', 'GET, HEAD')
+          sendFailure(response, 405, failure('master/method-not-allowed', `${method} is not allowed here`))
+          return
+        }
+        const nodeId = requiredQuery(url, 'nodeId')
+        const sessionId = requiredQuery(url, 'sessionId')
+        if (nodeId === undefined || sessionId === undefined) {
+          sendFailure(response, 400, failure('master/invalid-arguments', 'nodeId and sessionId are required'))
+          return
+        }
+        const service = deps.service()
+        if (service === undefined) {
+          sendFailure(response, 503, failure('master/unavailable', 'the master service is not mounted'))
+          return
+        }
+        try {
+          const controller = new AbortController()
+          response.on('close', () => {
+            if (!response.writableEnded) controller.abort()
+          })
+          sendJson(response, 200, {
+            ok: true,
+            value: await service.pendingQuestions(nodeId, sessionId, controller.signal),
+          })
+        } catch (error) {
+          const mapped = classify(error)
+          sendFailure(response, mapped.status, mapped.error)
+        }
+        return
+      }
+
+      if (route === '/api/session/question-answer' || route === '/api/session/question-cancel') {
+        if (method !== 'POST') {
+          response.setHeader('allow', 'POST')
+          sendFailure(response, 405, failure('master/method-not-allowed', `${method} is not allowed here`))
+          return
+        }
+        const service = deps.service()
+        if (service === undefined) {
+          sendFailure(response, 503, failure('master/unavailable', 'the master service is not mounted'))
+          return
+        }
+        let body: Record<string, unknown>
+        try {
+          body = await readJsonBody(request)
+        } catch (error) {
+          const code = error instanceof Error && error.name.startsWith('master/')
+            ? error.name
+            : 'master/invalid-arguments'
+          const message = error instanceof Error ? error.message : 'unreadable request body'
+          sendFailure(response, code === 'master/too-large' ? 413 : 400, failure(code, message))
+          return
+        }
+        const nodeId = bodyText(body, 'nodeId')
+        const sessionId = bodyText(body, 'sessionId')
+        const requestId = bodyText(body, 'requestId')
+        const answer = route.endsWith('question-answer') ? questionAnswer(body['answer']) : undefined
+        if (nodeId === undefined || sessionId === undefined || requestId === undefined
+          || (route.endsWith('question-answer') && answer === undefined)) {
+          sendFailure(response, 400, failure(
+            'master/invalid-arguments',
+            'nodeId, sessionId, requestId and a valid structured answer are required',
+          ))
+          return
+        }
+        try {
+          const value = route.endsWith('question-answer')
+            ? await service.answerQuestion(nodeId, sessionId, requestId, answer!)
+            : await service.cancelQuestion(nodeId, sessionId, requestId)
+          sendJson(response, 200, { ok: true, value })
         } catch (error) {
           const mapped = classify(error)
           sendFailure(response, mapped.status, mapped.error)

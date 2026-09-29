@@ -15,6 +15,9 @@ import {
   type MasterEnvelope,
   type MasterArchiveValue,
   type MasterNodesValue,
+  type MasterPendingQuestionsValue,
+  type MasterQuestionAccepted,
+  type MasterQuestionAnswer,
   type MasterSessionsValue,
   type MasterStatus,
   type MasterStreamRecord,
@@ -147,6 +150,50 @@ export async function archiveRemoteSession(
     body: JSON.stringify({ nodeId, sessionId }),
   }))
   return unwrap(await envelopeOf(response) as MasterEnvelope<MasterArchiveValue>)
+}
+
+/** Read questions currently waiting for the selected remote session. */
+export async function fetchPendingQuestions(
+  nodeId: string,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<MasterPendingQuestionsValue> {
+  const query = new URLSearchParams({ nodeId, sessionId })
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/questions?${query.toString()}`, init(signal, {
+    headers: { accept: 'application/json' },
+  }))
+  return unwrap(await envelopeOf(response) as MasterEnvelope<MasterPendingQuestionsValue>)
+}
+
+/** Return the selected values to the original remote question request. */
+export async function answerRemoteQuestion(
+  nodeId: string,
+  sessionId: string,
+  requestId: string,
+  answer: MasterQuestionAnswer,
+  signal?: AbortSignal,
+): Promise<MasterQuestionAccepted> {
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/question-answer`, init(signal, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ nodeId, sessionId, requestId, answer }),
+  }))
+  return unwrap(await envelopeOf(response) as MasterEnvelope<MasterQuestionAccepted>)
+}
+
+/** Cancel an outstanding remote question without sending a session prompt. */
+export async function cancelRemoteQuestion(
+  nodeId: string,
+  sessionId: string,
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<MasterQuestionAccepted> {
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/question-cancel`, init(signal, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ nodeId, sessionId, requestId }),
+  }))
+  return unwrap(await envelopeOf(response) as MasterEnvelope<MasterQuestionAccepted>)
 }
 
 /**

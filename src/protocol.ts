@@ -128,6 +128,52 @@ export interface MasterPromptRequest {
   readonly mode?: 'queue' | 'steer'
 }
 
+/** One option exposed by the remote `ask_user_question` tool. */
+export interface MasterQuestionOption {
+  readonly label: string
+  readonly description?: string
+}
+
+/** One structured question waiting for an answer from this session. */
+export interface MasterQuestion {
+  readonly id: string
+  readonly question: string
+  readonly detail?: string
+  readonly header?: string
+  readonly options?: readonly MasterQuestionOption[]
+  readonly multiSelect?: boolean
+  readonly intent?: { readonly kind: 'plan-review'; readonly approve: string }
+}
+
+/** One answer preserving the question ID and selected option labels. */
+export interface MasterQuestionAnswerItem {
+  readonly id: string
+  readonly selected: readonly string[]
+  readonly custom?: string
+}
+
+/** The structured value returned to the original waiting tool call. */
+export interface MasterQuestionAnswer {
+  readonly answers: readonly MasterQuestionAnswerItem[]
+}
+
+/** One pending question group owned by a remote session. */
+export interface MasterPendingQuestionRequest {
+  readonly requestId: string
+  readonly sessionId: string
+  readonly questions: readonly MasterQuestion[]
+}
+
+/** `GET /dsh-master/api/session/questions`. */
+export interface MasterPendingQuestionsValue {
+  readonly requests: readonly MasterPendingQuestionRequest[]
+}
+
+/** Success returned after a question answer or cancellation is accepted. */
+export interface MasterQuestionAccepted {
+  readonly accepted: true
+}
+
 /** `POST /dsh-master/api/session/prompt` success value. */
 export interface MasterPromptValue {
   readonly accepted: true

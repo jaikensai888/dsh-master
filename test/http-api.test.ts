@@ -10,6 +10,7 @@ class FakeResponse {
   headers: Record<string, unknown> = {}
   writableEnded = false
   readonly chunks: string[] = []
+  readonly listeners = new Map<string, ((...args: unknown[]) => void)[]>()
 
   writeHead(status: number, headers?: Record<string, unknown>): this {
     this.status = status
@@ -33,8 +34,13 @@ class FakeResponse {
     return this
   }
 
-  on(): this {
+  on(event: string, listener: (...args: unknown[]) => void): this {
+    this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener])
     return this
+  }
+
+  emit(event: string): void {
+    for (const listener of this.listeners.get(event) ?? []) listener()
   }
 
   get body(): string {
@@ -90,6 +96,9 @@ function service(overrides: Partial<Record<keyof MasterService, unknown>> = {}):
     status: () => Promise.resolve(status),
     nodes: () => Promise.resolve({ coordinator: status.coordinator, nodes: [] }),
     sessions: (nodeId: string) => Promise.resolve({ nodeId, sessions: [] }),
+    pendingQuestions: (nodeId: string, sessionId: string) => Promise.resolve({ nodeId, sessionId, requests: [] }),
+    answerQuestion: () => Promise.resolve({ accepted: true }),
+    cancelQuestion: () => Promise.resolve({ accepted: true }),
     follow: async function* () { yield { type: 'snapshot' } },
     prompt: () => Promise.resolve(),
     ...overrides,
@@ -259,6 +268,90 @@ describe('the prompt gate', () => {
     }))
     expect(response.status).toBe(413)
     expect(response.json).toMatchObject({ error: { code: 'master/too-large' } })
+  })
+})
+
+describe('remote question routes', () => {
+  it('reads questions for the requested node and session', async () => {
+    const seen: unknown[][] = []
+    const master = service({
+      pendingQuestions: (...args: unknown[]) => {
+        seen.push(args)
+        return Promise.resolve({ requests: [{ requestId: 'r1', sessionId: 's1', questions: [] }] })
+      },
+    })
+    const response = await call(handlerFor(master), fakeRequest({
+      url: '/dsh-master/api/session/questions?nodeId=n1&sessionId=s1',
+    }))
+
+    expect(response.status).toBe(200)
+    expect(response.json).toEqual({
+      ok: true,
+      value: { requests: [{ requestId: 'r1', sessionId: 's1', questions: [] }] },
+    })
+    expect(seen[0]?.slice(0, 2)).toEqual(['n1', 's1'])
+    expect(seen[0]?.[2]).toBeInstanceOf(AbortSignal)
+  })
+
+  it('aborts the upstream question poll when the browser disconnects', async () => {
+    let signal: AbortSignal | undefined
+    const master = service({
+      pendingQuestions: (_nodeId: string, _sessionId: string, requestSignal: AbortSignal) => new Promise((resolve) => {
+        signal = requestSignal
+        requestSignal.addEventListener('abort', () => { resolve({ requests: [] }) }, { once: true })
+      }),
+    })
+    const response = new FakeResponse()
+    handlerFor(master)(fakeRequest({ url: '/dsh-master/api/session/questions?nodeId=n1&sessionId=s1' }), response as unknown as ServerResponse)
+
+    for (let tick = 0; tick < 100 && signal === undefined; tick += 1) await new Promise(resolve => setTimeout(resolve, 0))
+    response.emit('close')
+    for (let tick = 0; tick < 100 && !response.writableEnded; tick += 1) await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('validates structured answer data before calling the node', async () => {
+    let called = false
+    const master = service({ answerQuestion: () => { called = true; return Promise.resolve({ accepted: true }) } })
+    const response = await call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/question-answer',
+      headers: { host: '127.0.0.1:43120', 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'n1', sessionId: 's1', requestId: 'r1', answer: { answers: [{ id: 'q1', selected: 'A' }] } }),
+    }))
+
+    expect(response.status).toBe(400)
+    expect(response.json).toMatchObject({ error: { code: 'master/invalid-arguments' } })
+    expect(called).toBe(false)
+  })
+
+  it('forwards a valid structured answer and cancellation to their matching services', async () => {
+    const seen: unknown[][] = []
+    const master = service({
+      answerQuestion: (...args: unknown[]) => { seen.push(args); return Promise.resolve({ accepted: true }) },
+      cancelQuestion: (...args: unknown[]) => { seen.push(args); return Promise.resolve({ accepted: true }) },
+    })
+    const answer = { answers: [{ id: 'q1', selected: ['A'], custom: 'note' }] }
+    const answered = await call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/question-answer',
+      headers: { host: '127.0.0.1:43120', 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'n1', sessionId: 's1', requestId: 'r1', answer }),
+    }))
+    const cancelled = await call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/question-cancel',
+      headers: { host: '127.0.0.1:43120', 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'n1', sessionId: 's1', requestId: 'r1' }),
+    }))
+
+    expect(answered.json).toEqual({ ok: true, value: { accepted: true } })
+    expect(cancelled.json).toEqual({ ok: true, value: { accepted: true } })
+    expect(seen).toEqual([
+      ['n1', 's1', 'r1', answer],
+      ['n1', 's1', 'r1'],
+    ])
   })
 })
 

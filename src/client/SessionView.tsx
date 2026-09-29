@@ -27,9 +27,24 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import { ApiError, followSession, sendPrompt } from './api.js'
+import {
+  ApiError,
+  answerRemoteQuestion,
+  cancelRemoteQuestion,
+  fetchPendingQuestions,
+  followSession,
+  sendPrompt,
+} from './api.js'
 import { COPY, MARKDOWN_LABELS } from './copy.js'
-import { mergeRows, readEvent, readSnapshot, readStreamFrame, type ConversationRow } from './wire.js'
+import {
+  hasPendingUserQuestion,
+  mergeRows,
+  readEvent,
+  readSnapshot,
+  readStreamFrame,
+  type ConversationRow,
+} from './wire.js'
+import type { MasterQuestion, MasterQuestionAnswer, MasterPendingQuestionRequest } from '../protocol.js'
 
 /** What the view needs to open one session. */
 export interface SessionViewProps {
@@ -133,6 +148,125 @@ function Row({ row }: { readonly row: ConversationRow }): ReactElement {
   )
 }
 
+type QuestionSelections = Readonly<Record<string, readonly string[]>>
+type QuestionCustomAnswers = Readonly<Record<string, string>>
+
+/** Keep every original question ID and only include custom text when supplied. */
+export function buildQuestionAnswer(
+  questions: readonly MasterQuestion[],
+  selected: QuestionSelections,
+  custom: QuestionCustomAnswers,
+): MasterQuestionAnswer {
+  return {
+    answers: questions.map(question => {
+      const customText = custom[question.id]?.trim()
+      return {
+        id: question.id,
+        selected: [...(selected[question.id] ?? [])],
+        ...(customText === undefined || customText === '' ? {} : { custom: customText }),
+      }
+    }),
+  }
+}
+
+/** The DSH question surface for one request, independent of the session composer. */
+export function RemoteQuestionForm(props: {
+  readonly request: MasterPendingQuestionRequest
+  readonly disabled: boolean
+  readonly error?: string
+  readonly onAnswer: (answer: MasterQuestionAnswer) => void
+  readonly onCancel: () => void
+}): ReactElement {
+  const [selected, setSelected] = useState<QuestionSelections>({})
+  const [custom, setCustom] = useState<QuestionCustomAnswers>({})
+  const [validationError, setValidationError] = useState<string | undefined>()
+  const { request } = props
+
+  return (
+    <form
+      className="dsh-master-question"
+      aria-label={COPY.questionHeading}
+      onSubmit={(event) => {
+        event.preventDefault()
+        const missingAnswer = request.questions.some(question =>
+          (selected[question.id]?.length ?? 0) === 0 && (custom[question.id] ?? '').trim() === '')
+        if (missingAnswer) {
+          setValidationError(COPY.questionRequired)
+          return
+        }
+        setValidationError(undefined)
+        props.onAnswer(buildQuestionAnswer(request.questions, selected, custom))
+      }}
+    >
+      <div className="dsh-master-question-heading">{COPY.questionHeading}</div>
+      {request.questions.map(question => (
+        <fieldset className="dsh-master-question-item" key={question.id}>
+          <legend>{question.question}</legend>
+          {question.header === undefined ? null : <div className="dsh-master-question-header">{question.header}</div>}
+          {question.detail === undefined ? null : <div className="dsh-master-question-detail">{question.detail}</div>}
+          {question.options === undefined ? null : (
+            <div className="dsh-master-question-options">
+              {question.options.map(option => {
+                const values = selected[question.id] ?? []
+                const checked = values.includes(option.label)
+                return (
+                  <label className="dsh-master-question-option" key={option.label}>
+                    <input
+                      type={question.multiSelect === true ? 'checkbox' : 'radio'}
+                      name={`${request.requestId}-${question.id}`}
+                      value={option.label}
+                      checked={checked}
+                      disabled={props.disabled}
+                      onChange={() => {
+                        setValidationError(undefined)
+                        setSelected(previous => ({
+                          ...previous,
+                          [question.id]: question.multiSelect === true
+                            ? checked ? values.filter(value => value !== option.label) : [...values, option.label]
+                            : [option.label],
+                        }))
+                      }}
+                    />
+                    <span className="dsh-master-question-option-copy">
+                      <span>{option.label}</span>
+                      {option.description === undefined ? null : (
+                        <span className="dsh-master-question-detail">{option.description}</span>
+                      )}
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+          <label className="dsh-master-question-custom">
+            <span>{COPY.questionCustom}</span>
+            <textarea
+              value={custom[question.id] ?? ''}
+              disabled={props.disabled}
+              rows={2}
+              onChange={event => {
+                setValidationError(undefined)
+                setCustom(previous => ({ ...previous, [question.id]: event.currentTarget.value }))
+              }}
+            />
+          </label>
+        </fieldset>
+      ))}
+      {validationError === undefined && props.error === undefined ? null : (
+        <div className="dsh-master-question-error" role="alert">
+          {validationError ?? props.error}
+        </div>
+      )}
+      <div className="dsh-master-question-actions">
+        <button type="button" disabled={props.disabled} onClick={props.onCancel}>{COPY.questionCancel}</button>
+        <button type="submit" disabled={props.disabled}>
+          {props.disabled ? COPY.questionSubmitting : COPY.questionSubmit}
+        </button>
+      </div>
+    </form>
+  )
+}
+
 /**
  * Follow and render one session.
  * @param props - the session to open, plus whether prompting is enabled.
@@ -150,7 +284,13 @@ export function SessionView(props: SessionViewProps): ReactElement {
   const [draft, setDraft] = useState('')
   const [mode, setMode] = useState<'queue' | 'steer'>('queue')
   const [sending, setSending] = useState(false)
+  const [questionRequests, setQuestionRequests] = useState<readonly MasterPendingQuestionRequest[]>([])
+  const [questionCompatibilityFor, setQuestionCompatibilityFor] = useState<{ nodeId: string; sessionId: string } | undefined>()
+  const [questionError, setQuestionError] = useState<string | undefined>()
+  const [questionActionId, setQuestionActionId] = useState<string | undefined>()
   const logRef = useRef<HTMLDivElement | null>(null)
+  const settledQuestions = useRef(new Set<string>())
+  const watchQuestions = hasPendingUserQuestion(rows)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -209,9 +349,88 @@ export function SessionView(props: SessionViewProps): ReactElement {
   }, [nodeId, sessionId])
 
   useEffect(() => {
+    if (!watchQuestions) {
+      setQuestionRequests([])
+      setQuestionError(undefined)
+      setQuestionActionId(undefined)
+      return
+    }
+
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let unsupported = false
+    setQuestionRequests([])
+    settledQuestions.current.clear()
+    setQuestionCompatibilityFor(undefined)
+    setQuestionError(undefined)
+
+    const poll = async (): Promise<void> => {
+      try {
+        const value = await fetchPendingQuestions(nodeId, sessionId, controller.signal)
+        if (controller.signal.aborted) return
+        setQuestionRequests(previous => {
+          const activeRequests = value.requests.filter(request => !settledQuestions.current.has(request.requestId))
+          const unchanged = previous.length === activeRequests.length
+            && previous.every((request, index) => request.requestId === activeRequests[index]?.requestId)
+          return unchanged ? previous : activeRequests
+        })
+        setQuestionError(undefined)
+      } catch (cause) {
+        if (controller.signal.aborted) return
+        const code = cause instanceof ApiError ? cause.code : undefined
+        if (code === 'node/capability-unavailable' || code === 'coordinator/endpoint-not-found'
+          || code === 'coordinator/capability-unavailable') {
+          unsupported = true
+          setQuestionCompatibilityFor({ nodeId, sessionId })
+          setQuestionRequests([])
+          return
+        }
+        setQuestionError(`${COPY.questionLoadFailed}：${cause instanceof Error ? cause.message : String(cause)}`)
+      }
+      if (!controller.signal.aborted && !unsupported) {
+        timer = setTimeout(() => { void poll() }, 1_500)
+      }
+    }
+
+    void poll()
+    return () => {
+      controller.abort()
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }, [nodeId, sessionId, watchQuestions])
+
+  useEffect(() => {
     const log = logRef.current
     if (log !== null) log.scrollTop = log.scrollHeight
-  }, [rows, streaming])
+  }, [rows, streaming, questionRequests])
+
+  const answerQuestion = useCallback((requestId: string, answer: MasterQuestionAnswer): void => {
+    setQuestionActionId(requestId)
+    setQuestionError(undefined)
+    void answerRemoteQuestion(nodeId, sessionId, requestId, answer)
+      .then(() => {
+        settledQuestions.current.add(requestId)
+        setQuestionRequests(previous => previous.filter(request => request.requestId !== requestId))
+      })
+      .catch((cause: unknown) => {
+        setQuestionError(cause instanceof ApiError ? `${cause.code}: ${cause.message}` : String(cause))
+      })
+      .finally(() => { setQuestionActionId(undefined) })
+  }, [nodeId, sessionId])
+
+  const cancelQuestion = useCallback((requestId: string): void => {
+    setQuestionActionId(requestId)
+    setQuestionError(undefined)
+    void cancelRemoteQuestion(nodeId, sessionId, requestId)
+      .then(() => {
+        settledQuestions.current.add(requestId)
+        setQuestionRequests(previous => previous.filter(request => request.requestId !== requestId))
+      })
+      .catch((cause: unknown) => {
+        setQuestionError(cause instanceof ApiError ? `${cause.code}: ${cause.message}` : String(cause))
+      })
+      .finally(() => { setQuestionActionId(undefined) })
+  }, [nodeId, sessionId])
 
   const submit = useCallback((): void => {
     const text = draft.trim()
@@ -250,6 +469,22 @@ export function SessionView(props: SessionViewProps): ReactElement {
           {rows.length === 0
             ? <div className="dsh-master-hint">{COPY.emptyConversation}</div>
             : rows.map(row => <Row key={row.key} row={row} />)}
+          {questionCompatibilityFor?.nodeId === nodeId && questionCompatibilityFor.sessionId === sessionId ? (
+            <div className="dsh-master-question-compatibility" role="status">{COPY.questionCompatibility}</div>
+          ) : null}
+          {questionError === undefined || questionRequests.length > 0 ? null : (
+            <div className="dsh-master-question-error" role="alert">{questionError}</div>
+          )}
+          {questionRequests.map(request => (
+            <RemoteQuestionForm
+              key={request.requestId}
+              request={request}
+              disabled={questionActionId !== undefined}
+              {...(questionError === undefined ? {} : { error: questionError })}
+              onAnswer={answer => { answerQuestion(request.requestId, answer) }}
+              onCancel={() => { cancelQuestion(request.requestId) }}
+            />
+          ))}
           {unrendered === 0 ? null : (
             <div className="dsh-master-hint">另有 {unrendered} 条事件本版本未渲染（例如思考块、压缩、子代理等）。</div>
           )}

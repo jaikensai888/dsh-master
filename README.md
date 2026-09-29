@@ -23,7 +23,8 @@ dsh-node（远程机器） ──拨出 WS──► dsh-coordinator ──/api�
 | 打开会话：历史快照 + 实时事件 | ✅ 已实现，覆盖文本 / 工具调用 / 工具结果 / 少量事件 |
 | 工具调用与结果展示 | ✅ 按 `callId` 合并为一条可折叠记录；显示工具名和结果摘要，展开查看输入 / 输出，失败结果标记为错误 |
 | 发送消息（queue / steer） | ✅ 已实现，**默认关闭**，需显式开启 |
-| 工具授权审批、提问交互 | ❌ 未通（需要节点侧伴生插件） |
+| `ask_user_question` 提问交互 | ✅ 远程表单与原始调用结构化应答；需升级 `dsh-node` |
+| 工具授权审批 | ❌ 未实现（与 `ask_user_question` 是不同通道） |
 | 会话生命周期通知（远程新建会话自动出现） | ❌ 未通，需手动刷新 |
 | diff / 队列 / 模型切换 / 向上翻页 | ❌ 未实现 |
 
@@ -86,7 +87,10 @@ dsh --profile desktop --dump-config   # 退出码 0，且 `- id: dsh-master` 恰
 | GET | `/dsh-master/api/status` | coordinator 可达性与节点数 |
 | GET | `/dsh-master/api/nodes` | 节点列表 |
 | GET | `/dsh-master/api/sessions?nodeId=` | 某节点的会话列表 |
+| GET | `/dsh-master/api/session/questions?nodeId=&sessionId=` | 读取当前远程会话待答问题；只在存在未完成的 `ask_user_question` 时轮询 |
 | GET | `/dsh-master/api/session/follow?nodeId=&sessionId=` | NDJSON 长流：`open` → `data`… → `end`，失败为 `error` 记录 |
+| POST | `/dsh-master/api/session/question-answer` | `{nodeId, sessionId, requestId, answer}`；把选项和自定义文本返回给原问题调用，不创建新消息 |
+| POST | `/dsh-master/api/session/question-cancel` | `{nodeId, sessionId, requestId}`；取消原问题调用 |
 | POST | `/dsh-master/api/session/prompt` | `{nodeId, sessionId, text, mode?}`；`allowPrompt` 为假时返回 403 `master/prompt-disabled` |
 
 节点与 coordinator 的业务错误码原样保留（例如 `session/not-found`、`coordinator/node-offline`），本插件自己的拒绝用 `master/*`。
@@ -114,7 +118,7 @@ pnpm dev         # tsdown --watch
 
 1. 刷新当前桌面 UI，截图确认新增远程节点组的官方风格、节点状态、会话 overflow 和面板跳转。
 2. 面板选中态持久化——`main` 的选择不持久化，刷新会回到对话页。
-3. 审批 / 提问交互：需要节点侧伴生插件注册 `approval/request` 应答者，再用一条常驻 `/api/stream` 做反向通道。纳入范围与否需要先决定。
+3. 工具授权审批仍未实现；它不同于已支持的 `ask_user_question`，需要单独的节点侧应答通道。
 
 ## License
 
