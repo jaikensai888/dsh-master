@@ -250,22 +250,26 @@ const CSS = `
   color: var(--dsw-alias-label-tertiary);
 }
 .dsh-master-question {
-  margin: 8px 0 16px;
-  padding: 16px;
-  border: .5px solid var(--dsw-alias-border-l2);
-  border-radius: 16px;
-  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-bg-layer-2));
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .dsh-master-question-heading {
-  margin-bottom: 12px;
+  margin-bottom: 2px;
   font-size: var(--dsh-content-font-size, 14px);
   font-weight: 600;
   color: var(--dsw-alias-label-primary);
 }
 .dsh-master-question-item {
   min-width: 0;
-  margin: 0 0 14px;
-  padding: 0;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 4px 0;
   border: 0;
 }
 .dsh-master-question-item legend {
@@ -315,7 +319,38 @@ const CSS = `
   font: inherit;
   resize: vertical;
 }
-.dsh-master-question-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dsh-master-question-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: none;
+  min-height: 36px;
+}
+.dsh-master-question-pager { display: flex; align-items: center; gap: 6px; flex: none; }
+.dsh-master-question-pager span {
+  padding: 0 4px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 24px;
+  white-space: nowrap;
+}
+.dsh-master-question-pager button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+.dsh-master-question-pager button:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-master-question-pager button:disabled { opacity: .45; cursor: not-allowed; }
+.dsh-master-question-previous svg { transform: rotate(180deg); }
+.dsh-master-question-actions { display: flex; justify-content: flex-end; gap: 8px; flex: none; }
 .dsh-master-question-actions button {
   min-height: 32px;
   padding: 0 12px;
@@ -343,6 +378,7 @@ const CSS = `
   line-height: 19px;
   color: var(--dsw-alias-state-error-primary);
 }
+.dsh-master-question-error { margin: 0; }
 .dsh-master-composer {
   flex: none;
   width: calc(100% - 32px);
@@ -356,6 +392,11 @@ const CSS = `
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.dsh-master-question-composer {
+  max-height: min(60vh, 520px);
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 .dsh-master-composer-input {
   box-sizing: border-box;
@@ -454,6 +495,8 @@ const CSS = `
   .dsh-master-composer-leading { flex-wrap: wrap; }
   .dsh-master-composer-trailing { gap: 6px; margin-left: auto; }
   .dsh-master-send-hint { display: none; }
+  .dsh-master-question-footer { align-items: flex-start; flex-wrap: wrap; }
+  .dsh-master-question-actions { margin-left: auto; gap: 5px; }
 }
 `
 

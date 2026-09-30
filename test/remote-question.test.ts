@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Button: ({ children }: { children?: ReactNode }) => createElement('button', null, children),
   IconChevronDownOutline14: () => createElement('span'),
+  IconChevronRightOutline14: () => createElement('span'),
   IconPlusOutline16: () => createElement('span'),
   IconSendOutline14: () => createElement('span'),
   IconWarningOutline16: () => createElement('span'),
@@ -37,7 +38,7 @@ const request: MasterPendingQuestionRequest = {
 }
 
 describe('remote question form', () => {
-  it('renders each question and its options as an accessible answer form', () => {
+  it('renders one question at a time with a footer pager', () => {
     const html = renderToStaticMarkup(createElement(RemoteQuestionForm, {
       request,
       disabled: false,
@@ -46,13 +47,18 @@ describe('remote question form', () => {
     }))
 
     expect(html).toContain('选择发布方式')
+    expect(html).not.toContain('补充说明')
     expect(html).toContain('先放一部分流量')
     expect(html).toContain('灰度')
     expect(html).toContain('type="checkbox"')
-    expect(html).toContain('type="radio"')
+    expect(html).toContain('1 / 2')
+    expect(html).toContain('aria-label="上一题"')
+    expect(html).toContain('aria-label="下一题"')
     expect(html).toContain('自定义回答')
-    expect(html).toContain('提交答案')
+    expect(html).toContain('下一题')
     expect(html).toContain('取消')
+    expect(html).toMatch(/<form\b[^>]*class="[^"]*\bdsh-master-composer\b/u)
+    expect(html).not.toContain('dsh-master-composer-input')
   })
 
   it('returns every original question ID and selected label with optional custom text', () => {

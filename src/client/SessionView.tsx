@@ -18,6 +18,7 @@
 import {
   Button,
   IconChevronDownOutline14,
+  IconChevronRightOutline14,
   IconPlusOutline16,
   IconSendOutline14,
   IconWarningOutline16,
@@ -169,7 +170,7 @@ export function buildQuestionAnswer(
   }
 }
 
-/** The DSH question surface for one request, independent of the session composer. */
+/** Render one pending DSH question request as a takeover of the remote composer. */
 export function RemoteQuestionForm(props: {
   readonly request: MasterPendingQuestionRequest
   readonly disabled: boolean
@@ -179,89 +180,175 @@ export function RemoteQuestionForm(props: {
 }): ReactElement {
   const [selected, setSelected] = useState<QuestionSelections>({})
   const [custom, setCustom] = useState<QuestionCustomAnswers>({})
+  const [skipped, setSkipped] = useState<Readonly<Record<string, boolean>>>({})
+  const [activeIndex, setActiveIndex] = useState(0)
   const [validationError, setValidationError] = useState<string | undefined>()
   const { request } = props
+  const question = request.questions[activeIndex]
+  if (question === undefined) return <></>
+
+  const answered = (id: string, selections = selected, customAnswers = custom): boolean =>
+    (selections[id]?.length ?? 0) > 0 || (customAnswers[id] ?? '').trim() !== ''
+
+  const submit = (
+    nextSkipped = skipped,
+    nextSelected = selected,
+    nextCustom = custom,
+  ): void => {
+    const missingIndex = request.questions.findIndex(item =>
+      !nextSkipped[item.id] && !answered(item.id, nextSelected, nextCustom))
+    if (missingIndex >= 0) {
+      setActiveIndex(missingIndex)
+      setValidationError(COPY.questionRequired)
+      return
+    }
+    setValidationError(undefined)
+    props.onAnswer(buildQuestionAnswer(request.questions, nextSelected, nextCustom))
+  }
+
+  const continueFlow = (): void => {
+    if (!answered(question.id)) {
+      setValidationError(COPY.questionRequired)
+      return
+    }
+    if (activeIndex < request.questions.length - 1) {
+      setActiveIndex(activeIndex + 1)
+      setValidationError(undefined)
+      return
+    }
+    submit()
+  }
+
+  const skipCurrent = (): void => {
+    const nextSkipped = { ...skipped, [question.id]: true }
+    const nextSelected = { ...selected, [question.id]: [] }
+    const nextCustom = { ...custom, [question.id]: '' }
+    setSkipped(nextSkipped)
+    setSelected(nextSelected)
+    setCustom(nextCustom)
+    setValidationError(undefined)
+    if (activeIndex < request.questions.length - 1) {
+      setActiveIndex(activeIndex + 1)
+      return
+    }
+    submit(nextSkipped, nextSelected, nextCustom)
+  }
 
   return (
     <form
-      className="dsh-master-question"
+      className="dsh-master-composer dsh-master-question-composer dsh-master-question"
       aria-label={COPY.questionHeading}
       onSubmit={(event) => {
         event.preventDefault()
-        const missingAnswer = request.questions.some(question =>
-          (selected[question.id]?.length ?? 0) === 0 && (custom[question.id] ?? '').trim() === '')
-        if (missingAnswer) {
-          setValidationError(COPY.questionRequired)
-          return
-        }
-        setValidationError(undefined)
-        props.onAnswer(buildQuestionAnswer(request.questions, selected, custom))
+        continueFlow()
       }}
     >
       <div className="dsh-master-question-heading">{COPY.questionHeading}</div>
-      {request.questions.map(question => (
-        <fieldset className="dsh-master-question-item" key={question.id}>
-          <legend>{question.question}</legend>
-          {question.header === undefined ? null : <div className="dsh-master-question-header">{question.header}</div>}
-          {question.detail === undefined ? null : <div className="dsh-master-question-detail">{question.detail}</div>}
-          {question.options === undefined ? null : (
-            <div className="dsh-master-question-options">
-              {question.options.map(option => {
-                const values = selected[question.id] ?? []
-                const checked = values.includes(option.label)
-                return (
-                  <label className="dsh-master-question-option" key={option.label}>
-                    <input
-                      type={question.multiSelect === true ? 'checkbox' : 'radio'}
-                      name={`${request.requestId}-${question.id}`}
-                      value={option.label}
-                      checked={checked}
-                      disabled={props.disabled}
-                      onChange={() => {
-                        setValidationError(undefined)
-                        setSelected(previous => ({
+      <fieldset className="dsh-master-question-item" key={question.id}>
+        <legend>{question.question}</legend>
+        {question.header === undefined ? null : <div className="dsh-master-question-header">{question.header}</div>}
+        {question.detail === undefined ? null : <div className="dsh-master-question-detail">{question.detail}</div>}
+        {question.options === undefined ? null : (
+          <div className="dsh-master-question-options">
+            {question.options.map(option => {
+              const values = selected[question.id] ?? []
+              const checked = values.includes(option.label)
+              return (
+                <label className="dsh-master-question-option" key={option.label}>
+                  <input
+                    type={question.multiSelect === true ? 'checkbox' : 'radio'}
+                    name={`${request.requestId}-${question.id}`}
+                    value={option.label}
+                    checked={checked}
+                    disabled={props.disabled}
+                    onChange={() => {
+                      setValidationError(undefined)
+                      setSkipped(previous => ({ ...previous, [question.id]: false }))
+                      setSelected(previous => {
+                        const current = previous[question.id] ?? []
+                        return {
                           ...previous,
                           [question.id]: question.multiSelect === true
-                            ? checked ? values.filter(value => value !== option.label) : [...values, option.label]
+                            ? current.includes(option.label)
+                              ? current.filter(value => value !== option.label)
+                              : [...current, option.label]
                             : [option.label],
-                        }))
-                      }}
-                    />
-                    <span className="dsh-master-question-option-copy">
-                      <span>{option.label}</span>
-                      {option.description === undefined ? null : (
-                        <span className="dsh-master-question-detail">{option.description}</span>
-                      )}
-                    </span>
-                  </label>
-                )
-              })}
-            </div>
-          )}
-          <label className="dsh-master-question-custom">
-            <span>{COPY.questionCustom}</span>
-            <textarea
-              value={custom[question.id] ?? ''}
-              disabled={props.disabled}
-              rows={2}
-              onChange={event => {
-                setValidationError(undefined)
-                setCustom(previous => ({ ...previous, [question.id]: event.currentTarget.value }))
-              }}
-            />
-          </label>
-        </fieldset>
-      ))}
-      {validationError === undefined && props.error === undefined ? null : (
-        <div className="dsh-master-question-error" role="alert">
-          {validationError ?? props.error}
+                        }
+                      })
+                      if (question.multiSelect !== true && activeIndex < request.questions.length - 1) {
+                        setActiveIndex(activeIndex + 1)
+                      }
+                      if (question.multiSelect !== true) {
+                        setCustom(previous => ({ ...previous, [question.id]: '' }))
+                      }
+                    }}
+                  />
+                  <span className="dsh-master-question-option-copy">
+                    <span>{option.label}</span>
+                    {option.description === undefined ? null : (
+                      <span className="dsh-master-question-detail">{option.description}</span>
+                    )}
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+        )}
+        <label className="dsh-master-question-custom">
+          <span>{COPY.questionCustom}</span>
+          <textarea
+            value={custom[question.id] ?? ''}
+            disabled={props.disabled}
+            rows={2}
+            onChange={event => {
+              setValidationError(undefined)
+              setSkipped(previous => ({ ...previous, [question.id]: false }))
+              setCustom(previous => ({ ...previous, [question.id]: event.currentTarget.value }))
+              if (question.multiSelect !== true) {
+                setSelected(previous => ({ ...previous, [question.id]: [] }))
+              }
+            }}
+          />
+        </label>
+      </fieldset>
+      <div className="dsh-master-question-footer">
+        <nav className="dsh-master-question-pager" aria-label={COPY.questionPager}>
+          <button
+            className="dsh-master-question-previous"
+            type="button"
+            aria-label={COPY.questionPrevious}
+            disabled={props.disabled || activeIndex === 0}
+            onClick={() => { setActiveIndex(activeIndex - 1); setValidationError(undefined) }}
+          >
+            <IconChevronRightOutline14 />
+          </button>
+          <span>{activeIndex + 1} / {request.questions.length}</span>
+          <button
+            type="button"
+            aria-label={COPY.questionNext}
+            disabled={props.disabled || activeIndex === request.questions.length - 1}
+            onClick={() => { setActiveIndex(activeIndex + 1); setValidationError(undefined) }}
+          >
+            <IconChevronRightOutline14 />
+          </button>
+        </nav>
+        {validationError === undefined && props.error === undefined ? null : (
+          <div className="dsh-master-question-error" role="alert">
+            {validationError ?? props.error}
+          </div>
+        )}
+        <div className="dsh-master-question-actions">
+          <button type="button" disabled={props.disabled} onClick={props.onCancel}>{COPY.questionCancel}</button>
+          <button type="button" disabled={props.disabled} onClick={skipCurrent}>{COPY.questionSkip}</button>
+          <button
+            type="submit"
+            disabled={props.disabled || skipped[question.id] === true || !answered(question.id)}
+          >
+            {props.disabled
+              ? COPY.questionSubmitting
+              : activeIndex === request.questions.length - 1 ? COPY.questionSubmit : COPY.questionNext}
+          </button>
         </div>
-      )}
-      <div className="dsh-master-question-actions">
-        <button type="button" disabled={props.disabled} onClick={props.onCancel}>{COPY.questionCancel}</button>
-        <button type="submit" disabled={props.disabled}>
-          {props.disabled ? COPY.questionSubmitting : COPY.questionSubmit}
-        </button>
       </div>
     </form>
   )
@@ -349,13 +436,6 @@ export function SessionView(props: SessionViewProps): ReactElement {
   }, [nodeId, sessionId])
 
   useEffect(() => {
-    if (!watchQuestions) {
-      setQuestionRequests([])
-      setQuestionError(undefined)
-      setQuestionActionId(undefined)
-      return
-    }
-
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
     let unsupported = false
@@ -381,14 +461,16 @@ export function SessionView(props: SessionViewProps): ReactElement {
         if (code === 'node/capability-unavailable' || code === 'coordinator/endpoint-not-found'
           || code === 'coordinator/capability-unavailable') {
           unsupported = true
-          setQuestionCompatibilityFor({ nodeId, sessionId })
+          if (watchQuestions) setQuestionCompatibilityFor({ nodeId, sessionId })
           setQuestionRequests([])
           return
         }
-        setQuestionError(`${COPY.questionLoadFailed}：${cause instanceof Error ? cause.message : String(cause)}`)
+        if (watchQuestions) {
+          setQuestionError(`${COPY.questionLoadFailed}：${cause instanceof Error ? cause.message : String(cause)}`)
+        }
       }
       if (!controller.signal.aborted && !unsupported) {
-        timer = setTimeout(() => { void poll() }, 1_500)
+        timer = setTimeout(() => { void poll() }, watchQuestions ? 1_500 : 5_000)
       }
     }
 
@@ -475,120 +557,123 @@ export function SessionView(props: SessionViewProps): ReactElement {
           {questionError === undefined || questionRequests.length > 0 ? null : (
             <div className="dsh-master-question-error" role="alert">{questionError}</div>
           )}
-          {questionRequests.map(request => (
-            <RemoteQuestionForm
-              key={request.requestId}
-              request={request}
-              disabled={questionActionId !== undefined}
-              {...(questionError === undefined ? {} : { error: questionError })}
-              onAnswer={answer => { answerQuestion(request.requestId, answer) }}
-              onCancel={() => { cancelQuestion(request.requestId) }}
-            />
-          ))}
           {unrendered === 0 ? null : (
             <div className="dsh-master-hint">另有 {unrendered} 条事件本版本未渲染（例如思考块、压缩、子代理等）。</div>
           )}
         </div>
       </div>
 
-      <div className="dsh-master-composer">
-        <textarea
-          className="dsh-master-composer-input"
-          value={draft}
-          placeholder={promptEnabled ? COPY.composerPlaceholder : COPY.composerDisabled}
-          disabled={!promptEnabled || sending}
-          onChange={(event) => { setDraft(event.currentTarget.value) }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault()
-              submit()
-            }
-          }}
-        />
-        <div className="dsh-master-composer-toolbar">
-          <div className="dsh-master-composer-leading">
-            <div className="dsh-master-attachment-controls">
-              <button
-                type="button"
-                className="dsh-master-toolbar-icon"
-                data-control="attachment"
-                aria-label={COPY.attachmentUnavailable}
-                title={COPY.attachmentUnavailable}
-                disabled
-              >
-                <IconPlusOutline16 />
-              </button>
-              <button
-                type="button"
-                className="dsh-master-toolbar-icon"
-                data-control="attachment"
-                aria-label={COPY.attachmentUnavailable}
-                title={COPY.attachmentUnavailable}
-                disabled
-              >
-                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none">
-                  <path d="M5.5 8.75 9.9 4.3a2.15 2.15 0 0 1 3.05 3.04L7.2 13.1a3.45 3.45 0 0 1-4.88-4.88l6.1-6.1" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-            </div>
-            <button
-              type="button"
-              className="dsh-master-toolbar-select"
-              data-control="permission"
-              aria-label={COPY.permissionUnavailable}
-              title={COPY.permissionUnavailable}
-              disabled
-            >
-              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none">
-                <path d="M8 1.6 13 3.5v3.7c0 3.2-2.1 5.6-5 7.2-2.9-1.6-5-4-5-7.2V3.5L8 1.6Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
-                <path d="m6.1 7.9 1.25 1.25L10 6.45" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <span>{COPY.unavailableShort}</span>
-              <IconChevronDownOutline14 />
-            </button>
-            <span className="dsh-master-modes">
-              <Pill
-                active={mode === 'queue'}
-                className="dsh-master-mode-pill"
-                onClick={promptEnabled ? () => { setMode('queue') } : undefined}
-              >
-                {COPY.queue}
-              </Pill>
-              <Pill
-                active={mode === 'steer'}
-                className="dsh-master-mode-pill"
-                onClick={promptEnabled ? () => { setMode('steer') } : undefined}
-              >
-                {COPY.steer}
-              </Pill>
-            </span>
-          </div>
-          <div className="dsh-master-composer-trailing">
-            <span className="dsh-master-label dsh-master-meta dsh-master-send-hint">{COPY.sendHint}</span>
-            <button
-              type="button"
-              className="dsh-master-toolbar-select dsh-master-model-select"
-              data-control="model"
-              aria-label={COPY.modelUnavailable}
-              title={COPY.modelUnavailable}
-              disabled
-            >
-              <span>{COPY.unavailableShort}</span>
-              <IconChevronDownOutline14 />
-            </button>
-            {streaming ? <StateDot state="ongoing" /> : null}
-            <Button
-              className="dsh-master-send"
-              variant="primary"
-              icon={<IconSendOutline14 />}
-              aria-label={sending ? COPY.sending : COPY.send}
-              title={sending ? COPY.sending : COPY.send}
-              disabled={!promptEnabled || sending || draft.trim() === ''}
-              onClick={submit}
+      {questionRequests.length > 0
+        ? questionRequests.map(request => (
+          <RemoteQuestionForm
+            key={request.requestId}
+            request={request}
+            disabled={questionActionId !== undefined}
+            {...(questionError === undefined ? {} : { error: questionError })}
+            onAnswer={answer => { answerQuestion(request.requestId, answer) }}
+            onCancel={() => { cancelQuestion(request.requestId) }}
+          />
+        ))
+        : (
+          <div className="dsh-master-composer">
+            <textarea
+              className="dsh-master-composer-input"
+              value={draft}
+              placeholder={promptEnabled ? COPY.composerPlaceholder : COPY.composerDisabled}
+              disabled={!promptEnabled || sending}
+              onChange={(event) => { setDraft(event.currentTarget.value) }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  submit()
+                }
+              }}
             />
+            <div className="dsh-master-composer-toolbar">
+              <div className="dsh-master-composer-leading">
+                <div className="dsh-master-attachment-controls">
+                  <button
+                    type="button"
+                    className="dsh-master-toolbar-icon"
+                    data-control="attachment"
+                    aria-label={COPY.attachmentUnavailable}
+                    title={COPY.attachmentUnavailable}
+                    disabled
+                  >
+                    <IconPlusOutline16 />
+                  </button>
+                  <button
+                    type="button"
+                    className="dsh-master-toolbar-icon"
+                    data-control="attachment"
+                    aria-label={COPY.attachmentUnavailable}
+                    title={COPY.attachmentUnavailable}
+                    disabled
+                  >
+                    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none">
+                      <path d="M5.5 8.75 9.9 4.3a2.15 2.15 0 0 1 3.05 3.04L7.2 13.1a3.45 3.45 0 0 1-4.88-4.88l6.1-6.1" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="dsh-master-toolbar-select"
+                  data-control="permission"
+                  aria-label={COPY.permissionUnavailable}
+                  title={COPY.permissionUnavailable}
+                  disabled
+                >
+                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none">
+                    <path d="M8 1.6 13 3.5v3.7c0 3.2-2.1 5.6-5 7.2-2.9-1.6-5-4-5-7.2V3.5L8 1.6Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
+                    <path d="m6.1 7.9 1.25 1.25L10 6.45" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span>{COPY.unavailableShort}</span>
+                  <IconChevronDownOutline14 />
+                </button>
+                <span className="dsh-master-modes">
+                  <Pill
+                    active={mode === 'queue'}
+                    className="dsh-master-mode-pill"
+                    onClick={promptEnabled ? () => { setMode('queue') } : undefined}
+                  >
+                    {COPY.queue}
+                  </Pill>
+                  <Pill
+                    active={mode === 'steer'}
+                    className="dsh-master-mode-pill"
+                    onClick={promptEnabled ? () => { setMode('steer') } : undefined}
+                  >
+                    {COPY.steer}
+                  </Pill>
+                </span>
+              </div>
+              <div className="dsh-master-composer-trailing">
+                <span className="dsh-master-label dsh-master-meta dsh-master-send-hint">{COPY.sendHint}</span>
+                <button
+                  type="button"
+                  className="dsh-master-toolbar-select dsh-master-model-select"
+                  data-control="model"
+                  aria-label={COPY.modelUnavailable}
+                  title={COPY.modelUnavailable}
+                  disabled
+                >
+                  <span>{COPY.unavailableShort}</span>
+                  <IconChevronDownOutline14 />
+                </button>
+                {streaming ? <StateDot state="ongoing" /> : null}
+                <Button
+                  className="dsh-master-send"
+                  variant="primary"
+                  icon={<IconSendOutline14 />}
+                  aria-label={sending ? COPY.sending : COPY.send}
+                  title={sending ? COPY.sending : COPY.send}
+                  disabled={!promptEnabled || sending || draft.trim() === ''}
+                  onClick={submit}
+                />
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        )}
     </div>
   )
 }

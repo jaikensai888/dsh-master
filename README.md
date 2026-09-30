@@ -87,7 +87,7 @@ dsh --profile desktop --dump-config   # 退出码 0，且 `- id: dsh-master` 恰
 | GET | `/dsh-master/api/status` | coordinator 可达性与节点数 |
 | GET | `/dsh-master/api/nodes` | 节点列表 |
 | GET | `/dsh-master/api/sessions?nodeId=` | 某节点的会话列表 |
-| GET | `/dsh-master/api/session/questions?nodeId=&sessionId=` | 读取当前远程会话待答问题；只在存在未完成的 `ask_user_question` 时轮询 |
+| GET | `/dsh-master/api/session/questions?nodeId=&sessionId=` | 读取待答问题；当前远程会话打开时每 5 秒续租查看状态，存在未完成的 `ask_user_question` 时每 1.5 秒轮询 |
 | GET | `/dsh-master/api/session/follow?nodeId=&sessionId=` | NDJSON 长流：`open` → `data`… → `end`，失败为 `error` 记录 |
 | POST | `/dsh-master/api/session/question-answer` | `{nodeId, sessionId, requestId, answer}`；把选项和自定义文本返回给原问题调用，不创建新消息 |
 | POST | `/dsh-master/api/session/question-cancel` | `{nodeId, sessionId, requestId}`；取消原问题调用 |

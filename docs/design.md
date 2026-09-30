@@ -75,7 +75,7 @@
 | 对话渲染 | ⚠️ 自建，覆盖主要事件；视觉已用官方原子组件与 `--dsw-*` token 对齐 | 官方对话组件不导出；`ui-primitives` 的 `MarkdownText` / `Button` / `StateDot` / `Pill` / 图标是唯一可复用的官方视觉层 |
 | 工具卡片 / diff / 计划 / todo / 子代理视图 | ❌ 暂缺 | 目前只渲染文本、工具调用与结果、少量 notice；其余事件计数显示 |
 | token 级流式增量 | ⚠️ 只显示「输出中」 | `assistant-stream` 的 `chunk` 是 provider 形状，**不猜**；等 durable `assistant/message` |
-| `ask_user_question` 结构化提问 | ✅ 已支持 | `dsh-node` 暴露 session-scoped pending/answer/cancel；`dsh-master` 经现有 `/api/invoke` 轮询并提交原始结构化答案；需升级节点插件 |
+| `ask_user_question` 结构化提问 | ✅ 已支持 | `dsh-master` 查看远程会话时通过 pending 轮询续租，`dsh-node` 对该 session 优先走远程表单；其他 session 保留本地 answerer 优先；回答仍提交给原始调用；需升级节点插件 |
 | 工具授权审批 | ❌ 未实现 | 与提问交互不同；仍需单独设计节点应答与转发协议 |
 | 会话生命周期通知（新建会话自动出现） | ❌ 不通 | `api-session/*` 走 `$events`，需要手动刷新 |
 | 队列 / 插话 / 模型切换 | ⚠️ 只有 queue / steer | `session/control`、`session/selectModel` 尚未接入 |
