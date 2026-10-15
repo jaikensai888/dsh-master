@@ -27,6 +27,8 @@ describe('DSH plugin manifest', () => {
     const client = dsh['client'] as Record<string, unknown>
     expect(client['platform']).toBe('web')
     expect(client['inject']).toContain('@deepseek-ai/dsh-client-ui-slots')
+    expect(client['inject']).toContain('@deepseek-ai/dsh-client-ui-settings')
+    expect(client['inject']).toContain('@deepseek-ai/dsh-client-ui-settings-plugins')
     const exports = (await manifest())['exports'] as Record<string, unknown>
     expect(exports['./client']).toBeDefined()
   })

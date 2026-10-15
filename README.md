@@ -73,10 +73,14 @@ dsh --profile desktop --dump-config   # 退出码 0，且 `- id: dsh-master` 恰
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
 | `coordinatorUrl` | `http://127.0.0.1:39472` | coordinator 的 origin，末尾斜杠会被去掉 |
-| `apiToken` | 无 | coordinator 的 **operator** token（不是节点 token）。只作为请求头发送，不进任何响应或日志 |
+| `apiToken` | 无 | 兼容旧配置的 coordinator **operator** token（不是节点 token）；凭据服务中的 token 优先。只作为请求头发送，不进任何响应或日志 |
 | `trustedHosts` | `[]` | 额外允许访问本插件路由的 authority。回环地址始终允许 |
 | `allowPrompt` | `false` | **发消息会在远程机器上真实跑一个 agent 回合**（可改文件、执行工具）。默认关闭，关闭时在读请求体之前就拒绝 |
 | `requestTimeoutMs` | `30000` | 单次 coordinator 调用的截止时间 |
+
+也可以在 DSH 的「设置 → 插件 → 插件配置 → dsh-master」中修改 `coordinatorUrl` 和 operator token。URL 保存后立即用于后续请求；新 token 通过 DSH 凭据服务保存，不会写入普通设置文件，也不会回传显示。token 输入框留空表示不修改。默认 DSH home 设置通常由本机各 profile 共用；如果部署使用自定义 settings provider，则以该 provider 的作用范围为准。凭据服务中的 token 优先于旧配置里的 `apiToken`，旧 YAML 配置仍兼容。
+
+建议将 `trustedHosts`、`allowPrompt` 和超时等部署策略继续留在 profile 的 `cordis.patch.yml`；界面只管理 coordinator 地址和 token。
 
 ## HTTP 路由
 

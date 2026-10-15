@@ -25,11 +25,20 @@ import { applyWorkspaceBrowser } from '../workspace/index.js'
 import { disposeWorkspaceStyles, ensureWorkspaceStyles } from '../workspace/styles.generated.js'
 import { RemotePanel } from './RemotePanel.js'
 import { openRemoteSession, type PanelNavigation } from './selection.js'
+import { MasterSettingsCard } from './MasterSettingsCard.js'
+import {
+  MASTER_SETTINGS_NAMESPACE,
+  MasterSettingsCardController,
+  masterSettingsLocale,
+  type MasterSettingsCredentials,
+  type MasterSettingsDescribeFace,
+  type MasterSettingsScope,
+} from './settings-card.js'
 import { disposeStyles, ensureStyles } from './styles.js'
 
 /** The slot registry, read structurally: this plugin is out of tree. */
 interface SlotsService {
-  register(options: Record<string, unknown>, component: (props: never) => ReactElement): () => void
+  register(options: Record<string, unknown>, component: (props: never) => ReactElement | null): () => void
   /** Runs the callback per declaration lifetime of the slot; a no-op while undeclared. */
   inject(key: string, callback: () => () => void): () => void
 }
@@ -48,7 +57,9 @@ export const inject = [
   'workspaces',
   'locale',
   'remote',
+  'remote.credentials',
   'remote.directoryPicker',
+  'settingsScope',
 ] as const
 
 /** The layout's central-panel slot, dispatched by the selected panel id. */
@@ -62,6 +73,24 @@ export function apply(ctx: Context): void {
   const slots = (ctx as Context & { slots?: SlotsService }).slots
   if (slots === undefined) return
   const layout = (ctx as Context & { layout: PanelNavigation }).layout
+  const services = ctx as unknown as {
+    locale?: { register: (namespace: string, dictionaries: typeof masterSettingsLocale) => () => void }
+    remote?: {
+      credentials?: MasterSettingsCredentials
+    }
+    settingsScope?: {
+      bind: (spec: { namespace: string }) => MasterSettingsScope
+      describe: () => MasterSettingsDescribeFace
+    }
+  }
+
+  const locale = services.locale
+  if (locale !== undefined) {
+    ctx.effect(
+      () => locale.register('dsh-master', masterSettingsLocale),
+      'dsh-master.settings-locale',
+    )
+  }
 
   ctx.effect(() => {
     const tag = ensureStyles()
@@ -105,4 +134,28 @@ export function apply(ctx: Context): void {
     key: PANEL_ID,
     registrant: 'dsh-master',
   }, () => <RemotePanel />)), 'dsh-master.main')
+
+  if (services.settingsScope !== undefined) {
+    const card = new MasterSettingsCardController(
+      services.settingsScope.bind({ namespace: MASTER_SETTINGS_NAMESPACE }),
+      services.remote?.credentials,
+      services.settingsScope.describe(),
+    )
+    ctx.effect(() => () => { card.dispose() }, 'dsh-master.settings-card')
+    ctx.effect(
+      () => slots.inject('settings.plugin.item', () => slots.register({
+        name: 'settings.plugin.item',
+        key: MASTER_SETTINGS_NAMESPACE,
+        locale: 'dsh-master',
+        inject: () => ({
+          hooks: { masterSettings: card },
+          editCoordinatorUrl: (value: string) => { card.editCoordinatorUrl(value) },
+          editApiToken: (value: string) => { card.editApiToken(value) },
+          save: () => { void card.save() },
+          discard: () => { card.discard() },
+        }),
+      }, MasterSettingsCard)),
+      'dsh-master.settings-card-slot',
+    )
+  }
 }

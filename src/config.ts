@@ -13,7 +13,8 @@
  * `apiToken` is the coordinator's **operator** token, not a node token. It is the
  * credential that can prompt sessions on every registered machine, so:
  *
- * - it is read from config only and is never surfaced on any route;
+ * - new values are stored through DSH's credentials service; the legacy config
+ *   field remains supported but is marked secret and never surfaced on a route;
  * - no error message, log line, or `MasterError.details` may include it;
  * - `test/credential-hygiene.test.ts` fails the build if a source file other than
  *   this one mentions it alongside a log call.
@@ -27,7 +28,7 @@ import z from 'schemastery'
 export interface MasterConfig {
   /** Coordinator origin, e.g. `http://127.0.0.1:39472`. No trailing path. */
   coordinatorUrl: string
-  /** Operator API token. Absent means every coordinator call will be rejected with 401. */
+  /** Legacy operator token; the DSH credentials entry takes precedence when set. */
   apiToken?: string
   /**
    * Extra authorities whose pages may call `/dsh-master/api/*`.
@@ -52,7 +53,7 @@ export interface MasterConfig {
 /** The schema the Loader validates a `cordis.patch.yml` config against. */
 export const Config = z.object({
   coordinatorUrl: z.string().default('http://127.0.0.1:39472'),
-  apiToken: z.string(),
+  apiToken: z.string().role('secret'),
   trustedHosts: z.array(z.string()).default([]),
   allowPrompt: z.boolean().default(false),
   requestTimeoutMs: z.natural().default(30_000),

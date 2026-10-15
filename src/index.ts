@@ -28,8 +28,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { Config, resolveConfig } from './config.js'
+import { Config, resolveConfig, type MasterConfig } from './config.js'
 import { CoordinatorClient } from './coordinator/client.js'
+import { MASTER_SETTINGS_NAMESPACE, MASTER_SETTINGS_TOKEN_REF } from './settings-constants.js'
 import { createMasterRouteHandler } from './http-api.js'
 import { cordisLogSink, createMasterLogger } from './log.js'
 import { ROUTE_PREFIX } from './protocol.js'
@@ -72,6 +73,22 @@ interface WebServerLike {
   }): () => void
 }
 
+/** Optional host settings service; structural because DSH packages are not runtime dependencies here. */
+interface SettingsLike {
+  installSection(
+    owner: Context,
+    namespace: string,
+    schema: unknown,
+    entry: MasterConfig,
+    hooks: { setSource: (source: () => MasterConfig) => void; onChange: () => void },
+  ): void
+}
+
+/** The credential provider resolves the token at request time and never returns it to the browser. */
+interface CredentialsLike {
+  resolve(ref: string): Promise<{ value: string } | undefined>
+}
+
 /**
  * Read the extra authorities this deployment serves, if it declared any.
  *
@@ -96,6 +113,8 @@ function readRuntimeTrustedHosts(ctx: Context): readonly string[] | undefined {
  */
 export function apply(ctx: Context, config?: unknown): void {
   const resolved = resolveConfig(config)
+  let currentConfig = resolved
+  let currentSource: () => MasterConfig = () => resolved
   const sink = cordisLogSink((ctx as unknown as { logger?: unknown }).logger)
   const logger = createMasterLogger({
     ...(resolved.apiToken === undefined ? {} : { secrets: [resolved.apiToken] }),
@@ -106,17 +125,33 @@ export function apply(ctx: Context, config?: unknown): void {
   const client = new CoordinatorClient({
     baseUrl: resolved.coordinatorUrl,
     ...(resolved.apiToken === undefined ? {} : { apiToken: resolved.apiToken }),
+    getBaseUrl: () => currentConfig.coordinatorUrl,
+    resolveApiToken: async () => {
+      const credentials = (ctx.get as unknown as (key: string, strict?: boolean) => unknown)('credentials', false) as CredentialsLike | undefined
+      const stored = await credentials?.resolve(MASTER_SETTINGS_TOKEN_REF)
+      return stored?.value || currentConfig.apiToken
+    },
     requestTimeoutMs: resolved.requestTimeoutMs,
   })
   const service = new MasterService(client, resolved.allowPrompt)
   ctx.provide(MASTER_SERVICE_KEY, service)
+
+  // DSH's optional settings section lets the Plugins card persist the endpoint
+  // under the DSH home settings provider; the composition config remains the fallback.
+  ctx.inject(['settings'], (settingsCtx) => {
+    const settings = (settingsCtx as unknown as { settings?: SettingsLike }).settings
+    settings?.installSection(ctx, MASTER_SETTINGS_NAMESPACE, Config, resolved, {
+      setSource: (source) => { currentSource = source },
+      onChange: () => { currentConfig = resolveConfig(currentSource()) },
+    })
+  })
 
   // No network call here. Mounting must not depend on another process being up, and
   // the panel's first `GET /api/status` is a better place to report unreachability:
   // it has somewhere to show the answer.
   logger.info('dsh-master/mounted', {
     coordinatorUrl: resolved.coordinatorUrl,
-    credentialPresent: resolved.apiToken !== undefined,
+    configTokenPresent: resolved.apiToken !== undefined,
     promptEnabled: resolved.allowPrompt,
   })
 

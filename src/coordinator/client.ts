@@ -63,6 +63,10 @@ export interface CoordinatorClientOptions {
   /** Coordinator origin, already stripped of a trailing slash. */
   readonly baseUrl: string
   readonly apiToken?: string
+  /** Read the active endpoint so a settings change applies without remounting. */
+  readonly getBaseUrl?: () => string
+  /** Resolve the active token per request; credential values are never cached. */
+  readonly resolveApiToken?: () => Promise<string | undefined>
   readonly requestTimeoutMs: number
   /** Injected in tests. Defaults to the global `fetch`. */
   readonly fetchImpl?: typeof fetch
@@ -214,6 +218,8 @@ function sessionTitle(row: Record<string, unknown>, sessionId: string): string {
 export class CoordinatorClient {
   readonly #baseUrl: string
   readonly #apiToken: string | undefined
+  readonly #getBaseUrl: (() => string) | undefined
+  readonly #resolveApiToken: (() => Promise<string | undefined>) | undefined
   readonly #timeoutMs: number
   readonly #fetch: typeof fetch
 
@@ -223,20 +229,33 @@ export class CoordinatorClient {
   constructor(options: CoordinatorClientOptions) {
     this.#baseUrl = options.baseUrl
     this.#apiToken = options.apiToken
+    this.#getBaseUrl = options.getBaseUrl
+    this.#resolveApiToken = options.resolveApiToken
     this.#timeoutMs = options.requestTimeoutMs
     this.#fetch = options.fetchImpl ?? globalThis.fetch
   }
 
   /** The origin this client talks to. Safe to display; carries no credential. */
   get baseUrl(): string {
-    return this.#baseUrl
+    return this.#getBaseUrl?.() ?? this.#baseUrl
   }
 
   /** Request headers. The one place the token is attached. */
-  #headers(extra?: Record<string, string>): Record<string, string> {
+  async #headers(extra?: Record<string, string>): Promise<Record<string, string>> {
+    let token: string | undefined
+    try {
+      token = this.#resolveApiToken === undefined
+        ? this.#apiToken
+        : await this.#resolveApiToken()
+    } catch {
+      throw new MasterUpstreamError(toMasterError(
+        'master/credential-unavailable',
+        'The coordinator credential could not be resolved',
+      ))
+    }
     return {
       accept: 'application/json',
-      ...(this.#apiToken === undefined ? {} : { authorization: `Bearer ${this.#apiToken}` }),
+      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
       ...extra,
     }
   }
@@ -263,12 +282,13 @@ export class CoordinatorClient {
   async #call(path: string, init: RequestInit, signal?: AbortSignal): Promise<unknown> {
     let response: Response
     try {
-      response = await this.#fetch(`${this.#baseUrl}${path}`, {
+      response = await this.#fetch(`${this.baseUrl}${path}`, {
         ...init,
-        headers: this.#headers(init.headers as Record<string, string> | undefined),
+        headers: await this.#headers(init.headers as Record<string, string> | undefined),
         signal: this.#deadline(signal),
       })
     } catch (error) {
+      if (error instanceof MasterUpstreamError) throw error
       // The message of a fetch failure can include the URL but never a header, so
       // this string is safe to surface. It is the most common failure by far: the
       // coordinator simply is not running.
@@ -320,10 +340,10 @@ export class CoordinatorClient {
   async probe(): Promise<MasterCoordinatorFacts> {
     try {
       await this.#call('/api/health', { method: 'GET' })
-      return { url: this.#baseUrl, reachable: true }
+      return { url: this.baseUrl, reachable: true }
     } catch (error) {
       const message = error instanceof MasterUpstreamError ? error.message : 'unknown failure'
-      return { url: this.#baseUrl, reachable: false, error: message }
+      return { url: this.baseUrl, reachable: false, error: message }
     }
   }
 
@@ -482,9 +502,9 @@ export class CoordinatorClient {
   async *#followWorkspace(nodeId: string, signal?: AbortSignal): AsyncGenerator<unknown> {
     let response: Response
     try {
-      response = await this.#fetch(`${this.#baseUrl}/api/stream`, {
+      response = await this.#fetch(`${this.baseUrl}/api/stream`, {
         method: 'POST',
-        headers: this.#headers({ 'content-type': 'application/json' }),
+        headers: await this.#headers({ 'content-type': 'application/json' }),
         body: JSON.stringify({
           nodeId,
           endpoint: 'workspace/follow',
@@ -494,6 +514,7 @@ export class CoordinatorClient {
         ...(signal === undefined ? {} : { signal }),
       })
     } catch (error) {
+      if (error instanceof MasterUpstreamError) throw error
       const detail = error instanceof Error ? error.message : String(error)
       throw new MasterUpstreamError(toMasterError('master/coordinator-unreachable', detail))
     }
@@ -519,13 +540,14 @@ export class CoordinatorClient {
   async *follow(nodeId: string, sessionId: string, signal?: AbortSignal): AsyncGenerator<unknown> {
     let response: Response
     try {
-      response = await this.#fetch(`${this.#baseUrl}/api/session/follow`, {
+      response = await this.#fetch(`${this.baseUrl}/api/session/follow`, {
         method: 'POST',
-        headers: this.#headers({ 'content-type': 'application/json' }),
+        headers: await this.#headers({ 'content-type': 'application/json' }),
         body: JSON.stringify({ nodeId, sessionId, assistantStream: true }),
         ...(signal === undefined ? {} : { signal }),
       })
     } catch (error) {
+      if (error instanceof MasterUpstreamError) throw error
       const detail = error instanceof Error ? error.message : String(error)
       throw new MasterUpstreamError(toMasterError('master/coordinator-unreachable', detail))
     }

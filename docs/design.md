@@ -89,7 +89,7 @@
 
 | 面 | 措施 |
 | --- | --- |
-| 凭据 | operator token 只从配置读，**只**作为 `Authorization` 头发送；不进任何响应、日志或错误详情。`createMasterLogger` 在**出口**做递归脱敏，`test/log.test.ts` 覆盖 |
+| 凭据 | 新 token 经 DSH credentials 写入并在每次请求时解析；旧配置 `apiToken` 作为兼容回退。token **只**作为 `Authorization` 头发送，不进任何响应或日志；设置 schema 对旧字段做 secret 脱敏 |
 | 路由暴露 | `/dsh-master/api/*` 不在浏览器 cookie 之后（DSH 插件前缀就是这样），因此每个请求先过**信任围栏**：Host 必须回环或部署声明的 `trustedHosts`；带 `Origin` 必须同 hostname；`sec-fetch-site: cross-site` 一律拒绝 |
 | 副作用 | 发 prompt 会在远程机器上真实跑一个 agent 回合（可改文件、执行工具），**默认关闭**，必须由部署方显式 `allowPrompt: true`。关闭时在读请求体**之前**拒绝 |
 | 请求体 | 上限 256 KiB，超限 413 |

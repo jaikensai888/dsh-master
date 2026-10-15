@@ -358,4 +358,34 @@ describe('CoordinatorClient credentials', () => {
     expect(client.baseUrl).toBe('http://127.0.0.1:39472')
     expect(client.baseUrl).not.toContain('tok-abc')
   })
+
+  it('uses the current coordinator URL and credential for each request', async () => {
+    const calls: Call[] = []
+    let baseUrl = 'http://first.test'
+    let token: string | undefined = 'first-token'
+    const client = new CoordinatorClient({
+      baseUrl: 'http://initial.test',
+      requestTimeoutMs: 5_000,
+      getBaseUrl: () => baseUrl,
+      resolveApiToken: async () => token,
+      fetchImpl: ((input: unknown, init: RequestInit) => {
+        calls.push({ url: String(input), init })
+        return Promise.resolve(envelope({ ok: true, value: [] }))
+      }) as unknown as typeof fetch,
+    })
+
+    await client.listNodes()
+    baseUrl = 'https://second.test'
+    token = 'second-token'
+    await client.listNodes()
+
+    expect(calls.map(call => call.url)).toEqual([
+      'http://first.test/api/nodes',
+      'https://second.test/api/nodes',
+    ])
+    expect(calls.map(call => (call.init.headers as Record<string, string>)['authorization'])).toEqual([
+      'Bearer first-token', 'Bearer second-token',
+    ])
+    expect(client.baseUrl).toBe('https://second.test')
+  })
 })

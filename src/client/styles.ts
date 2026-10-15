@@ -489,6 +489,137 @@ const CSS = `
 }
 .dsh-master-send-hint { white-space: nowrap; }
 
+.dsh-master-settings-card {
+  list-style: none;
+  border: .5px solid var(--dsw-alias-border-l4);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-3);
+}
+.dsh-master-settings-card-open {
+  background: var(--dsw-alias-bg-layer-2);
+  border-color: var(--dsw-alias-label-dimmed);
+}
+.dsh-master-settings-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dsh-master-settings-heading { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.dsh-master-settings-title { font-size: 15px; font-weight: 600; }
+.dsh-master-settings-description {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+}
+.dsh-master-settings-chevron {
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform .16s;
+}
+.dsh-master-settings-chevron-open { transform: rotate(180deg); }
+.dsh-master-settings-unsaved,
+.dsh-master-settings-badge,
+.dsh-master-settings-badge-muted {
+  flex: none;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+.dsh-master-settings-unsaved,
+.dsh-master-settings-badge {
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-master-settings-badge-muted { color: var(--dsw-alias-label-tertiary); }
+.dsh-master-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 16px;
+  padding: 12px 0;
+  border-top: .5px solid var(--dsw-alias-border-l2);
+}
+.dsh-master-settings-label-row { display: flex; align-items: center; gap: 8px; }
+.dsh-master-settings-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.dsh-master-settings-input {
+  width: 100%;
+  height: 34px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: .5px solid var(--dsw-alias-border-l4);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+}
+.dsh-master-settings-input:focus-visible {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+}
+.dsh-master-settings-input:disabled { color: var(--dsw-alias-label-tertiary); }
+.dsh-master-settings-input-invalid { border-color: var(--dsw-alias-state-error-primary); }
+.dsh-master-settings-hint,
+.dsh-master-settings-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.dsh-master-settings-hint { color: var(--dsw-alias-label-tertiary); }
+.dsh-master-settings-error { color: var(--dsw-alias-state-error-primary); }
+.dsh-master-settings-separator { height: .5px; margin: 4px 0; background: var(--dsw-alias-border-l2); }
+.dsh-master-settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: .5px solid var(--dsw-alias-border-l2);
+}
+.dsh-master-settings-footer .dsh-master-settings-error { flex: 1; }
+.dsh-master-settings-discard,
+.dsh-master-settings-save {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 5px 14px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.dsh-master-settings-discard {
+  border-color: var(--dsw-alias-border-l2);
+  background: none;
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-master-settings-save {
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-bg-layer-3);
+}
+.dsh-master-settings-discard:disabled,
+.dsh-master-settings-save:disabled { opacity: .4; cursor: default; }
+.dsh-master-settings-header:focus-visible,
+.dsh-master-settings-discard:focus-visible,
+.dsh-master-settings-save:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+
 @media (max-width: 720px) {
   .dsh-master-composer { margin-bottom: 12px; }
   .dsh-master-composer-toolbar { align-items: flex-end; flex-wrap: wrap; }

@@ -157,7 +157,9 @@ describe('the built client bundle', () => {
       'workspaces',
       'locale',
       'remote',
+      'remote.credentials',
       'remote.directoryPicker',
+      'settingsScope',
     ])
     expect(typeof exports?.apply).toBe('function')
 
@@ -189,7 +191,30 @@ describe('the built client bundle', () => {
       },
       layout: { selectPanel: (id: string) => { selectedPanels.push(id) } },
       locale: { register: () => () => undefined },
-      remote: { $host: {}, directoryPicker: {} },
+      remote: {
+        $host: {},
+        directoryPicker: {},
+        credentials: {
+          describe: async () => ({
+            ok: true,
+            value: { DSH_MASTER_COORDINATOR_TOKEN: { configured: false, writable: true } },
+          }),
+          set: async () => ({ ok: true }),
+        },
+        $on: () => () => undefined,
+      },
+      settingsScope: {
+        bind: () => ({
+          getSnapshot: () => ({ status: 'ready', value: { coordinatorUrl: 'http://127.0.0.1:39472' }, user: {}, writable: true }),
+          subscribe: () => () => undefined,
+          set: async () => undefined,
+          unset: async () => undefined,
+        }),
+        describe: () => ({
+          getSnapshot: () => ({ view: { namespaces: [] } }),
+          subscribe: () => () => undefined,
+        }),
+      },
       sessions: {
         list: emptySource({ ids: [], byId: {}, current: undefined, phase: 'ready' }),
         searchResultLimit: 20,
@@ -232,6 +257,7 @@ describe('the built client bundle', () => {
       'sidebar.workspaces',
       'conversation.hero.workspace',
       'main',
+      'settings.plugin.item',
     ])
     expect(registrations.map(entry => entry.options)).toEqual([
       {
@@ -250,6 +276,7 @@ describe('the built client bundle', () => {
         locale: 'workspace',
       },
       { name: 'main', key: 'dsh-master', registrant: 'dsh-master' },
+      { name: 'settings.plugin.item', key: 'dsh-master', locale: 'dsh-master', inject: expect.any(Function) },
     ])
 
     const viewStore = storeDefinitions[0] as {
