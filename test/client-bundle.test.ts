@@ -261,6 +261,7 @@ describe('the built client bundle', () => {
       'conversation.hero.workspace',
       'main',
       'plugins.item',
+      'plugins.bundle.config',
     ])
     expect(registrations.map(entry => entry.options)).toEqual([
       {
@@ -280,6 +281,7 @@ describe('the built client bundle', () => {
       },
       { name: 'main', key: 'dsh-master', registrant: 'dsh-master' },
       { name: 'plugins.item', id: 'dsh-master', label: expect.any(Function), locale: 'dsh-master', inject: expect.any(Function) },
+      { name: 'plugins.bundle.config', key: 'dsh-master', locale: 'dsh-master', inject: expect.any(Function) },
     ])
 
     const viewStore = storeDefinitions[0] as {

@@ -142,21 +142,25 @@ export function apply(ctx: Context): void {
       forms.describe(),
     )
     scope.effect(() => () => { card.dispose() }, 'dsh-master.settings-card')
-    scope.effect(
-      () => slots.inject('plugins.item', () => slots.register({
-        name: 'plugins.item',
-        id: MASTER_SETTINGS_NAMESPACE,
-        label: () => 'dsh-master',
-        locale: 'dsh-master',
-        inject: () => ({
-          hooks: { masterSettings: card },
-          editCoordinatorUrl: (value: string) => { card.editCoordinatorUrl(value) },
-          editApiToken: (value: string) => { card.editApiToken(value) },
-          save: () => { void card.save() },
-          discard: () => { card.discard() },
-        }),
-      }, MasterSettingsCard)),
-      'dsh-master.settings-card-slot',
-    )
+    // Package details and the independent configuration card use different slots.
+    for (const registration of [
+      { name: 'plugins.item', id: MASTER_SETTINGS_NAMESPACE, label: () => 'dsh-master' },
+      { name: 'plugins.bundle.config', key: MASTER_SETTINGS_NAMESPACE },
+    ]) {
+      scope.effect(
+        () => slots.inject(registration.name, () => slots.register({
+          ...registration,
+          locale: 'dsh-master',
+          inject: () => ({
+            hooks: { masterSettings: card },
+            editCoordinatorUrl: (value: string) => { card.editCoordinatorUrl(value) },
+            editApiToken: (value: string) => { card.editApiToken(value) },
+            save: () => { void card.save() },
+            discard: () => { card.discard() },
+          }),
+        }, MasterSettingsCard)),
+        `dsh-master.settings-card-slot:${registration.name}`,
+      )
+    }
   })
 }
