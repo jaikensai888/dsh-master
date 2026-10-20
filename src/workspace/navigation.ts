@@ -18,6 +18,11 @@ import type {
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { openLocalSession, type PanelNavigation } from '../client/selection.js'
+import { adaptSessionList } from './adapt.js'
+
+interface ConnectOptions { agentPreset?: string }
+interface StartOptions extends ConnectOptions { prompt?: string; clearPreviousDraft?: boolean }
+interface ArchiveOptions { stopActivity?: boolean }
 
 /** Run an injected session action from either the shipped void API or this fork's Promise API. */
 export function runSessionAction(action: () => void | Promise<void>, onError: (reason: unknown) => void): void {
@@ -36,17 +41,23 @@ export interface UiWorkspace {
    * @param workspaceId - target Workspace.
    * @returns a Session already addressable through the Session Controller.
    */
-  connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId>
+  connectWorkspace(workspaceId: WorkspaceId, options?: ConnectOptions): Promise<SessionId>
   /**
    * Start a New Session flow and navigate to its Session.
    * @param workspaceId - explicit target; absent inherits the current or most recent Workspace.
    */
-  startSession(workspaceId?: WorkspaceId): Promise<void>
+  startSession(workspaceId?: WorkspaceId, options?: StartOptions): Promise<void>
+  openSession(sessionId: SessionId): void
+  openWorkspace(workspaceId: WorkspaceId, beforeOpen?: (id: string) => void, options?: ConnectOptions): Promise<void>
+  forkSession(sessionId: SessionId, onCreated?: (id: string) => void, options?: { allowMigration?: boolean }): Promise<SessionId>
   /**
    * Archive a Session and clear it when it is the current selection.
    * @param sessionId - Session to archive.
    */
-  archiveSession(sessionId: SessionId): Promise<void>
+  archiveSession(sessionId: SessionId, options?: ArchiveOptions): Promise<void>
+  unarchiveSession(sessionId: SessionId): Promise<void>
+  pinSession(sessionId: SessionId): Promise<void>
+  unpinSession(sessionId: SessionId): Promise<void>
   /**
    * Open the Host-native directory picker.
    * @returns the selected directory, or null when cancelled.
@@ -87,7 +98,9 @@ export class DirectoryBrowseError extends Error {
 
 /** Implements Workspace archive and directory UI operations. */
 class UiWorkspaceService extends Service implements UiWorkspace {
-  private readonly connecting = new Map<WorkspaceId, Promise<SessionId>>()
+  private readonly connecting = new Map<string, Promise<SessionId>>()
+  private mainReference: { sessionId: string; release(): void } | undefined
+  private disposed = false
 
   /**
    * @param ctx - Client root Context.
@@ -104,37 +117,56 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     private readonly layout: PanelNavigation,
   ) {
     super(ctx, 'uiWorkspace')
-    ctx.effect(() => this.watchNavigation(), 'ui-workspace: Workspace navigation policy')
+    ctx.effect(() => {
+      const stop = this.watchNavigation()
+      return () => {
+        this.disposed = true
+        stop()
+        this.mainReference?.release()
+        this.mainReference = undefined
+      }
+    }, 'ui-workspace: Workspace navigation policy')
   }
 
-  async connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId> {
+  async connectWorkspace(workspaceId: WorkspaceId, options: ConnectOptions = {}): Promise<SessionId> {
+    return this.connectBlank(workspaceId, options)
+  }
+
+  private async connectBlank(workspaceId: WorkspaceId, options: ConnectOptions | undefined): Promise<SessionId> {
     const workspace = this.workspaces.list.getSnapshot().items
       .find(item => item.workspaceId === workspaceId)
     if (workspace === undefined) {
       throw new Error(`uiWorkspace.connectWorkspace: unknown workspace ${workspaceId}`)
     }
-    const inflight = this.connecting.get(workspaceId)
+    if (options === undefined) return this.sessions.create({ workspaceId })
+    const key = JSON.stringify([workspaceId, options.agentPreset])
+    const inflight = this.connecting.get(key)
     if (inflight !== undefined) return inflight
 
     const archived = this.workspaces.list.getSnapshot().archivedSessionIds
-    const sessions = this.sessions.list.getSnapshot()
+    const sessions = adaptSessionList(this.sessions.list.getSnapshot())
+    let blank: string | undefined
     for (const id of sessions.ids) {
       const summary = sessions.byId[id]
       if (summary !== undefined && summary.blank && summary.cwd === workspace.path
         && workspace.sessionIds.includes(summary.id)
-        && !archived.includes(summary.id)) return summary.id
+        && !archived.includes(summary.id)) {
+        if (this.sessions.retain === undefined) return summary.id
+        blank = summary.id
+        break
+      }
     }
 
-    const attempt = this.sessions.create({ workspaceId })
-      .finally(() => { this.connecting.delete(workspaceId) })
-    this.connecting.set(workspaceId, attempt)
+    const attempt = this.sessions.create({ workspaceId, ...(blank === undefined ? {} : { sessionId: blank }), ...options })
+      .finally(() => { this.connecting.delete(key) })
+    this.connecting.set(key, attempt)
     return attempt
   }
 
-  async startSession(workspaceId?: WorkspaceId): Promise<void> {
+  async startSession(workspaceId?: WorkspaceId, options?: StartOptions): Promise<void> {
     const workspace = this.workspaces.list.getSnapshot()
-    const sessions = this.sessions.list.getSnapshot()
-    const current = sessions.current
+    const sessions = adaptSessionList(this.sessions.list.getSnapshot())
+    const current = this.mainReference?.sessionId ?? sessions.current
     const currentWorkspaceId = current === undefined
       ? undefined
       : workspace.items.find(item => item.sessionIds.includes(current))?.workspaceId
@@ -143,15 +175,82 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       : undefined
     const target = workspaceId ?? currentWorkspaceId ?? recent
     if (target === undefined) {
-      this.sessions.clear()
+      this.clearMain()
       return
     }
-    const sessionId = await this.connectWorkspace(target)
-    openLocalSession(this.layout, this.sessions, sessionId)
+    await this.openWorkspaceSession(target, options === undefined ? undefined : (id) => {
+      if (options.prompt === undefined && options.clearPreviousDraft !== true) return
+      const conversation = this.ctx.get('conversation') as { input?: { requestDraftInitialization(binding: unknown, options: StartOptions): string } } | undefined
+      const binding = this.sessions.binding(id)
+      if (binding === undefined || conversation?.input === undefined
+        || conversation.input.requestDraftInitialization(binding, options) === 'blocked') {
+        throw new Error('uiWorkspace: draft initialization failed')
+      }
+    }, options === undefined ? undefined : options.agentPreset === undefined ? {} : { agentPreset: options.agentPreset })
   }
 
-  async archiveSession(sessionId: SessionId): Promise<void> {
-    await this.workspaces.archiveSession(sessionId)
+  openSession(sessionId: SessionId): void {
+    this.revealSession(sessionId)
+  }
+
+  async openWorkspace(workspaceId: WorkspaceId, beforeOpen?: (id: string) => void, options: ConnectOptions = {}): Promise<void> {
+    await this.openWorkspaceSession(workspaceId, beforeOpen, options)
+  }
+
+  private async openWorkspaceSession(workspaceId: WorkspaceId, beforeOpen: ((id: string) => void) | undefined, options: ConnectOptions | undefined): Promise<void> {
+    const signal = this.layout.beginNavigation?.()
+    const sessionId = await this.connectBlank(workspaceId, options)
+    if (this.disposed || signal?.aborted) return
+    this.revealSession(sessionId, beforeOpen)
+  }
+
+  forkSession(sessionId: SessionId, onCreated?: (id: string) => void, options?: { allowMigration?: boolean }): Promise<SessionId> {
+    return this.sessions.fork({ sessionId, increaseTitle: true,
+      ...(onCreated === undefined ? {} : { onCreated }), ...options })
+  }
+
+  async archiveSession(sessionId: SessionId, options?: ArchiveOptions): Promise<void> {
+    await this.workspaces.archiveSession(sessionId, options)
+    if (this.mainReference?.sessionId === sessionId) this.clearMain()
+  }
+
+  async unarchiveSession(sessionId: SessionId): Promise<void> {
+    await this.workspaces.unarchiveSession(sessionId)
+  }
+
+  async pinSession(sessionId: SessionId): Promise<void> {
+    await this.workspaces.pinSession(sessionId)
+  }
+
+  async unpinSession(sessionId: SessionId): Promise<void> {
+    await this.workspaces.unpinSession(sessionId)
+  }
+
+  private revealSession(sessionId: string, beforeOpen?: (id: string) => void): void {
+    if (this.disposed) return
+    if (this.sessions.retain === undefined) {
+      beforeOpen?.(sessionId)
+      openLocalSession(this.layout, this.sessions, sessionId)
+      return
+    }
+    openLocalSession(this.layout, { open: (id) => {
+      const reference = this.sessions.retain!(id, { source: 'mainView' })
+      try { beforeOpen?.(reference.sessionId) } catch (error) { reference.release(); throw error }
+      const previous = this.mainReference
+      this.mainReference = reference
+      this.saveSelection(reference.sessionId)
+      previous?.release()
+      void reference.ready.catch(reason => { console.warn('local session open failed:', reason) })
+    } }, sessionId, null)
+  }
+
+  private clearMain(): void {
+    const reference = this.mainReference
+    this.mainReference = undefined
+    this.saveSelection(undefined)
+    reference?.release()
+    if (this.sessions.retain === undefined) this.sessions.clear()
+    else this.layout.selectPanel(null)
   }
 
   async pickDirectory(): Promise<string | null> {
@@ -180,10 +279,17 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       if (this.clearArchivedCurrent()) return
       if (initial !== 'waiting') return
       const workspace = this.workspaces.list.getSnapshot()
-      const sessions = this.sessions.list.getSnapshot()
+      const sessions = adaptSessionList(this.sessions.list.getSnapshot())
       if (workspace.phase !== 'ready' || sessions.phase !== 'ready') return
       if (sessions.current !== undefined) {
         initial = 'done'
+        return
+      }
+      const saved = this.readSelection()
+      if (this.sessions.retain !== undefined && saved !== undefined && sessions.byId[saved] !== undefined
+        && !workspace.archivedSessionIds.includes(saved)) {
+        initial = 'done'
+        this.revealSession(saved)
         return
       }
       const target = recentWorkspace(workspace.items, sessions.byId)
@@ -192,11 +298,12 @@ class UiWorkspaceService extends Service implements UiWorkspace {
         return
       }
       initial = 'connecting'
+      const signal = this.layout.beginNavigation?.()
       void this.connectWorkspace(target).then(
         (sessionId) => {
-          if (disposed) return
-          if (this.sessions.list.getSnapshot().current === undefined) {
-            this.sessions.open(sessionId)
+          if (disposed || signal?.aborted) return
+          if (this.mainReference === undefined && adaptSessionList(this.sessions.list.getSnapshot()).current === undefined) {
+            this.revealSession(sessionId)
           }
           initial = 'done'
         },
@@ -217,12 +324,27 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     }
   }
 
+  private readSelection(): string | undefined {
+    try {
+      if (typeof localStorage === 'undefined') return undefined
+      const raw = localStorage.getItem('dsh.sessions.current')
+      const saved = raw === null ? undefined : JSON.parse(raw) as { sessionId?: unknown }
+      return typeof saved?.sessionId === 'string' ? saved.sessionId : undefined
+    } catch { return undefined }
+  }
+
+  private saveSelection(sessionId: string | undefined): void {
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem('dsh.sessions.current', JSON.stringify({ sessionId }))
+    } catch { /* Browsing remains usable when persistence is unavailable. */ }
+  }
+
   /** @returns true when an archived current selection was cleared. */
   private clearArchivedCurrent(): boolean {
-    const current = this.sessions.list.getSnapshot().current
+    const current = this.mainReference?.sessionId ?? adaptSessionList(this.sessions.list.getSnapshot()).current
     if (current === undefined
       || !this.workspaces.list.getSnapshot().archivedSessionIds.includes(current)) return false
-    this.sessions.clear()
+    this.clearMain()
     return true
   }
 

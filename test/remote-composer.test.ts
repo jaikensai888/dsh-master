@@ -25,10 +25,10 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
       title,
       type: 'button',
     }, children),
-    IconChevronDownOutline14: () => React.createElement('span', { 'aria-hidden': true }),
-    IconPlusOutline16: () => React.createElement('span', { 'aria-hidden': true }),
-    IconSendOutline14: () => React.createElement('span', { 'aria-hidden': true }),
-    IconWarningOutline16: () => React.createElement('span', { 'aria-hidden': true }),
+    IconChevronDownOutlineRegular: () => React.createElement('span', { 'aria-hidden': true }),
+    IconPlusOutlineRegular: () => React.createElement('span', { 'aria-hidden': true }),
+    IconSendOutlineRegular: () => React.createElement('span', { 'aria-hidden': true }),
+    IconWarningOutlineRegular: () => React.createElement('span', { 'aria-hidden': true }),
     MarkdownText: ({ text }: { text: string }) => React.createElement('span', null, text),
     Pill: ({ active, children, className, onClick }: {
       active?: boolean

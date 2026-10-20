@@ -150,6 +150,7 @@ export function applyWorkspaceBrowser(
   const existingUiWorkspace = scoped.get('uiWorkspace', false) as {
     startSession(workspaceId?: string): void | Promise<void>
     archiveSession(sessionId: string): Promise<void>
+    openSession?(sessionId: string): void
   } | undefined
   const shipped = existingUiWorkspace !== undefined
   const uiWorkspace = existingUiWorkspace
@@ -185,20 +186,30 @@ export function applyWorkspaceBrowser(
       hostInfo,
     },
     startSession: (workspaceId?: string) => uiWorkspace.startSession(workspaceId),
-    open: (sessionId: string) => { openLocalSession(layout, sessions, sessionId) },
+    open: (sessionId: string) => {
+      if (uiWorkspace.openSession !== undefined) uiWorkspace.openSession(sessionId)
+      else openLocalSession(layout, sessions, sessionId)
+    },
     openRemoteSession,
     renderRemoteSection: (props: RemoteSectionProps) => createElement(RemoteSection, props),
     searchSessions,
     searchResultLimit: sessions.searchResultLimit,
     renameSession: async (sessionId: string, title: string) => {
-      const binding = sessions.binding(sessionId)
-      if (binding === undefined) throw new Error(`unknown session "${sessionId}"`)
-      const result = await binding.session.rename(title)
+      const result = sessions.using === undefined
+        ? await (() => {
+          const binding = sessions.binding(sessionId)
+          if (binding === undefined) throw new Error(`unknown session "${sessionId}"`)
+          return binding.session.rename(title)
+        })()
+        : await sessions.using(sessionId, { source: 'workspaceOperation' }, reference => reference.binding.session.rename(title))
       if (!result.ok) throw new Error(result.error?.message ?? 'rename failed')
     },
     forkSession: (sessionId: string) => {
       void sessions.fork({ sessionId, increaseTitle: true })
-        .then((childId) => { openLocalSession(layout, sessions, childId) })
+        .then((childId) => {
+          if (uiWorkspace.openSession !== undefined) uiWorkspace.openSession(childId)
+          else openLocalSession(layout, sessions, childId)
+        })
         .catch(() => undefined)
     },
     renameWorkspace: (workspaceId: string, title: string) => workspaces.rename(workspaceId, title),

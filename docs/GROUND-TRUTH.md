@@ -12,7 +12,19 @@
 
 ---
 
-## 0. 版本与取证前提
+## 2026-10-20 兼容性更新（优先于以下历史基线）
+
+- 本机 Desktop 2.0.18，DSH 0.2.1-rc.2，Cordis 4.0.5；安装目录仍为 `E:\DSH\DSH Desktop\resources\app`。`[源码]`
+- 旧日志同时确认客户端等待 `settingsScope`、宿主调用 `settings.installSection` 抛 TypeError；禁用官方 ui-workspace 后，缺少 uiWorkspace 导致 16 个客户端 entry 未激活。`[日志：2026-10-20 09:35、09:38]`
+- 新版 settings 从 volatile Config 字段派生当前 profile 表单；客户端使用 `configForms.get(entryId)`，保存返回 boolean；插件自定义配置插槽为 `plugins.item`，`id` 标识，owner 的 `view` 是 `summary` / `page`。`[源码]`
+- 客户端 Session 用 `retain` / `using` 管理生命周期；`mainView` 引用标识当前对话。默认对话面板选择为 `null`；`beginNavigation()` 的信号会在面板切换时取消。`[源码]`
+- 当前 Session 列表仍有 displayTitle，但不再有 current；从 retainedBy.mainView 派生侧栏选中态。待处理交互和 completionUnread 来自 uiSession 的 sessionStatus root hook。`[源码]`
+- 图标导出改为 Regular / Medium 后缀；旧数字尺寸名称不再存在。`[源码]`
+- 真实升级缓存中的 `dsh.workspace.view.v5` 只有 groupBy/orderBy/groupExpansion/sessionOrderByAccount/archivedFilter；官方新版删除了 sessionUpdatedAtByAccount。store rehydration 会整体覆盖 init，而不会合并默认值；fork 必须在 create 后、渲染前补齐自己的字段，否则 retainAccountKeys 的 Object.entries(undefined) 会使 sidebar.workspaces 整槽退休。保留旧排序、折叠和额外字段，不清空缓存。`[本机缓存/源码/2026-10-20 10:11 日志]`
+- 已用相同安装包、隔离 home/profile 完成浏览器启动与本地会话、设置保存/重启验证，未改真实 desktop profile；coordinator 离线，远程 prompt 未执行。`[实测]`
+- CLI 当前拒绝 desktop profile，不能继续使用旧的 `dsh --profile desktop --dump-config` 验收命令。`[源码/实测]`
+
+## 0. 历史版本与取证前提（2026-09-23）
 
 | 项 | 值 |
 | --- | --- |

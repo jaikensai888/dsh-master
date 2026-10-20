@@ -15,9 +15,9 @@
 import { useState } from 'react'
 import clsx from 'clsx'
 import {
-  HoverCard, IconAlarmClockOutline16, IconArchiveOutline20, IconBranchOutline16,
-  IconEditOutline16, IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16,
-  IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, relativeTime,
+  HoverCard, IconAlarmClockOutlineRegular as IconAlarmClockOutline16, IconArchiveOutlineRegular as IconArchiveOutline20, IconBranchOutlineRegular as IconBranchOutline16,
+  IconEditOutlineRegular as IconEditOutline16, IconEllipsisOutlineRegular as IconEllipsisOutline16, IconFolderCloseRegular as IconFolderClose16, IconFolderOpenRegular as IconFolderOpen16,
+  IconPlusOutlineRegular as IconPlusOutline16, IconTrashOutlineRegular as IconTrashOutline16, IconTriangleRightFillRegular as IconTriangleRightFill14, Menu, relativeTime,
   StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'

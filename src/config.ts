@@ -22,7 +22,7 @@
  * @module dsh-master/config
  */
 
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 
 /** Resolved configuration, after defaults. */
 export interface MasterConfig {
@@ -52,7 +52,7 @@ export interface MasterConfig {
 
 /** The schema the Loader validates a `cordis.patch.yml` config against. */
 export const Config = z.object({
-  coordinatorUrl: z.string().default('http://127.0.0.1:39472'),
+  coordinatorUrl: z.string().default('http://127.0.0.1:39472').volatile(),
   apiToken: z.string().role('secret'),
   trustedHosts: z.array(z.string()).default([]),
   allowPrompt: z.boolean().default(false),
@@ -71,8 +71,11 @@ export const Config = z.object({
  */
 export function resolveConfig(raw: unknown): MasterConfig {
   const source = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
-  const url = typeof source['coordinatorUrl'] === 'string' && source['coordinatorUrl'] !== ''
-    ? source['coordinatorUrl']
+  const urlValue = source['coordinatorUrl']
+  const liveUrl = typeof urlValue === 'object' && urlValue !== null && 'get' in urlValue
+    && typeof urlValue.get === 'function' ? urlValue.get() as unknown : urlValue
+  const url = typeof liveUrl === 'string' && liveUrl !== ''
+    ? liveUrl
     : 'http://127.0.0.1:39472'
   const token = typeof source['apiToken'] === 'string' && source['apiToken'] !== '' ? source['apiToken'] : undefined
   const hosts = Array.isArray(source['trustedHosts'])

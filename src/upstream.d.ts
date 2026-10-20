@@ -81,13 +81,15 @@ declare module '@deepseek-ai/dsh-api-session-controller/client' {
     /** Clear the current selection (the New Session view state). */
     clear(): void
     /** Create a session, reusing the workspace's blank one on the host side. */
-    create(options?: { workspaceId?: string; cwd?: string }): Promise<SessionId>
+    create(options?: { workspaceId?: string; cwd?: string; sessionId?: string; agentPreset?: string }): Promise<SessionId>
+    retain?(id: SessionId, options: { source: string }): { sessionId: string; ready: Promise<void>; release(): void }
+    using?<T>(id: SessionId, options: { source: string }, operation: (reference: { binding: { session: ISessionBinding } }) => Promise<T>): Promise<T>
     binding(id: SessionId): { readonly session: ISessionBinding } | undefined
     search(query: string, signal: AbortSignal): Promise<
       { ok: true; value: { items: readonly SessionSearchResultItem[]; hasMore: boolean } }
       | { ok: false; error: { message: string } }
     >
-    fork(options: { sessionId: SessionId; increaseTitle?: boolean }): Promise<SessionId>
+    fork(options: { sessionId: SessionId; increaseTitle?: boolean; onCreated?: (id: string) => void; allowMigration?: boolean }): Promise<SessionId>
   }
 
   /** The per-session face the browser renames through. */
@@ -155,7 +157,10 @@ declare module '@deepseek-ai/dsh-api-workspace-controller/client' {
     rename(workspaceId: WorkspaceId, title: string): Promise<void>
     delete(workspaceId: WorkspaceId): Promise<void>
     /** Hide a session from every grouping surface without deleting its log. */
-    archiveSession(sessionId: string): Promise<void>
+    archiveSession(sessionId: string, options?: { stopActivity?: boolean }): Promise<void>
+    unarchiveSession(sessionId: string): Promise<void>
+    pinSession(sessionId: string): Promise<void>
+    unpinSession(sessionId: string): Promise<void>
     insertBefore(workspaceId: WorkspaceId, beforeWorkspaceId?: WorkspaceId): Promise<void>
     insertSessionBefore(workspaceId: WorkspaceId, sessionId: string, beforeSessionId?: string): Promise<void>
   }
@@ -208,6 +213,7 @@ declare module '@deepseek-ai/dsh-client-store' {
   /** A live engine instance. */
   export interface StoreInstance<T, A extends ActionsDecl<T>> {
     readonly actions: BakedActions<T, A>
+    readonly store: { update(mutator: (draft: T) => void): void }
     getSnapshot(): T
     subscribe(listener: () => void): () => void
     clearPersisted(): void
@@ -332,6 +338,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     useSessions: SnapshotSelectorHook<SessionListState>
     /** Pending user interaction per session (approval, plan review, question). */
     useSessionPendingInteraction: SnapshotSelectorHook<ReadonlyMap<string, { readonly kind?: string }>>
+    useSessionStatus?: SnapshotSelectorHook<ReadonlyMap<string, { readonly pendingInteraction?: { readonly kind?: string } }>>
     /** Workspace registry rows, phase and archive set. */
     useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>
   }
@@ -505,24 +512,24 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   /** A host directory's containing directory ref, used by the picker anchors. */
   export type AnchorRef = RefObject<HTMLElement | null>
 
-  export function IconGlobeOutline14(props: IconProps): ReactElement
-  export function IconChevronDownOutline14(props: IconProps): ReactElement
-  export function IconChevronRightOutline14(props: IconProps): ReactElement
-  export function IconRefreshOutline14(props: IconProps): ReactElement
-  export function IconSendOutline14(props: IconProps): ReactElement
-  export function IconWarningOutline16(props: IconProps): ReactElement
-  export function IconAlarmClockOutline16(props: IconProps): ReactElement
-  export function IconArchiveOutline20(props: IconProps): ReactElement
-  export function IconBranchOutline16(props: IconProps): ReactElement
-  export function IconCloseFill14(props: IconProps): ReactElement
-  export function IconEditOutline16(props: IconProps): ReactElement
-  export function IconEllipsisOutline16(props: IconProps): ReactElement
-  export function IconFolderClose16(props: IconProps): ReactElement
-  export function IconFolderOpen16(props: IconProps): ReactElement
-  export function IconPersonalizationOutline16(props: IconProps): ReactElement
-  export function IconPlusOutline16(props: IconProps): ReactElement
-  export function IconProjectAddOutline16(props: IconProps): ReactElement
-  export function IconSearchOutline16(props: IconProps): ReactElement
-  export function IconTrashOutline16(props: IconProps): ReactElement
-  export function IconTriangleRightFill14(props: IconProps): ReactElement
+  export function IconGlobeOutlineRegular(props: IconProps): ReactElement
+  export function IconChevronDownOutlineRegular(props: IconProps): ReactElement
+  export function IconChevronRightOutlineRegular(props: IconProps): ReactElement
+  export function IconRefreshOutlineRegular(props: IconProps): ReactElement
+  export function IconSendOutlineRegular(props: IconProps): ReactElement
+  export function IconWarningOutlineRegular(props: IconProps): ReactElement
+  export function IconAlarmClockOutlineRegular(props: IconProps): ReactElement
+  export function IconArchiveOutlineRegular(props: IconProps): ReactElement
+  export function IconBranchOutlineRegular(props: IconProps): ReactElement
+  export function IconCloseFillRegular(props: IconProps): ReactElement
+  export function IconEditOutlineRegular(props: IconProps): ReactElement
+  export function IconEllipsisOutlineRegular(props: IconProps): ReactElement
+  export function IconFolderCloseRegular(props: IconProps): ReactElement
+  export function IconFolderOpenRegular(props: IconProps): ReactElement
+  export function IconPersonalizationOutlineRegular(props: IconProps): ReactElement
+  export function IconPlusOutlineRegular(props: IconProps): ReactElement
+  export function IconProjectAddOutlineRegular(props: IconProps): ReactElement
+  export function IconSearchOutlineRegular(props: IconProps): ReactElement
+  export function IconTrashOutlineRegular(props: IconProps): ReactElement
+  export function IconTriangleRightFillRegular(props: IconProps): ReactElement
 }

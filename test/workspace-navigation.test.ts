@@ -37,7 +37,7 @@ describe('workspace UI actions', () => {
 })
 
 describe('workspace browser service lookup', () => {
-  it('uses the registered uiWorkspace even while strict lookup reports it inactive', () => {
+  it('uses uiWorkspace and temporarily retains unopened sessions for rename', async () => {
     const actions: string[] = []
     const registrations = new Map<string, { inject?: () => Record<string, unknown> }>()
     const uiWorkspace = {
@@ -58,6 +58,13 @@ describe('workspace browser service lookup', () => {
       list: { getSnapshot: () => ({ ids: [], byId: {} }) },
       searchResultLimit: 20,
       binding: () => undefined,
+      using: async (_id: string, options: { source: string }, operation: (reference: unknown) => Promise<unknown>) => {
+        expect(options.source).toBe('workspaceOperation')
+        return operation({ binding: { session: { rename: async (title: string) => {
+          actions.push(`rename:${title}`)
+          return { ok: true }
+        } } } })
+      },
     }
     const workspaces = { list: { getSnapshot: () => ({ items: [], archivedSessionIds: [] }) } }
     const context = {
@@ -77,7 +84,8 @@ describe('workspace browser service lookup', () => {
     ;(props?.startSession as (workspaceId?: string) => void)('workspace-1')
     ;(props?.archiveSession as (sessionId: string) => Promise<void>)('session-1')
 
-    expect(actions).toEqual(['start:workspace-1', 'archive:session-1'])
+    await (props?.renameSession as (id: string, title: string) => Promise<void>)('unopened-session', 'New title')
+    expect(actions).toEqual(['start:workspace-1', 'archive:session-1', 'rename:New title'])
   })
 })
 

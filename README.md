@@ -13,6 +13,10 @@ dsh-node（远程机器） ──拨出 WS──► dsh-coordinator ──/api�
 
 ## 现状
 
+已适配 Desktop **2.0.18** / DSH **0.2.1-rc.2**（Cordis 4.0.5）。新版设置使用 `configForms` 和当前 profile 的 live Config；本地会话使用 `retain(..., { source: 'mainView' })`，返回对话页使用 `layout.selectPanel(null)`。旧版 `settingsScope` / `installSection` 不再是启动前提。
+
+升级后沿用的官方 v5 侧栏缓存会在首次加载时补齐本插件需要的字段，保留已有排序和折叠设置。若旧版本已导致工作区区域渲染失败，更新构建后需要刷新页面以重新注册该区域；不需要清空工作区或缓存。
+
 宿主 API、远程面板和本地工作区 fork 已在桌面实例使用；本地与远程工作区平级且可分别折叠，独立的「远程」快捷入口已移除。**这次侧栏交互尚待当前 UI 截图复验**。
 
 | 能力 | 状态 |
@@ -50,10 +54,9 @@ dsh-node（远程机器） ──拨出 WS──► dsh-coordinator ──/api�
 ```powershell
 pnpm install
 pnpm build
-dsh --profile desktop --dump-config   # 退出码 0，且 `- id: dsh-master` 恰好出现 1 次
 ```
 
-之后重启或刷新 DSH Desktop。左侧工作区树中的本地与「远程工作区」是平级可折叠组；本地搜索、添加入口保留。点击远程会话会打开 `dsh-master` 面板，不再显示独立的「远程」图标入口。
+之后完整退出并重新启动 DSH Desktop；如插件此前被禁用，先在插件管理中重新启用。当前 CLI 不允许 `--profile desktop`，该 profile 由 Electron 管理。左侧工作区树中的本地与「远程工作区」是平级可折叠组；本地搜索、添加入口保留。点击远程会话会打开 `dsh-master` 面板，不再显示独立的「远程」图标入口。
 
 ## 配置
 
@@ -78,7 +81,7 @@ dsh --profile desktop --dump-config   # 退出码 0，且 `- id: dsh-master` 恰
 | `allowPrompt` | `false` | **发消息会在远程机器上真实跑一个 agent 回合**（可改文件、执行工具）。默认关闭，关闭时在读请求体之前就拒绝 |
 | `requestTimeoutMs` | `30000` | 单次 coordinator 调用的截止时间 |
 
-也可以在 DSH 的「设置 → 插件 → 插件配置 → dsh-master」中修改 `coordinatorUrl` 和 operator token。URL 保存后立即用于后续请求；新 token 通过 DSH 凭据服务保存，不会写入普通设置文件，也不会回传显示。token 输入框留空表示不修改。默认 DSH home 设置通常由本机各 profile 共用；如果部署使用自定义 settings provider，则以该 provider 的作用范围为准。凭据服务中的 token 优先于旧配置里的 `apiToken`，旧 YAML 配置仍兼容。
+也可以在 DSH 左侧「插件 → 内置插件配置 → dsh-master」中修改 `coordinatorUrl` 和 operator token。URL 保存到当前 profile，立即用于后续请求，重启后保留；新 token 通过 DSH 凭据服务保存，不会写入普通设置文件，也不会回传显示。token 输入框留空表示不修改。凭据服务中的 token 优先于旧配置里的 `apiToken`，旧 YAML 配置仍兼容。
 
 建议将 `trustedHosts`、`allowPrompt` 和超时等部署策略继续留在 profile 的 `cordis.patch.yml`；界面只管理 coordinator 地址和 token。
 
@@ -108,6 +111,15 @@ pnpm test        # vitest，需先 pnpm build（bundle 不变式测试读 lib/cl
 pnpm build       # 声明文件 + 两个 bundle
 pnpm dev         # tsdown --watch
 ```
+
+安装了目标 Desktop 后，可额外校验真实宿主的 primitive 导出（包括图标），避免模拟测试漏掉接口删除：
+
+```powershell
+$env:DSH_RUNTIME_ROOT = 'E:\DSH\DSH Desktop\resources\app\node_modules'
+pnpm test
+```
+
+2026-10-20 已在隔离 home/profile、相同安装版本的 Host + Web UI 中验证：启动、本地/远程侧栏、目录选择、添加工作区、创建并打开空白会话、从插件页返回本地会话、Coordinator URL 保存后即时生效及重启持久化。测试时 coordinator 离线，未发送本地或远程 prompt；真实远程节点的端到端通信未在本轮重测。
 
 ### 几个不能忘的约定
 

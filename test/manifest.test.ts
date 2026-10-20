@@ -29,6 +29,7 @@ describe('DSH plugin manifest', () => {
     expect(client['inject']).toContain('@deepseek-ai/dsh-client-ui-slots')
     expect(client['inject']).toContain('@deepseek-ai/dsh-client-ui-settings')
     expect(client['inject']).toContain('@deepseek-ai/dsh-client-ui-settings-plugins')
+    expect(client['inject']).toContain('@deepseek-ai/dsh-client-ui-plugin-manager')
     const exports = (await manifest())['exports'] as Record<string, unknown>
     expect(exports['./client']).toBeDefined()
   })
@@ -60,7 +61,7 @@ describe('DSH plugin manifest', () => {
     // rather than a dev one — otherwise the plugin installs and then fails to load.
     const dependencies = (await manifest())['dependencies'] as Record<string, string>
     const source = await readFile(join(ROOT, 'src/config.ts'), 'utf8')
-    expect(source).toContain("from 'schemastery'")
-    expect(dependencies['schemastery']).toBeDefined()
+    expect(source).toContain("from '@deepseek-ai/schemastery'")
+    expect(dependencies['@deepseek-ai/schemastery']).toBeDefined()
   })
 })

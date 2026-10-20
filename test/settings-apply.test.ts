@@ -1,12 +1,44 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apply, MASTER_SERVICE_KEY } from '../src/index.js'
+import { apply, Config, MASTER_SERVICE_KEY } from '../src/index.js'
 import type { MasterConfig } from '../src/config.js'
 import type { MasterService } from '../src/service.js'
 
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('dsh-master live settings', () => {
+  it('mounts with the current settings service and reads a volatile URL on each request', async () => {
+    let url = 'http://first.test'
+    const requests: string[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      requests.push(String(input))
+      return new Response(JSON.stringify({ ok: true, value: [] }), { status: 200 })
+    })
+    const services: Record<string, unknown> = {}
+    const ctx = {
+      get: () => undefined,
+      provide: (key: string, value: unknown) => { services[key] = value },
+      inject: (keys: string[], callback: (scoped: unknown) => void) => {
+        if (keys[0] === 'settings') callback({ settings: { configure: () => () => undefined } })
+      },
+    } as unknown as Context
+    expect(() => apply(ctx, { coordinatorUrl: { get: () => url } })).not.toThrow()
+    const master = services[MASTER_SERVICE_KEY] as MasterService
+    await master.status()
+    url = 'https://next.test/'
+    await master.status()
+    expect(requests).toEqual([
+      'http://first.test/api/health', 'http://first.test/api/nodes',
+      'https://next.test/api/health', 'https://next.test/api/nodes',
+    ])
+  })
+
+  it('exposes the coordinator URL as a live Config field for configForms', () => {
+    expect(Config.dict?.['coordinatorUrl']?.meta.volatile).toBe(true)
+    const config = Config({ coordinatorUrl: 'https://coordinator.test' })
+    expect(config.coordinatorUrl.get()).toBe('https://coordinator.test')
+  })
+
   it('uses the settings URL and credentials on the next coordinator request', async () => {
     const requests: { url: string; authorization: string | undefined }[] = []
     let token = 'first-token'

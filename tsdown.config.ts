@@ -73,7 +73,7 @@ function clientBundle(entryFile: string, moduleId: string): UserConfig {
 /**
  * Two halves, two bundles.
  *
- * The host half is ESM for Node and keeps `schemastery` a real import: bundling it
+ * The host half is ESM for Node and keeps `@deepseek-ai/schemastery` a real import: bundling it
  * would inline a schema validator and hide a runtime dependency from `files`.
  *
  * `clean` is false on purpose — DSH Desktop holds `lib/*.js` open while the profile
@@ -89,7 +89,7 @@ export default [
     dts: false,
     sourcemap: true,
     clean: false,
-    external: ['schemastery'],
+    external: ['@deepseek-ai/schemastery'],
   },
   clientBundle('client.js', PACKAGE_ID),
 ] satisfies UserConfig[]

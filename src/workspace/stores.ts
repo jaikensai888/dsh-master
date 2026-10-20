@@ -63,7 +63,7 @@ type WorkspaceViewActions = {
  * @returns the store handle (spec + type + identity + factory in one).
  */
 export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState, WorkspaceViewActions> {
-  return defineStore({
+  const handle = defineStore({
     init: (): WorkspaceViewState => ({
       groupBy: 'workspace',
       orderBy: 'updated',
@@ -101,4 +101,19 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
       },
     },
   })
+  return {
+    ...handle,
+    create(scopeKey) {
+      const instance = handle.create(scopeKey)
+      // Official v5 snapshots replace init wholesale and omit the fork's timestamp map.
+      instance.store.update(draft => {
+        draft.groupExpansion ??= {}
+        draft.sessionOrderByAccount ??= {}
+        draft.sessionUpdatedAtByAccount ??= {}
+        draft.localExpanded ??= true
+        draft.remoteExpanded ??= true
+      })
+      return instance
+    },
+  }
 }

@@ -29,6 +29,21 @@ function testScope(initial: { coordinatorUrl: string }): MasterSettingsScope {
 }
 
 describe('MasterSettingsCardController', () => {
+  it('keeps drafts and does not write credentials after configForms rejects the URL write', async () => {
+    const scope = testScope({ coordinatorUrl: 'http://first.test' })
+    scope.set = vi.fn(async () => false)
+    const credentials = {
+      describe: async () => ({ ok: true, value: { [MASTER_SETTINGS_TOKEN_REF]: { configured: true, writable: true } } }),
+      set: vi.fn(async () => ({ ok: true })),
+    }
+    const controller = new MasterSettingsCardController(scope, credentials)
+    await controller.refreshCredential()
+    controller.editCoordinatorUrl('https://next.test')
+    controller.editApiToken('new-token')
+    await controller.save()
+    expect(credentials.set).not.toHaveBeenCalled()
+    expect(controller.getSnapshot()).toMatchObject({ failed: true, dirty: true, apiToken: 'new-token' })
+  })
   it('saves the coordinator URL and writes a token only through credentials', async () => {
     const scope = testScope({ coordinatorUrl: 'http://127.0.0.1:39472' })
     let configured = false

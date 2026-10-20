@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { MasterSettingsCardState } from './settings-card.js'
 
 interface Props {
+  view?: 'summary' | 'page'
   t: (key: string) => string
   useMasterSettings: <Selection>(selector: (state: MasterSettingsCardState) => Selection) => Selection
   editCoordinatorUrl: (value: string) => void
@@ -12,15 +13,16 @@ interface Props {
 
 /** The coordinator connection form rendered in DSH Settings → Plugins. */
 export function MasterSettingsCard(props: Props) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(props.view === 'page')
   const state = props.useMasterSettings(snapshot => snapshot)
   const t = props.t
   if (!state.available) return null
+  if (props.view === 'summary') return <span>{state.coordinatorUrl}</span>
   const tokenBlocked = !state.credentialAvailable || !state.credentialWritable
   const saveBlocked = !state.dirty || !state.writable || state.invalidUrl || state.saving
     || (state.apiToken.trim() !== '' && tokenBlocked)
   return (
-    <li className={`dsh-master-settings-card${open ? ' dsh-master-settings-card-open' : ''}`}>
+    <div className={`dsh-master-settings-card${open ? ' dsh-master-settings-card-open' : ''}`}>
       <button
         type="button"
         className="dsh-master-settings-header"
@@ -93,6 +95,6 @@ export function MasterSettingsCard(props: Props) {
           </div>
         )
         : null}
-    </li>
+    </div>
   )
 }

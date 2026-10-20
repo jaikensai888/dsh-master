@@ -5,11 +5,11 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Button: ({ children }: { children?: ReactNode }) => createElement('button', null, children),
-  IconChevronDownOutline14: () => createElement('span'),
-  IconChevronRightOutline14: () => createElement('span'),
-  IconPlusOutline16: () => createElement('span'),
-  IconSendOutline14: () => createElement('span'),
-  IconWarningOutline16: () => createElement('span'),
+  IconChevronDownOutlineRegular: () => createElement('span'),
+  IconChevronRightOutlineRegular: () => createElement('span'),
+  IconPlusOutlineRegular: () => createElement('span'),
+  IconSendOutlineRegular: () => createElement('span'),
+  IconWarningOutlineRegular: () => createElement('span'),
   MarkdownText: ({ text }: { text: string }) => createElement('span', null, text),
   Pill: ({ children }: { children?: ReactNode }) => createElement('button', null, children),
   StateDot: () => createElement('span'),

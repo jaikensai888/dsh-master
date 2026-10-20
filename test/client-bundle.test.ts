@@ -120,7 +120,7 @@ describe('the built client bundle', () => {
     const returns: Record<string, (...args: unknown[]) => unknown> = {
       defineStore: (definition: unknown) => {
         storeDefinitions.push(definition)
-        return { spec: {}, create: () => ({}) }
+        return { spec: {}, create: () => ({ store: { update: () => undefined } }) }
       },
     }
     const requireFromTable = (id: string): unknown => {
@@ -159,7 +159,6 @@ describe('the built client bundle', () => {
       'remote',
       'remote.credentials',
       'remote.directoryPicker',
-      'settingsScope',
     ])
     expect(typeof exports?.apply).toBe('function')
 
@@ -173,6 +172,7 @@ describe('the built client bundle', () => {
     const self: Record<string, unknown> = {
       // `ctx.effect` returns the disposer so the registrations are observable here.
       effect: (callback: () => (() => void) | undefined) => callback(),
+      inject: (_keys: string[], callback: (ctx: unknown) => void) => callback(self),
       on: () => () => undefined,
       get: (key: string) => provided[key],
       provide: (key: string, value: unknown) => { provided[key] = value },
@@ -203,13 +203,16 @@ describe('the built client bundle', () => {
         },
         $on: () => () => undefined,
       },
-      settingsScope: {
-        bind: () => ({
+      configForms: {
+        get: (entryId: string) => {
+          expect(entryId).toBe('dsh-master')
+          return {
           getSnapshot: () => ({ status: 'ready', value: { coordinatorUrl: 'http://127.0.0.1:39472' }, user: {}, writable: true }),
           subscribe: () => () => undefined,
           set: async () => undefined,
           unset: async () => undefined,
-        }),
+          }
+        },
         describe: () => ({
           getSnapshot: () => ({ view: { namespaces: [] } }),
           subscribe: () => () => undefined,
@@ -257,7 +260,7 @@ describe('the built client bundle', () => {
       'sidebar.workspaces',
       'conversation.hero.workspace',
       'main',
-      'settings.plugin.item',
+      'plugins.item',
     ])
     expect(registrations.map(entry => entry.options)).toEqual([
       {
@@ -276,7 +279,7 @@ describe('the built client bundle', () => {
         locale: 'workspace',
       },
       { name: 'main', key: 'dsh-master', registrant: 'dsh-master' },
-      { name: 'settings.plugin.item', key: 'dsh-master', locale: 'dsh-master', inject: expect.any(Function) },
+      { name: 'plugins.item', id: 'dsh-master', label: expect.any(Function), locale: 'dsh-master', inject: expect.any(Function) },
     ])
 
     const viewStore = storeDefinitions[0] as {

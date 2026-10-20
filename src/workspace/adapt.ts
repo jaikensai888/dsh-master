@@ -84,8 +84,8 @@ function adaptWireSummary(row: Record<string, unknown>, fallbackId: string): Ses
   const parentId = typeof row['parentSessionId'] === 'string' ? row['parentSessionId'] : undefined
   const cwd = str(row, 'cwd')
   return {
-    id: typeof row['sessionId'] === 'string' ? row['sessionId'] : fallbackId,
-    displayTitle: title ?? '',
+    id: str(row, 'id') ?? str(row, 'sessionId') ?? fallbackId,
+    displayTitle: str(row, 'title') ?? title ?? '',
     blank: row['blank'] === true,
     running: row['running'] === true,
     updatedAt: typeof row['updatedAt'] === 'number' ? row['updatedAt'] : 0,
@@ -93,6 +93,7 @@ function adaptWireSummary(row: Record<string, unknown>, fallbackId: string): Ses
     ...(parentId === undefined ? {} : { parentId }),
     ...(cwd === undefined ? {} : { cwd }),
     projectionValues: {
+      ...record(row['projectionValues']),
       ...(title === undefined || title === null ? {} : { title }),
       ...(Array.isArray(schedule) ? { schedule } : {}),
     },
@@ -134,9 +135,13 @@ function buildList(source: Record<string, unknown>, rawById: Record<string, unkn
 
   const phase = str(source, 'phase')
   return {
+    ...source,
     ids,
     byId,
-    current: str(source, 'current'),
+    current: str(source, 'current') ?? Object.keys(rawById).find(id => {
+      const retained = record(record(rawById[id])?.['retainedBy'])
+      return typeof retained?.['mainView'] === 'number' && retained['mainView'] > 0
+    }),
     ...(phase === undefined ? {} : { phase }),
   }
 }
@@ -159,12 +164,39 @@ export function adaptSessionList(state: unknown): SessionListState {
 
   // Nothing to do: keep the runtime's own object, so every downstream identity
   // comparison — and every field this adapter does not know about — survives intact.
+  const retainedCurrent = Object.keys(rawById).find(id => {
+    const retained = record(record(rawById[id])?.['retainedBy'])
+    return typeof retained?.['mainView'] === 'number' && retained['mainView'] > 0
+  })
   const result = alreadyProjected
-    ? source as unknown as SessionListState
+    ? (source['current'] === undefined && retainedCurrent !== undefined
+        ? { ...source, current: retainedCurrent } : source) as unknown as SessionListState
     : buildList(source, rawById)
 
   adapted.set(source, result)
   return result
+}
+
+type RowStatus = { readonly kind?: string; readonly completionUnread?: boolean }
+type SessionStatus = { readonly pendingInteraction?: { readonly kind?: string }; readonly completionUnread?: boolean }
+const pendingByStatus = new WeakMap<object, ReadonlyMap<string, RowStatus>>()
+const NO_PENDING = new Map<string, RowStatus>()
+
+/** Keep the fork's pending-interaction hook over the current uiSession status source. */
+export function adaptSessionStatusHook(
+  raw: SnapshotSelectorHook<ReadonlyMap<string, SessionStatus>> | undefined,
+): SnapshotSelectorHook<ReadonlyMap<string, RowStatus>> {
+  return (selector, equals) => raw === undefined ? selector(NO_PENDING) : raw(status => {
+    let pending = pendingByStatus.get(status)
+    if (pending === undefined) {
+      pending = new Map([...status].map(([id, value]) => [id, {
+        ...value.pendingInteraction,
+        ...(value.completionUnread === undefined ? {} : { completionUnread: value.completionUnread }),
+      }]))
+      pendingByStatus.set(status, pending)
+    }
+    return selector(pending)
+  }, equals)
 }
 
 /**

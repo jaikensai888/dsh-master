@@ -8,7 +8,7 @@ export const masterSettingsLocale = {
     title: 'dsh-master',
     description: '远程工作区所连接的 dsh-coordinator。',
     coordinatorUrl: 'Coordinator 地址',
-    coordinatorUrlHint: '填写 HTTP(S) 地址；DSH home 设置通常由本机各 profile 共用。',
+    coordinatorUrlHint: '填写 HTTP(S) 地址；保存到当前 profile，后续请求立即生效。',
     apiToken: 'API Token',
     apiTokenHint: '留空表示不更改；新 token 仅存入凭据存储，不写入设置文件。',
     tokenConfigured: '已配置',
@@ -26,7 +26,7 @@ export const masterSettingsLocale = {
     title: 'dsh-master',
     description: 'Coordinator connection for the remote workspace.',
     coordinatorUrl: 'Coordinator URL',
-    coordinatorUrlHint: 'Enter an HTTP(S) URL. DSH home settings are usually shared across local profiles.',
+    coordinatorUrlHint: 'Enter an HTTP(S) URL. Saved in the current profile and used by subsequent requests.',
     apiToken: 'API token',
     apiTokenHint: 'Leave blank to keep the current token. A new token is stored outside the settings file.',
     tokenConfigured: 'Configured',
@@ -58,8 +58,8 @@ export interface MasterSettingsScope {
     writable: boolean
   }
   subscribe(listener: () => void): () => void
-  set(field: string, value: unknown): Promise<void>
-  unset(field: string): Promise<void>
+  set(field: string, value: unknown): Promise<boolean | void>
+  unset(field: string): Promise<boolean | void>
 }
 
 /** Credential operations available to a write-only secret field. */
@@ -206,8 +206,8 @@ export class MasterSettingsCardController {
     let landed = true
     try {
       if (nextUrl !== undefined && nextUrl !== this.currentCoordinatorUrl()) {
-        await this.scope.set('coordinatorUrl', nextUrl)
-        landed = this.currentCoordinatorUrl() === nextUrl
+        const accepted = await this.scope.set('coordinatorUrl', nextUrl)
+        landed = accepted !== false && this.currentCoordinatorUrl() === nextUrl
         if (landed) this.urlDraft = undefined
       }
       if (landed && token !== '' && this.credentials !== undefined) {

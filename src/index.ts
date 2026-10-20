@@ -75,7 +75,7 @@ interface WebServerLike {
 
 /** Optional host settings service; structural because DSH packages are not runtime dependencies here. */
 interface SettingsLike {
-  installSection(
+  installSection?(
     owner: Context,
     namespace: string,
     schema: unknown,
@@ -113,8 +113,7 @@ function readRuntimeTrustedHosts(ctx: Context): readonly string[] | undefined {
  */
 export function apply(ctx: Context, config?: unknown): void {
   const resolved = resolveConfig(config)
-  let currentConfig = resolved
-  let currentSource: () => MasterConfig = () => resolved
+  let currentSource: () => unknown = () => config ?? resolved
   const sink = cordisLogSink((ctx as unknown as { logger?: unknown }).logger)
   const logger = createMasterLogger({
     ...(resolved.apiToken === undefined ? {} : { secrets: [resolved.apiToken] }),
@@ -125,11 +124,11 @@ export function apply(ctx: Context, config?: unknown): void {
   const client = new CoordinatorClient({
     baseUrl: resolved.coordinatorUrl,
     ...(resolved.apiToken === undefined ? {} : { apiToken: resolved.apiToken }),
-    getBaseUrl: () => currentConfig.coordinatorUrl,
+    getBaseUrl: () => resolveConfig(currentSource()).coordinatorUrl,
     resolveApiToken: async () => {
       const credentials = (ctx.get as unknown as (key: string, strict?: boolean) => unknown)('credentials', false) as CredentialsLike | undefined
       const stored = await credentials?.resolve(MASTER_SETTINGS_TOKEN_REF)
-      return stored?.value || currentConfig.apiToken
+      return stored?.value || resolveConfig(currentSource()).apiToken
     },
     requestTimeoutMs: resolved.requestTimeoutMs,
   })
@@ -140,9 +139,9 @@ export function apply(ctx: Context, config?: unknown): void {
   // under the DSH home settings provider; the composition config remains the fallback.
   ctx.inject(['settings'], (settingsCtx) => {
     const settings = (settingsCtx as unknown as { settings?: SettingsLike }).settings
-    settings?.installSection(ctx, MASTER_SETTINGS_NAMESPACE, Config, resolved, {
+    settings?.installSection?.(ctx, MASTER_SETTINGS_NAMESPACE, Config, resolved, {
       setSource: (source) => { currentSource = source },
-      onChange: () => { currentConfig = resolveConfig(currentSource()) },
+      onChange: () => undefined,
     })
   })
 

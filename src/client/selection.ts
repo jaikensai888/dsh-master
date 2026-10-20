@@ -23,7 +23,8 @@ export interface RemoteSessionSelection {
 
 /** The layout action required to navigate to the registered panel. */
 export interface PanelNavigation {
-  selectPanel(id: string): void
+  selectPanel(id: string | null): void
+  beginNavigation?(): AbortSignal
 }
 
 /** The local session action paired with its main-panel navigation. */
@@ -50,8 +51,9 @@ export function openLocalSession(
   layout: PanelNavigation,
   sessions: LocalSessionOpener,
   sessionId: string,
+  panelId: string | null = CONVERSATION_PANEL_ID,
 ): void {
-  layout.selectPanel(CONVERSATION_PANEL_ID)
+  layout.selectPanel(panelId)
   setRemoteSelection(undefined)
   sessions.open(sessionId)
 }

@@ -29,7 +29,7 @@ export const UNGROUPED_KEY = ''
 
 /** Pending interaction kinds with dedicated Workspace-row presentation. */
 export type SessionPendingInteractionStatus = 'approval' | 'plan-review' | 'question'
-type SessionPendingInteractions = ReadonlyMap<SessionId, SessionPendingInteractionBase>
+type SessionPendingInteractions = ReadonlyMap<SessionId, SessionPendingInteractionBase & { readonly completionUnread?: boolean }>
 
 /** One top-level session row in a group or the flat list. */
 export interface SessionNode {
@@ -260,7 +260,7 @@ function sessionNode(
     blank: s.blank,
     running: s.running,
     runningSubagentCount: descendants.get(s.id)?.runningCount ?? 0,
-    completed: s.completed === true,
+    completed: pendingInteractions.get(s.id)?.completionUnread ?? s.completed === true,
     hasActiveSchedule: hasActiveSchedule(s),
     updatedAt: s.updatedAt,
     ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
@@ -424,7 +424,7 @@ export function deriveSearchResults(
         ...(pendingInteraction === undefined
           ? {}
           : { pendingInteraction }),
-        completed: summary.completed === true,
+        completed: pendingInteractions.get(summary.id)?.completionUnread ?? summary.completed === true,
         hasActiveSchedule: hasActiveSchedule(summary),
         ...match === undefined ? {} : { snippet: match.snippet },
       }

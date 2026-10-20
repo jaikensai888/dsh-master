@@ -19,8 +19,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  Button, IconCloseFill14, IconPersonalizationOutline16,
-  IconProjectAddOutline16, IconSearchOutline16, Menu, Modal, Tooltip,
+  Button, IconCloseFillRegular as IconCloseFill14, IconPersonalizationOutlineRegular as IconPersonalizationOutline16,
+  IconProjectAddOutlineRegular as IconProjectAddOutline16, IconSearchOutlineRegular as IconSearchOutline16, Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   SessionListState, SessionSearchResultItem,
@@ -28,7 +28,7 @@ import type {
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import { adaptSessionsHook } from '../adapt.js'
+import { adaptSessionsHook, adaptSessionStatusHook } from '../adapt.js'
 import type { WorkspaceBrowserProps } from '../contract/slots.js'
 import type { SessionNode, SessionOrderBy } from '../tree.js'
 import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from '../tree.js'
@@ -817,7 +817,8 @@ export function WorkspaceBrowser({
   // call site below reading the shape it was written against — one adapter instead of
   // a dozen edits to upstream logic. See `../adapt.ts`.
   useSessions: useRunningSessions,
-  useSessionPendingInteraction,
+  useSessionPendingInteraction: useLegacyPendingInteraction,
+  useSessionStatus,
   useWorkspaces,
   useStore,
   actions,
@@ -840,6 +841,7 @@ export function WorkspaceBrowser({
   renderSlot,
   t,
 }: WorkspaceBrowserProps) {
+  const useSessionPendingInteraction = useLegacyPendingInteraction ?? adaptSessionStatusHook(useSessionStatus)
   // The one local adaptation of upstream behaviour: 0.1.5 nests a session's display
   // facts under `projections.values` and calls the id `sessionId`; this fork reads the
   // 0.1.2 flat names. Everything below is upstream code operating on the shape it

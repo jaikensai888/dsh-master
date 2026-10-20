@@ -7,12 +7,12 @@
 import clsx from 'clsx'
 import {
   Button,
-  IconChevronDownOutline14,
-  IconChevronRightOutline14,
-  IconArchiveOutline20,
-  IconEllipsisOutline16,
-  IconGlobeOutline14,
-  IconRefreshOutline14,
+  IconChevronDownOutlineRegular as IconChevronDownOutline14,
+  IconChevronRightOutlineRegular as IconChevronRightOutline14,
+  IconArchiveOutlineRegular as IconArchiveOutline20,
+  IconEllipsisOutlineRegular as IconEllipsisOutline16,
+  IconGlobeOutlineRegular as IconGlobeOutline14,
+  IconRefreshOutlineRegular as IconRefreshOutline14,
   Menu,
   StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'

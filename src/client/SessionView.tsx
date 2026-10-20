@@ -17,11 +17,11 @@
 
 import {
   Button,
-  IconChevronDownOutline14,
-  IconChevronRightOutline14,
-  IconPlusOutline16,
-  IconSendOutline14,
-  IconWarningOutline16,
+  IconChevronDownOutlineRegular as IconChevronDownOutline14,
+  IconChevronRightOutlineRegular as IconChevronRightOutline14,
+  IconPlusOutlineRegular as IconPlusOutline16,
+  IconSendOutlineRegular as IconSendOutline14,
+  IconWarningOutlineRegular as IconWarningOutline16,
   MarkdownText,
   Pill,
   StateDot,

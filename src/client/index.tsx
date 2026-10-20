@@ -59,7 +59,6 @@ export const inject = [
   'remote',
   'remote.credentials',
   'remote.directoryPicker',
-  'settingsScope',
 ] as const
 
 /** The layout's central-panel slot, dispatched by the selected panel id. */
@@ -78,8 +77,8 @@ export function apply(ctx: Context): void {
     remote?: {
       credentials?: MasterSettingsCredentials
     }
-    settingsScope?: {
-      bind: (spec: { namespace: string }) => MasterSettingsScope
+    configForms: {
+      get: (entryId: string) => MasterSettingsScope
       describe: () => MasterSettingsDescribeFace
     }
   }
@@ -135,17 +134,19 @@ export function apply(ctx: Context): void {
     registrant: 'dsh-master',
   }, () => <RemotePanel />)), 'dsh-master.main')
 
-  if (services.settingsScope !== undefined) {
+  ctx.inject(['configForms', 'remote.credentials'], (scope) => {
+    const forms = (scope as unknown as typeof services).configForms
     const card = new MasterSettingsCardController(
-      services.settingsScope.bind({ namespace: MASTER_SETTINGS_NAMESPACE }),
+      forms.get(MASTER_SETTINGS_NAMESPACE),
       services.remote?.credentials,
-      services.settingsScope.describe(),
+      forms.describe(),
     )
-    ctx.effect(() => () => { card.dispose() }, 'dsh-master.settings-card')
-    ctx.effect(
-      () => slots.inject('settings.plugin.item', () => slots.register({
-        name: 'settings.plugin.item',
-        key: MASTER_SETTINGS_NAMESPACE,
+    scope.effect(() => () => { card.dispose() }, 'dsh-master.settings-card')
+    scope.effect(
+      () => slots.inject('plugins.item', () => slots.register({
+        name: 'plugins.item',
+        id: MASTER_SETTINGS_NAMESPACE,
+        label: () => 'dsh-master',
         locale: 'dsh-master',
         inject: () => ({
           hooks: { masterSettings: card },
@@ -157,5 +158,5 @@ export function apply(ctx: Context): void {
       }, MasterSettingsCard)),
       'dsh-master.settings-card-slot',
     )
-  }
+  })
 }
