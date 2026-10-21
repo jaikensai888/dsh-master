@@ -83,7 +83,7 @@ pnpm build
 
 在 DSH 主界面左侧「插件」中打开 **dsh-master 插件详情页**，即可修改 `coordinatorUrl` 和 operator token；「设置 → 内置插件」只展示运行信息。独立的「内置插件配置 → dsh-master」卡片也保留同一表单。URL 保存到当前 profile，立即用于后续请求，重启后保留；新 token 通过 DSH 凭据服务保存，不会写入普通设置文件，也不会回传显示。token 输入框留空表示不修改。凭据服务中的 token 优先于旧配置里的 `apiToken`，旧 YAML 配置仍兼容。
 
-建议将 `trustedHosts`、`allowPrompt` 和超时等部署策略继续留在 profile 的 `cordis.patch.yml`；界面只管理 coordinator 地址和 token。
+配置卡片中的「允许远程发送消息」对应 `allowPrompt`，默认关闭；勾选后点击「保存」即可开启，取消勾选并保存则立即关闭，重启后保留。开启后，远程 Agent 可通过会话执行任务，包括修改文件和运行命令。`trustedHosts` 和超时等部署策略仍在 profile 的 `cordis.patch.yml` 中管理。
 
 ## HTTP 路由
 

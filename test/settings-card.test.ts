@@ -5,7 +5,7 @@ import {
   type MasterSettingsScope,
 } from '../src/client/settings-card.js'
 
-function testScope(initial: { coordinatorUrl: string }): MasterSettingsScope {
+function testScope(initial: { coordinatorUrl: string; allowPrompt?: boolean }): MasterSettingsScope {
   let snapshot = {
     status: 'ready' as const,
     value: initial,
@@ -29,6 +29,38 @@ function testScope(initial: { coordinatorUrl: string }): MasterSettingsScope {
 }
 
 describe('MasterSettingsCardController', () => {
+  it('stages, discards, saves and disables remote sending without modifying credentials', async () => {
+    const scope = testScope({ coordinatorUrl: 'http://first.test' })
+    const controller = new MasterSettingsCardController(scope)
+    expect(controller.getSnapshot().allowPrompt).toBe(false)
+    controller.editAllowPrompt(true)
+    expect(controller.getSnapshot()).toMatchObject({ allowPrompt: true, dirty: true })
+    expect(scope.set).not.toHaveBeenCalled()
+    controller.discard()
+    expect(controller.getSnapshot()).toMatchObject({ allowPrompt: false, dirty: false })
+    controller.editAllowPrompt(true)
+    await controller.save()
+    expect(scope.set).toHaveBeenCalledWith('allowPrompt', true)
+    expect(controller.getSnapshot()).toMatchObject({ allowPrompt: true, dirty: false, failed: false })
+    controller.editAllowPrompt(false)
+    await controller.save()
+    expect(scope.set).toHaveBeenLastCalledWith('allowPrompt', false)
+    expect(controller.getSnapshot()).toMatchObject({ allowPrompt: false, dirty: false, failed: false })
+    controller.dispose()
+  })
+
+  it('preserves a sending-permission draft when its write is rejected', async () => {
+    const scope = testScope({ coordinatorUrl: 'http://first.test', allowPrompt: true })
+    scope.set = vi.fn(async () => false)
+    const controller = new MasterSettingsCardController(scope)
+    controller.editAllowPrompt(false)
+    await controller.save()
+    expect(controller.getSnapshot()).toMatchObject({ allowPrompt: false, dirty: true, failed: true })
+    controller.discard()
+    expect(controller.getSnapshot()).toMatchObject({ allowPrompt: true, dirty: false })
+    controller.dispose()
+  })
+
   it('keeps drafts and does not write credentials after configForms rejects the URL write', async () => {
     const scope = testScope({ coordinatorUrl: 'http://first.test' })
     scope.set = vi.fn(async () => false)

@@ -7,6 +7,34 @@ import type { MasterService } from '../src/service.js'
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('dsh-master live settings', () => {
+  it('uses the live sending permission for status and each prompt without remounting', async () => {
+    const config = Config({})
+    expect(Config.dict?.['allowPrompt']?.meta.volatile).toBe(true)
+    let enabled = false
+    const requests: string[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+      requests.push(String(input))
+      return new Response(JSON.stringify({ ok: true, value: [] }), { status: 200 })
+    })
+    let master: MasterService | undefined
+    apply({
+      get: () => undefined,
+      provide: (key: string, value: MasterService) => { if (key === MASTER_SERVICE_KEY) master = value },
+      inject: () => undefined,
+    } as unknown as Context, { ...config, allowPrompt: { get: () => enabled } })
+    expect(master?.promptEnabled).toBe(false)
+    await expect(master!.prompt('n1', 's1', 'test')).rejects.toThrow('disabled')
+    expect(requests).toHaveLength(0)
+    enabled = true
+    expect((await master!.status()).promptEnabled).toBe(true)
+    await master!.prompt('n1', 's1', 'test')
+    const sent = requests.length
+    enabled = false
+    expect((await master!.status()).promptEnabled).toBe(false)
+    await expect(master!.prompt('n1', 's1', 'test')).rejects.toThrow('disabled')
+    expect(requests).toHaveLength(sent + 2)
+  })
+
   it('mounts with the current settings service and reads a volatile URL on each request', async () => {
     let url = 'http://first.test'
     const requests: string[] = []

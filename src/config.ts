@@ -55,7 +55,7 @@ export const Config = z.object({
   coordinatorUrl: z.string().default('http://127.0.0.1:39472').volatile(),
   apiToken: z.string().role('secret'),
   trustedHosts: z.array(z.string()).default([]),
-  allowPrompt: z.boolean().default(false),
+  allowPrompt: z.boolean().default(false).volatile(),
   requestTimeoutMs: z.natural().default(30_000),
 })
 
@@ -84,7 +84,10 @@ export function resolveConfig(raw: unknown): MasterConfig {
   const timeout = typeof source['requestTimeoutMs'] === 'number' && source['requestTimeoutMs'] > 0
     ? source['requestTimeoutMs']
     : 30_000
-  const allowPrompt = source['allowPrompt'] === true
+  const promptValue = source['allowPrompt']
+  const livePrompt = typeof promptValue === 'object' && promptValue !== null && 'get' in promptValue
+    && typeof promptValue.get === 'function' ? promptValue.get() as unknown : promptValue
+  const allowPrompt = livePrompt === true
   return {
     // A trailing slash would double up once a path is appended.
     coordinatorUrl: url.replace(/\/+$/u, ''),

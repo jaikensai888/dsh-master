@@ -154,6 +154,7 @@ export function apply(ctx: Context): void {
           inject: () => ({
             hooks: { masterSettings: card },
             editCoordinatorUrl: (value: string) => { card.editCoordinatorUrl(value) },
+            editAllowPrompt: (value: boolean) => { card.editAllowPrompt(value) },
             editApiToken: (value: string) => { card.editApiToken(value) },
             save: () => { void card.save() },
             discard: () => { card.discard() },

@@ -549,6 +549,7 @@ const CSS = `
   border-top: .5px solid var(--dsw-alias-border-l2);
 }
 .dsh-master-settings-label-row { display: flex; align-items: center; gap: 8px; }
+.dsh-master-settings-checkbox { width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--dsw-alias-brand-primary); }
 .dsh-master-settings-label {
   flex: 1;
   min-width: 0;

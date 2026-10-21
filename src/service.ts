@@ -29,21 +29,21 @@ export const MASTER_SERVICE_KEY = 'dshMaster'
  */
 export class MasterService {
   readonly #client: CoordinatorClient
-  readonly #allowPrompt: boolean
+  readonly #allowPrompt: boolean | (() => boolean)
 
   /**
    * @param client - the coordinator connection.
    * @param allowPrompt - whether prompts may be sent at all. Off unless the
    * deployment opted in: a prompt runs a real agent turn on a remote machine.
    */
-  constructor(client: CoordinatorClient, allowPrompt: boolean) {
+  constructor(client: CoordinatorClient, allowPrompt: boolean | (() => boolean)) {
     this.#client = client
     this.#allowPrompt = allowPrompt
   }
 
   /** Whether `prompt()` may be called. Read by the route layer, not by the caller. */
   get promptEnabled(): boolean {
-    return this.#allowPrompt
+    return typeof this.#allowPrompt === 'function' ? this.#allowPrompt() : this.#allowPrompt
   }
 
   /**
@@ -57,16 +57,16 @@ export class MasterService {
   async status(): Promise<MasterStatus> {
     const coordinator = await this.#client.probe()
     if (!coordinator.reachable) {
-      return { coordinator, nodeCount: 0, promptEnabled: this.#allowPrompt }
+      return { coordinator, nodeCount: 0, promptEnabled: this.promptEnabled }
     }
     try {
       const nodes = await this.#client.listNodes()
-      return { coordinator, nodeCount: nodes.length, promptEnabled: this.#allowPrompt }
+      return { coordinator, nodeCount: nodes.length, promptEnabled: this.promptEnabled }
     } catch {
       // Reachable but refusing: an unauthenticated coordinator answers `/api/health`
       // before it checks the token on the calls that matter, so the roster read is
       // where a missing operator token actually shows up.
-      return { coordinator, nodeCount: 0, promptEnabled: this.#allowPrompt }
+      return { coordinator, nodeCount: 0, promptEnabled: this.promptEnabled }
     }
   }
 
@@ -169,7 +169,7 @@ export class MasterService {
     mode: 'queue' | 'steer' = 'queue',
     signal?: AbortSignal,
   ): Promise<void> {
-    if (!this.#allowPrompt) {
+    if (!this.promptEnabled) {
       throw new Error('dsh-master: prompts are disabled by configuration')
     }
     await this.#client.prompt(nodeId, sessionId, text, mode, signal)

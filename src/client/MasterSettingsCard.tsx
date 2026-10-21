@@ -6,6 +6,7 @@ interface Props {
   t: (key: string) => string
   useMasterSettings: <Selection>(selector: (state: MasterSettingsCardState) => Selection) => Selection
   editCoordinatorUrl: (value: string) => void
+  editAllowPrompt: (value: boolean) => void
   editApiToken: (value: string) => void
   save: () => void
   discard: () => void
@@ -73,6 +74,20 @@ export function MasterSettingsCard(props: Props) {
             <p className="dsh-master-settings-hint">
               {tokenBlocked ? t('tokenReadOnly') : t('apiTokenHint')}
             </p>
+            <div className="dsh-master-settings-separator" />
+            <label className="dsh-master-settings-label-row" htmlFor="dsh-master-allow-prompt">
+              <input
+                id="dsh-master-allow-prompt"
+                className="dsh-master-settings-checkbox"
+                type="checkbox"
+                checked={state.allowPrompt}
+                disabled={!state.writable || state.saving}
+                aria-describedby="dsh-master-allow-prompt-hint"
+                onChange={event => { props.editAllowPrompt(event.target.checked) }}
+              />
+              <span className="dsh-master-settings-label">{t('allowPrompt')}</span>
+            </label>
+            <p id="dsh-master-allow-prompt-hint" className="dsh-master-settings-hint">{t('allowPromptHint')}</p>
             <div className="dsh-master-settings-footer">
               {state.failed ? <p className="dsh-master-settings-error" role="status">{t('saveFailed')}</p> : null}
               <button

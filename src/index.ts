@@ -132,7 +132,7 @@ export function apply(ctx: Context, config?: unknown): void {
     },
     requestTimeoutMs: resolved.requestTimeoutMs,
   })
-  const service = new MasterService(client, resolved.allowPrompt)
+  const service = new MasterService(client, () => resolveConfig(currentSource()).allowPrompt)
   ctx.provide(MASTER_SERVICE_KEY, service)
 
   // DSH's optional settings section lets the Plugins card persist the endpoint

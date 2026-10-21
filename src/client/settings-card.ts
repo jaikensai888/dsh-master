@@ -9,6 +9,8 @@ export const masterSettingsLocale = {
     description: '远程工作区所连接的 dsh-coordinator。',
     coordinatorUrl: 'Coordinator 地址',
     coordinatorUrlHint: '填写 HTTP(S) 地址；保存到当前 profile，后续请求立即生效。',
+    allowPrompt: '允许远程发送消息',
+    allowPromptHint: '开启后可向远程会话发送消息，Agent 可能修改远程文件和运行命令。保存后立即生效。',
     apiToken: 'API Token',
     apiTokenHint: '留空表示不更改；新 token 仅存入凭据存储，不写入设置文件。',
     tokenConfigured: '已配置',
@@ -27,6 +29,8 @@ export const masterSettingsLocale = {
     description: 'Coordinator connection for the remote workspace.',
     coordinatorUrl: 'Coordinator URL',
     coordinatorUrlHint: 'Enter an HTTP(S) URL. Saved in the current profile and used by subsequent requests.',
+    allowPrompt: 'Allow sending remote messages',
+    allowPromptHint: 'Enables messages to remote sessions. The agent may edit remote files and run commands. Takes effect after saving.',
     apiToken: 'API token',
     apiTokenHint: 'Leave blank to keep the current token. A new token is stored outside the settings file.',
     tokenConfigured: 'Configured',
@@ -47,6 +51,7 @@ const DEFAULT_COORDINATOR_URL = 'http://127.0.0.1:39472'
 /** The non-secret settings fields this card edits. */
 export interface MasterSettingsValue {
   coordinatorUrl?: string
+  allowPrompt?: boolean
 }
 
 /** Minimal settings-scope face used by the card. */
@@ -89,6 +94,7 @@ export interface MasterSettingsCardState {
   available: boolean
   writable: boolean
   coordinatorUrl: string
+  allowPrompt: boolean
   apiToken: string
   credentialAvailable: boolean
   credentialConfigured: boolean
@@ -121,6 +127,7 @@ export class MasterSettingsCardController {
   private readonly unsubscribeScope: () => void
   private readonly unsubscribeDescribe: (() => void) | undefined
   private urlDraft: string | undefined
+  private allowPromptDraft: boolean | undefined
   private tokenDraft = ''
   private credentialAvailable = false
   private credentialConfigured = false
@@ -160,8 +167,15 @@ export class MasterSettingsCardController {
     this.publish()
   }
 
+  editAllowPrompt(value: boolean): void {
+    this.allowPromptDraft = value
+    this.failed = false
+    this.publish()
+  }
+
   discard(): void {
     this.urlDraft = undefined
+    this.allowPromptDraft = undefined
     this.tokenDraft = ''
     this.failed = false
     this.publish()
@@ -210,6 +224,12 @@ export class MasterSettingsCardController {
         landed = accepted !== false && this.currentCoordinatorUrl() === nextUrl
         if (landed) this.urlDraft = undefined
       }
+      if (landed && this.allowPromptDraft !== undefined && this.allowPromptDraft !== this.currentAllowPrompt()) {
+        const nextAllowPrompt = this.allowPromptDraft
+        const accepted = await this.scope.set('allowPrompt', nextAllowPrompt)
+        landed = accepted !== false && this.currentAllowPrompt() === nextAllowPrompt
+        if (landed) this.allowPromptDraft = undefined
+      }
       if (landed && token !== '' && this.credentials !== undefined) {
         await this.credentials.set(MASTER_SETTINGS_TOKEN_REF, token)
         await this.refreshCredential()
@@ -235,6 +255,10 @@ export class MasterSettingsCardController {
     return normalizeCoordinatorUrl(configured ?? '') ?? DEFAULT_COORDINATOR_URL
   }
 
+  private currentAllowPrompt(): boolean {
+    return this.scope.getSnapshot().value?.allowPrompt === true
+  }
+
   private project(): MasterSettingsCardState {
     const snapshot = this.scope.getSnapshot()
     const currentUrl = normalizeCoordinatorUrl(snapshot.value?.coordinatorUrl ?? '') ?? DEFAULT_COORDINATOR_URL
@@ -245,12 +269,15 @@ export class MasterSettingsCardController {
       available: snapshot.status === 'ready',
       writable: snapshot.writable,
       coordinatorUrl,
+      allowPrompt: this.allowPromptDraft ?? this.currentAllowPrompt(),
       apiToken: this.tokenDraft,
       credentialAvailable: this.credentialAvailable,
       credentialConfigured: this.credentialConfigured,
       legacyTokenConfigured: this.legacyTokenConfigured(),
       credentialWritable: this.credentialWritable,
-      dirty: (this.urlDraft !== undefined && normalizedDraft !== currentUrl) || this.tokenDraft.trim() !== '',
+      dirty: (this.urlDraft !== undefined && normalizedDraft !== currentUrl)
+        || (this.allowPromptDraft !== undefined && this.allowPromptDraft !== this.currentAllowPrompt())
+        || this.tokenDraft.trim() !== '',
       invalidUrl,
       saving: this.saving,
       failed: this.failed,
