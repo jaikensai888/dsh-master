@@ -118,7 +118,14 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   ) {
     super(ctx, 'uiWorkspace')
     ctx.effect(() => {
-      const stop = this.watchNavigation()
+      let stop: () => void
+      if (this.sessions.retain === undefined) {
+        stop = this.watchNavigation()
+      } else {
+        // Restoring mainView before the controller is active permanently retires the host composer.
+        const ready = ctx.inject(['conversation'], () => this.watchNavigation())
+        stop = () => { void ready.dispose() }
+      }
       return () => {
         this.disposed = true
         stop()

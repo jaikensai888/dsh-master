@@ -49,6 +49,7 @@ function fixture(ready = false) {
   const ctx = {
     reflect: { provide: () => undefined },
     effect: (create: () => () => void) => { cleanups.push(create()) },
+    inject: (_keys: string[], create: () => () => void) => ({ dispose: create() }),
     get: () => undefined,
   } as unknown as Context
   const service = new UiWorkspaceService(ctx, {} as ClientRemote['directoryPicker'], workspaces as unknown as IWorkspaces, sessions as unknown as ISessions, layout)
@@ -74,7 +75,8 @@ describe('DSH 0.2 workspace navigation', () => {
     // A new service observes the ready baseline, as after a page reload.
     second.dispose()
     const effects: (() => void)[] = []
-    new UiWorkspaceService({ reflect: { provide: () => undefined }, effect: (create: () => () => void) => { effects.push(create()) } } as unknown as Context,
+    new UiWorkspaceService({ reflect: { provide: () => undefined }, effect: (create: () => () => void) => { effects.push(create()) },
+      inject: (_keys: string[], create: () => () => void) => ({ dispose: create() }) } as unknown as Context,
       {} as ClientRemote['directoryPicker'], second.workspaces as unknown as IWorkspaces, second.sessions as unknown as ISessions, second.layout)
     expect(second.sessions.retain).toHaveBeenCalledWith('remembered', { source: 'mainView' })
     effects.forEach(dispose => { dispose() })
