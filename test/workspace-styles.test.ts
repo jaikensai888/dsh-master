@@ -45,6 +45,10 @@ function paddingLeft(rule: string | undefined): string | undefined {
 }
 
 describe('the compiled workspace stylesheet', () => {
+  it('provides an outer scrolling path when independent node headers exceed the viewport', () => {
+    const rule = WORKSPACE_CSS.match(/\[data-dsh-workspace-browser\]\s*\{([^}]*)\}/u)?.[1]
+    expect(declaration(rule, 'overflow-y')).toBe('auto')
+  })
   it('gives every class an identifier a browser will actually accept', () => {
     // **The regression this exists for.** A CSS class selector may not begin with a
     // digit, and `.5c9b35_projectRow{…}` is not an error a page reports — the rule is
@@ -116,7 +120,7 @@ describe('the compiled workspace stylesheet', () => {
     )
 
     expect(expandedRule?.[1]).toMatch(/\bflex:\s*1\s+1\s+0%/u)
-    expect(expandedRule?.[1]).toMatch(/\bmin-height:\s*34px/u)
+    expect(expandedRule?.[1]).toMatch(/\bmin-height:\s*140px/u)
     expect(expandedRule?.[1]).not.toMatch(/\bmax-height\s*:/u)
   })
 

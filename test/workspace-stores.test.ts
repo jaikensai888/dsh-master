@@ -25,6 +25,21 @@ vi.mock('@deepseek-ai/dsh-client-store', () => ({
 import { createWorkspaceViewStore } from '../src/workspace/stores.js'
 
 describe('workspace view persistence compatibility', () => {
+  it('migrates and isolates node and directory expansion without local pruning', () => {
+    persistence.value = { groupBy: 'workspace', orderBy: 'manual', groupExpansion: { local: true }, remoteExpanded: false }
+    const store = createWorkspaceViewStore().create()
+    expect(store.getSnapshot()).toMatchObject({ remoteNodeExpansion: {}, remoteWorkspaceExpansion: {}, remoteExpanded: false })
+    store.actions.setRemoteNodeExpanded('node-a', true)
+    store.actions.setRemoteNodeExpanded('node-b', false)
+    store.actions.setRemoteWorkspaceExpanded('["node-a","same"]', false)
+    store.actions.setRemoteWorkspaceExpanded('["node-b","same"]', true)
+    store.actions.retainAccountKeys(['local'])
+    expect(store.getSnapshot()).toMatchObject({
+      groupExpansion: { local: true },
+      remoteNodeExpansion: { 'node-a': true, 'node-b': false },
+      remoteWorkspaceExpansion: { '["node-a","same"]': false, '["node-b","same"]': true },
+    })
+  })
   it('restores a current official v5 snapshot without losing saved preferences', () => {
     persistence.value = {
       groupBy: 'workspace', orderBy: 'manual',

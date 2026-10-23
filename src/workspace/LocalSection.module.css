@@ -1,3 +1,12 @@
+[data-dsh-workspace-browser] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+[data-dsh-local-section][data-wide="true"][data-collapsed="false"] {
+  min-height: 72px;
+}
+
 [data-dsh-local-section] {
   flex: 1;
   min-height: 0;

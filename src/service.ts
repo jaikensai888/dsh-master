@@ -92,17 +92,20 @@ export class MasterService {
   async sessions(nodeId: string, signal?: AbortSignal): Promise<MasterSessionsValue> {
     const sessions = await this.#client.listSessions(nodeId, signal)
     try {
-      const archivedSessionIds = await this.#client.workspaceArchiveIds(nodeId, signal)
-      return { nodeId, sessions, archivedSessionIds }
+      const snapshot = await this.#client.workspaceSnapshot(nodeId, signal)
+      return { nodeId, sessions, ...snapshot }
     } catch (error) {
       if (signal?.aborted === true) throw error
+      const workspaceError = error instanceof MasterUpstreamError
+        ? error.toWire()
+        : { code: 'master/internal', message: error instanceof Error ? error.message : 'unknown failure' }
       return {
         nodeId,
         sessions,
+        workspaces: [],
         archivedSessionIds: [],
-        archiveError: error instanceof MasterUpstreamError
-          ? error.toWire()
-          : { code: 'master/internal', message: error instanceof Error ? error.message : 'unknown failure' },
+        workspaceError,
+        archiveError: workspaceError,
       }
     }
   }

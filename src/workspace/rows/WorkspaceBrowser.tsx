@@ -858,8 +858,9 @@ export function WorkspaceBrowser({
   const orderBy = useStore(s => s.orderBy)
   const groupExpansion = useStore(s => s.groupExpansion)
   const localExpanded = useStore(s => s.localExpanded ?? true)
-  const remoteExpanded = useStore(s => s.remoteExpanded ?? true)
-  const [expandedRemoteNodeId, setExpandedRemoteNodeId] = useState<string | undefined>(undefined)
+  const defaultRemoteNodeExpanded = useStore(s => s.remoteExpanded ?? true)
+  const remoteNodeExpansion = useStore(s => s.remoteNodeExpansion)
+  const remoteWorkspaceExpansion = useStore(s => s.remoteWorkspaceExpansion)
   const sessionOrderByAccount = useStore(s => s.sessionOrderByAccount)
   const sessionUpdatedAtByAccount = useStore(s => s.sessionUpdatedAtByAccount)
   const currentBlankSessionId = useSessions((state) => {
@@ -1100,31 +1101,26 @@ export function WorkspaceBrowser({
     })
   }
 
-  const toggleRemoteGroup = () => {
-    const next = !remoteExpanded
-    actions.setRemoteExpanded(next)
-    if (!next) setExpandedRemoteNodeId(undefined)
-  }
   const toggleLocalGroup = () => { actions.setLocalExpanded(!localExpanded) }
   const localSectionLabel = groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')
   const remoteSectionProps = {
     t,
-    expanded: remoteExpanded,
-    onToggleGroup: toggleRemoteGroup,
-    expandedNodeId: expandedRemoteNodeId,
-    onExpandedNodeChange: setExpandedRemoteNodeId,
+    defaultNodeExpanded: defaultRemoteNodeExpanded,
+    nodeExpansion: remoteNodeExpansion,
+    workspaceExpansion: remoteWorkspaceExpansion,
+    onNodeExpandedChange: actions.setRemoteNodeExpanded,
+    onWorkspaceExpandedChange: actions.setRemoteWorkspaceExpanded,
     onOpenRemoteSession: openRemoteSession,
   }
-  // dsh-master addition: keep the remote tree as a sibling below the local group.
+  // Each remote node renders as a sibling of the local section.
   const remoteSection = renderRemoteSection(remoteSectionProps)
   const pickRemoteRailNode = (nodeId: string) => {
-    actions.setRemoteExpanded(true)
-    setExpandedRemoteNodeId(nodeId)
+    actions.setRemoteNodeExpanded(nodeId, true)
     expandSidebar()
   }
 
   return (
-    <div className={clsx(css.root, !wide && css.rail)}>
+    <div className={clsx(css.root, !wide && css.rail)} data-dsh-workspace-browser="">
       <div
         className={css.treeBody}
         data-dsh-local-section=""

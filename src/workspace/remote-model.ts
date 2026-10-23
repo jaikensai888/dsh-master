@@ -4,7 +4,26 @@
  * @module dsh-master/workspace/remote-model
  */
 
-import type { MasterNode, MasterSession } from '../protocol.js'
+import type { MasterNode, MasterSession, MasterWorkspace } from '../protocol.js'
+
+/** Project registry membership, retaining empty workspaces and visible unassigned sessions. */
+export function groupRemoteWorkspaces(
+  workspaces: readonly MasterWorkspace[],
+  sessions: readonly MasterSession[],
+  archivedSessionIds: readonly string[] = [],
+): { workspace: MasterWorkspace | undefined; sessions: MasterSession[] }[] {
+  const visible = visibleRemoteSessions(sessions, true, archivedSessionIds).sessions
+  const assigned = new Set<string>()
+  const groups = workspaces.map(workspace => {
+    const membership = new Set(workspace.sessionIds)
+    const rows = visible.filter(session => membership.has(session.sessionId) && !assigned.has(session.sessionId))
+    for (const session of rows) assigned.add(session.sessionId)
+    return { workspace: workspace as MasterWorkspace | undefined, sessions: rows }
+  })
+  const ungrouped = visible.filter(session => !assigned.has(session.sessionId))
+  if (ungrouped.length > 0) groups.push({ workspace: undefined, sessions: ungrouped })
+  return groups
+}
 
 /** Number of non-empty sessions shown before the per-node overflow action. */
 export const REMOTE_SESSION_LIMIT = 5

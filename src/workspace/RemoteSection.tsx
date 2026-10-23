@@ -1,5 +1,5 @@
 /**
- * The remote-node group appended to the forked local workspace tree.
+ * Independent remote-node sections alongside the forked local workspace tree.
  *
  * @module dsh-master/workspace/RemoteSection
  */
@@ -7,8 +7,9 @@
 import clsx from 'clsx'
 import {
   Button,
-  IconChevronDownOutlineRegular as IconChevronDownOutline14,
-  IconChevronRightOutlineRegular as IconChevronRightOutline14,
+  IconFolderCloseRegular,
+  IconFolderOpenRegular,
+  IconTriangleRightFillRegular,
   IconArchiveOutlineRegular as IconArchiveOutline20,
   IconEllipsisOutlineRegular as IconEllipsisOutline16,
   IconGlobeOutlineRegular as IconGlobeOutline14,
@@ -18,13 +19,13 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactElement } from 'react'
-import type { MasterCoordinatorFacts, MasterNode, MasterSession } from '../protocol.js'
+import type { MasterCoordinatorFacts, MasterNode, MasterSession, MasterSessionsValue } from '../protocol.js'
 import { ApiError, archiveRemoteSession, fetchNodes, fetchSessions, fetchStatus } from '../client/api.js'
 import { timeAgo } from '../client/copy.js'
 import { getRemoteSelection, setRemoteSelection, subscribeRemoteSelection } from '../client/selection.js'
 import type { RemoteSessionSelection } from '../client/selection.js'
 import type { RemoteSectionProps } from './contract/slots.js'
-import { nodeIsOffline, orderRemoteNodes, visibleRemoteSessions } from './remote-model.js'
+import { groupRemoteWorkspaces, nodeIsOffline, orderRemoteNodes, visibleRemoteSessions } from './remote-model.js'
 import { RowsCss, RemoteSectionCss as css, WorkspaceBrowserCss } from './styles.generated.js'
 
 /** Describe one failed call without losing the host's stable error code. */
@@ -115,84 +116,166 @@ export function RemoteSessionItem({
   )
 }
 
-/**
- * Render the remote group or its node-only collapsed-rail form.
- *
- * @param props - persisted group state and the owner navigation callback.
- * @returns the remote tree section.
- */
-export function RemoteSection({
-  t,
-  expanded,
-  onToggleGroup,
-  expandedNodeId,
-  onExpandedNodeChange,
-  onOpenRemoteSession,
-  rail = false,
-  onRailNodePick,
-}: RemoteSectionProps): ReactElement {
-  const selection = useSyncExternalStore(
-    subscribeRemoteSelection,
-    getRemoteSelection,
-    getRemoteSelection,
+/** View of one remote node, with all identities scoped to that node. */
+export interface RemoteNodeSectionProps {
+  node: MasterNode
+  expanded: boolean
+  busy: boolean
+  loading: boolean
+  error: string | undefined
+  data: MasterSessionsValue | undefined
+  selection: RemoteSessionSelection | undefined
+  now: number
+  workspaceExpansion: RemoteSectionProps['workspaceExpansion']
+  overflow: readonly string[]
+  openSessionMenu: { nodeId: string; sessionId: string } | undefined
+  t: RemoteSectionProps['t']
+  onToggleNode: () => void
+  onRefresh: () => void
+  onWorkspaceExpandedChange: RemoteSectionProps['onWorkspaceExpandedChange']
+  onToggleOverflow: (key: string) => void
+  onSessionMenuChange: (nodeId: string, sessionId: string, open: boolean) => void
+  onOpenRemoteSession: RemoteSectionProps['onOpenRemoteSession']
+  onArchiveRemoteSession: (nodeId: string, sessionId: string) => void
+}
+
+/** Render registered directories inside one independently collapsible node. */
+export function RemoteNodeSection({
+  node, expanded, busy, loading, error, data, selection, now,
+  workspaceExpansion, overflow, openSessionMenu, t,
+  onToggleNode, onRefresh, onWorkspaceExpandedChange, onToggleOverflow,
+  onSessionMenuChange, onOpenRemoteSession, onArchiveRemoteSession,
+}: RemoteNodeSectionProps): ReactElement {
+  const offline = nodeIsOffline(node)
+  const name = node.nodeName ?? node.nodeId
+  const groups = groupRemoteWorkspaces(data?.workspaces ?? [], data?.sessions ?? [], data?.archivedSessionIds ?? [])
+  return (
+    <div className={clsx(css.group, expanded && css.expanded)} data-dsh-remote-node={node.nodeId}>
+      <div className={css.header}>
+        <button type="button" className={clsx(css.groupToggle, css.nodeRow)}
+          aria-expanded={expanded}
+          aria-label={t('remote.nodeAria', { name, status: offline ? t('remote.nodeOffline') : t('remote.nodeOnline') })}
+          title={node.nodeId} onClick={onToggleNode}>
+          <span className={css.disclosureSlot} aria-hidden="true" data-expanded={expanded} />
+          <span className={css.groupTitle}>{name}</span>
+          <NodeStatus node={node} />
+        </button>
+        <Button variant="ghost" icon={<IconRefreshOutline14 />} disabled={busy || loading}
+          onClick={onRefresh} aria-label={t('remote.refresh')} title={t('remote.refresh')} />
+      </div>
+      {!expanded ? null : (
+        <div className={css.content} role="tree" aria-label={name}>
+          {offline ? <div className={css.message} role="status">{t('remote.nodeOffline')}</div> : (
+            <>
+              {loading ? <div className={css.message} role="status">{t('remote.workspacesLoading')}</div> : null}
+              {error === undefined ? null : <div className={css.message} role="alert">{error}</div>}
+              {data?.workspaceError === undefined ? null : (
+                <div className={css.message} role="status">
+                  {t('remote.workspacesUnavailable')} · {data.workspaceError.code}: {data.workspaceError.message}
+                </div>
+              )}
+              {data?.archiveError === undefined || data.workspaceError !== undefined ? null : (
+                <div className={css.message} role="status">{t('remote.archiveUnavailable')} · {data.archiveError.message}</div>
+              )}
+              {data !== undefined && groups.length === 0 ? <div className={css.message}>{t('remote.noWorkspaces')}</div> : null}
+              {groups.map(group => {
+                const workspace = group.workspace
+                const key = JSON.stringify([node.nodeId, workspace?.workspaceId ?? null])
+                const directoryExpanded = workspaceExpansion[key] ?? true
+                const more = overflow.includes(key)
+                const visible = visibleRemoteSessions(group.sessions, more)
+                const title = workspace?.title ?? t('group.ungrouped')
+                return (
+                  <div key={key} className={WorkspaceBrowserCss.groupSection} role="treeitem"
+                    aria-expanded={directoryExpanded} aria-label={title}>
+                    <button type="button" className={clsx(RowsCss.projectRow, css.workspaceRow)}
+                      title={workspace?.path} aria-expanded={directoryExpanded}
+                      onClick={() => { onWorkspaceExpandedChange(key, !directoryExpanded) }}>
+                      <span className={clsx(RowsCss.slot, RowsCss.folder)} aria-hidden="true">
+                        {directoryExpanded ? <IconFolderOpenRegular /> : <IconFolderCloseRegular />}
+                      </span>
+                      <span className={clsx(RowsCss.slot, RowsCss.chevron)} aria-hidden="true">
+                        <IconTriangleRightFillRegular className={clsx(RowsCss.arrow, directoryExpanded && RowsCss.arrowOpen)} />
+                      </span>
+                      <span className={css.nodeTitle}>{title}</span>
+                    </button>
+                    {!directoryExpanded ? null : (
+                      <div role="group">
+                        {visible.sessions.length === 0 ? <div className={css.message}>{t('remote.noSessions')}</div> : null}
+                        {visible.sessions.map(session => (
+                          <RemoteSessionItem key={session.sessionId} nodeId={node.nodeId} nodeName={name}
+                            session={session} selection={selection} now={now}
+                            menuOpen={openSessionMenu?.nodeId === node.nodeId && openSessionMenu.sessionId === session.sessionId}
+                            archiveAvailable={data?.archiveError === undefined}
+                            onMenuOpenChange={open => { onSessionMenuChange(node.nodeId, session.sessionId, open) }}
+                            onOpenRemoteSession={onOpenRemoteSession} onArchiveRemoteSession={onArchiveRemoteSession} t={t} />
+                        ))}
+                        {visible.hiddenCount > 0 || more ? (
+                          <button type="button" className={WorkspaceBrowserCss.sessionOverflowButton}
+                            aria-expanded={more} onClick={() => { onToggleOverflow(key) }}>
+                            {more ? t('remote.sessionsCollapse') : t('remote.sessionsExpand', { n: visible.hiddenCount })}
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   )
+}
+
+/** Load remote data once, then render each node alongside the local section. */
+export function RemoteSection({
+  t, defaultNodeExpanded, nodeExpansion, workspaceExpansion,
+  onNodeExpandedChange, onWorkspaceExpandedChange, onOpenRemoteSession,
+  rail = false, onRailNodePick,
+}: RemoteSectionProps): ReactElement {
+  const selection = useSyncExternalStore(subscribeRemoteSelection, getRemoteSelection, getRemoteSelection)
   const [coordinator, setCoordinator] = useState<MasterCoordinatorFacts | undefined>(undefined)
   const [nodes, setNodes] = useState<readonly MasterNode[]>([])
-  const [sessions, setSessions] = useState<Readonly<Record<string, readonly MasterSession[]>>>({})
-  const [archivedSessionIds, setArchivedSessionIds] = useState<Readonly<Record<string, readonly string[]>>>({})
-  const [archiveErrors, setArchiveErrors] = useState<Readonly<Record<string, string>>>({})
-  const [loadingSessions, setLoadingSessions] = useState<Readonly<Record<string, boolean>>>({})
-  const [sessionErrors, setSessionErrors] = useState<Readonly<Record<string, string>>>({})
-  const [sessionOverflow, setSessionOverflow] = useState<readonly string[]>([])
+  const [data, setData] = useState<Readonly<Record<string, MasterSessionsValue>>>({})
+  const [loading, setLoading] = useState<Readonly<Record<string, boolean>>>({})
+  const [errors, setErrors] = useState<Readonly<Record<string, string>>>({})
+  const [overflow, setOverflow] = useState<readonly string[]>([])
   const [error, setError] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [openSessionMenu, setOpenSessionMenu] = useState<{ nodeId: string; sessionId: string } | undefined>(undefined)
-  const sessionCache = useRef(sessions)
-  sessionCache.current = sessions
-  const expandedNode = useRef(expandedNodeId)
-  expandedNode.current = expandedNodeId
+  const cache = useRef(data)
+  cache.current = data
+  const expansion = useRef({ nodeExpansion, defaultNodeExpanded })
+  expansion.current = { nodeExpansion, defaultNodeExpanded }
   const rosterRequest = useRef(0)
-  const sessionRequests = useRef<Record<string, number>>({})
-  const sessionControllers = useRef(new Map<string, AbortController>())
   const rosterController = useRef<AbortController | undefined>(undefined)
-  const sessionPending = useRef(new Set<string>())
+  const sessionControllers = useRef(new Map<string, AbortController>())
 
   const loadSessions = useCallback(async (nodeId: string, force = false): Promise<void> => {
-    if (!force && (Object.hasOwn(sessionCache.current, nodeId) || sessionPending.current.has(nodeId))) return
-    const request = (sessionRequests.current[nodeId] ?? 0) + 1
-    sessionRequests.current[nodeId] = request
+    if (!force && (Object.hasOwn(cache.current, nodeId) || sessionControllers.current.has(nodeId))) return
     sessionControllers.current.get(nodeId)?.abort()
     const controller = new AbortController()
     sessionControllers.current.set(nodeId, controller)
-    sessionPending.current.add(nodeId)
     const rosterAtStart = rosterRequest.current
-    setLoadingSessions(previous => ({ ...previous, [nodeId]: true }))
-    setSessionErrors(previous => {
+    const current = () => !controller.signal.aborted && rosterRequest.current === rosterAtStart
+      && sessionControllers.current.get(nodeId) === controller
+    setLoading(previous => ({ ...previous, [nodeId]: true }))
+    setErrors(previous => {
       const next = { ...previous }
       delete next[nodeId]
       return next
     })
     try {
       const result = await fetchSessions(nodeId, controller.signal)
-      if (sessionRequests.current[nodeId] !== request || rosterRequest.current !== rosterAtStart) return
-      setSessions(previous => ({ ...previous, [nodeId]: result.sessions }))
-      setArchivedSessionIds(previous => ({ ...previous, [nodeId]: result.archivedSessionIds }))
-      setArchiveErrors(previous => {
-        const next = { ...previous }
-        if (result.archiveError === undefined) delete next[nodeId]
-        else next[nodeId] = `${result.archiveError.code}: ${result.archiveError.message}`
-        return next
-      })
+      if (current()) setData(previous => ({ ...previous, [nodeId]: result }))
     } catch (cause) {
-      if (!controller.signal.aborted && sessionRequests.current[nodeId] === request
-        && rosterRequest.current === rosterAtStart) {
-        setSessionErrors(previous => ({ ...previous, [nodeId]: describe(cause) }))
-      }
+      if (current()) setErrors(previous => ({ ...previous, [nodeId]: describe(cause) }))
     } finally {
-      if (sessionRequests.current[nodeId] === request) {
-        sessionPending.current.delete(nodeId)
+      if (sessionControllers.current.get(nodeId) === controller) {
         sessionControllers.current.delete(nodeId)
-        setLoadingSessions(previous => ({ ...previous, [nodeId]: false }))
+        setLoading(previous => ({ ...previous, [nodeId]: false }))
       }
     }
   }, [])
@@ -200,57 +283,43 @@ export function RemoteSection({
   const refresh = useCallback(async (): Promise<void> => {
     const request = ++rosterRequest.current
     rosterController.current?.abort()
+    for (const controller of sessionControllers.current.values()) controller.abort()
+    sessionControllers.current.clear()
+    setLoading({})
     const controller = new AbortController()
     rosterController.current = controller
     setBusy(true)
     setError(undefined)
     try {
       const status = await fetchStatus(controller.signal)
-      if (rosterRequest.current !== request) return
+      if (rosterRequest.current !== request || controller.signal.aborted) return
       setCoordinator(status.coordinator)
       if (!status.coordinator.reachable) {
         setNodes([])
-        setSessions({})
-        setArchivedSessionIds({})
-        setArchiveErrors({})
-        setSessionErrors({})
+        setData({})
+        setErrors({})
         return
       }
-
       const roster = await fetchNodes(controller.signal)
-      if (rosterRequest.current !== request) return
+      if (rosterRequest.current !== request || controller.signal.aborted) return
       const ordered = orderRemoteNodes(roster.nodes)
       setCoordinator(roster.coordinator)
       setNodes(ordered)
       const present = new Set(ordered.map(node => node.nodeId))
-      setSessions(previous => Object.fromEntries(
-        Object.entries(previous).filter(([nodeId]) => present.has(nodeId)),
-      ))
-      setArchivedSessionIds(previous => Object.fromEntries(
-        Object.entries(previous).filter(([nodeId]) => present.has(nodeId)),
-      ))
-      setArchiveErrors(previous => Object.fromEntries(
-        Object.entries(previous).filter(([nodeId]) => present.has(nodeId)),
-      ))
-      setSessionErrors(previous => Object.fromEntries(
-        Object.entries(previous).filter(([nodeId]) => present.has(nodeId)),
-      ))
-
-      const openNodeId = expandedNode.current
-      const openNode = ordered.find(node => node.nodeId === openNodeId)
-      if (openNodeId !== undefined && openNode !== undefined && !nodeIsOffline(openNode)) {
-        await loadSessions(openNodeId, true)
-      }
+      setData(previous => Object.fromEntries(Object.entries(previous).filter(([id]) => present.has(id))))
+      setErrors({})
+      const state = expansion.current
+      await Promise.all(ordered.filter(node => !nodeIsOffline(node)
+        && (state.nodeExpansion[node.nodeId] ?? state.defaultNodeExpanded))
+        .map(node => loadSessions(node.nodeId, true)))
     } catch (cause) {
       if (controller.signal.aborted || rosterRequest.current !== request) return
       setNodes([])
-      setSessions({})
-      setArchivedSessionIds({})
-      setArchiveErrors({})
+      setData({})
       setCoordinator(undefined)
       setError(describe(cause))
     } finally {
-      if (rosterRequest.current === request) {
+      if (rosterRequest.current === request && !controller.signal.aborted) {
         setBusy(false)
         rosterController.current = undefined
       }
@@ -258,20 +327,22 @@ export function RemoteSection({
   }, [loadSessions])
 
   const archiveSession = useCallback(async (nodeId: string, sessionId: string): Promise<void> => {
-    setSessionErrors(previous => {
-      const next = { ...previous }
-      delete next[nodeId]
-      return next
-    })
     try {
       const result = await archiveRemoteSession(nodeId, sessionId)
-      setArchivedSessionIds(previous => ({ ...previous, [nodeId]: result.archivedSessionIds }))
+      // A list fetched before this archive must not resurrect the archived row.
+      sessionControllers.current.get(nodeId)?.abort()
+      setData(previous => {
+        const node = previous[nodeId]
+        return node === undefined ? previous : { ...previous, [nodeId]: { ...node, archivedSessionIds: result.archivedSessionIds } }
+      })
+      void loadSessions(nodeId, true)
       if (selection?.nodeId === nodeId && selection.sessionId === sessionId) setRemoteSelection(undefined)
     } catch (cause) {
-      if (cause instanceof DOMException && cause.name === 'AbortError') return
-      setSessionErrors(previous => ({ ...previous, [nodeId]: describe(cause) }))
+      if (!(cause instanceof Error && cause.name === 'AbortError')) {
+        setErrors(previous => ({ ...previous, [nodeId]: describe(cause) }))
+      }
     }
-  }, [selection])
+  }, [selection, loadSessions])
 
   useEffect(() => {
     void refresh()
@@ -281,32 +352,25 @@ export function RemoteSection({
     }
   }, [refresh])
 
-  const toggleNode = useCallback((node: MasterNode): void => {
-    if (nodeIsOffline(node)) return
-    if (expandedNodeId === node.nodeId) {
-      onExpandedNodeChange(undefined)
-      return
+  // Also hydrate a node expanded from the collapsed sidebar rail.
+  useEffect(() => {
+    for (const node of nodes) {
+      if (!nodeIsOffline(node) && (nodeExpansion[node.nodeId] ?? defaultNodeExpanded)) void loadSessions(node.nodeId)
     }
-    onExpandedNodeChange(node.nodeId)
-    void loadSessions(node.nodeId)
-  }, [expandedNodeId, loadSessions, onExpandedNodeChange])
+  }, [nodes, nodeExpansion, defaultNodeExpanded, loadSessions])
 
   if (rail) {
     return (
       <div className={css.rail} aria-label={t('remote.group')}>
+        <Button variant="ghost" icon={<IconRefreshOutline14 />} disabled={busy}
+          onClick={() => { void refresh() }} aria-label={t('remote.refresh')} />
         {nodes.map(node => (
-          <button
-            type="button"
-            key={node.nodeId}
-            className={css.railNode}
-            disabled={nodeIsOffline(node)}
+          <button type="button" key={node.nodeId} className={css.railNode} disabled={nodeIsOffline(node)}
             aria-label={t('remote.nodeAria', {
               name: node.nodeName ?? node.nodeId,
               status: nodeIsOffline(node) ? t('remote.nodeOffline') : t('remote.nodeOnline'),
             })}
-            title={node.nodeName ?? node.nodeId}
-            onClick={() => { onRailNodePick?.(node.nodeId) }}
-          >
+            title={node.nodeName ?? node.nodeId} onClick={() => { onRailNodePick?.(node.nodeId) }}>
             <IconGlobeOutline14 />
             <span className={css.railDot}><NodeStatus node={node} /></span>
           </button>
@@ -315,155 +379,40 @@ export function RemoteSection({
     )
   }
 
-  const now = Date.now()
-  const coordinatorLine = coordinator?.error === undefined
-    ? coordinator?.url
-    : `${coordinator.url} — ${coordinator.error}`
+  if (nodes.length === 0) {
+    return (
+      <div className={css.group}>
+        <div className={css.header}>
+          <span className={css.groupTitle}>{t('remote.group')}</span>
+          <Button variant="ghost" icon={<IconRefreshOutline14 />} disabled={busy}
+            onClick={() => { void refresh() }} aria-label={t('remote.refresh')} />
+        </div>
+        <div className={css.message} role="status">
+          {error ?? (busy ? t('remote.loading') : coordinator?.reachable === false
+            ? t('remote.coordinatorOffline') + ' · ' + (coordinator.error ?? coordinator.url) : t('remote.noNodes'))}
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div
-      role="tree"
-      aria-label={t('remote.group')}
-      className={clsx(WorkspaceBrowserCss.groupSection, css.group, expanded && css.expanded)}
-    >
-      <div className={css.header}>
-        <button
-          type="button"
-          role="treeitem"
-          className={css.groupToggle}
-          aria-expanded={expanded}
-          aria-label={t('remote.group')}
-          onClick={onToggleGroup}
-        >
-          <span
-            className={css.disclosureSlot}
-            aria-hidden="true"
-            data-expanded={expanded}
-          />
-          <span className={css.groupTitle}>{t('remote.group')}</span>
-        </button>
-        <Button
-          variant="ghost"
-          icon={<IconRefreshOutline14 />}
-          disabled={busy}
-          onClick={() => { void refresh() }}
-          aria-label={busy ? t('remote.refreshing') : t('remote.refresh')}
-          title={busy ? t('remote.refreshing') : t('remote.refresh')}
-        />
-      </div>
-
-      {!expanded ? null : (
-        <div className={css.content}>
-          {coordinator?.reachable === false
-            ? (
-              <div className={css.message} role="status">
-                {t('remote.coordinatorOffline')}{coordinatorLine === undefined ? '' : ` · ${coordinatorLine}`}
-              </div>
-            )
-            : null}
-          {error === undefined ? null : <div className={css.message} role="status">{error}</div>}
-          {coordinator === undefined && error === undefined && busy
-            ? <div className={css.message} role="status">{t('remote.loading')}</div>
-            : null}
-          {coordinator?.reachable === true && nodes.length === 0 && error === undefined
-            ? <div className={css.message}>{t('remote.noNodes')}</div>
-            : null}
-
-          {nodes.map(node => {
-            const nodeExpanded = expandedNodeId === node.nodeId
-            const nodeOffline = nodeIsOffline(node)
-            const allSessions = sessions[node.nodeId] ?? []
-            const visible = visibleRemoteSessions(
-              allSessions,
-              sessionOverflow.includes(node.nodeId),
-              archivedSessionIds[node.nodeId] ?? [],
-            )
-            return (
-              <div key={node.nodeId}>
-                <button
-                  type="button"
-                  role="treeitem"
-                  className={clsx(RowsCss.projectRow, css.nodeRow)}
-                  disabled={nodeOffline}
-                  aria-expanded={nodeOffline ? undefined : nodeExpanded}
-                  aria-label={t('remote.nodeAria', {
-                    name: node.nodeName ?? node.nodeId,
-                    status: nodeOffline ? t('remote.nodeOffline') : t('remote.nodeOnline'),
-                  })}
-                  title={node.nodeId}
-                  onClick={() => { toggleNode(node) }}
-                >
-                  <span className={css.nodeIcon}>
-                    {nodeOffline
-                      ? <IconGlobeOutline14 />
-                      : nodeExpanded ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
-                  </span>
-                  <span className={css.nodeTitle}>{node.nodeName ?? node.nodeId}</span>
-                  <NodeStatus node={node} />
-                </button>
-
-                {!nodeExpanded || nodeOffline ? null : (
-                  <div role="group">
-                    {loadingSessions[node.nodeId] === true && !Object.hasOwn(sessions, node.nodeId)
-                      ? <div className={css.message} role="status">{t('remote.sessionsLoading')}</div>
-                      : null}
-                    {sessionErrors[node.nodeId] === undefined
-                      ? null
-                      : <div className={css.message} role="status">{sessionErrors[node.nodeId]}</div>}
-                    {archiveErrors[node.nodeId] === undefined
-                      ? null
-                      : <div className={css.message} role="status">{t('remote.archiveUnavailable')} · {archiveErrors[node.nodeId]}</div>}
-                    {Object.hasOwn(sessions, node.nodeId) && visible.sessions.length === 0
-                      ? <div className={css.message}>{t('remote.noSessions')}</div>
-                      : null}
-                    {visible.sessions.map(session => (
-                      <RemoteSessionItem
-                        key={session.sessionId}
-                        nodeId={node.nodeId}
-                        nodeName={node.nodeName ?? node.nodeId}
-                        session={session}
-                        selection={selection}
-                        now={now}
-                        menuOpen={openSessionMenu?.nodeId === node.nodeId && openSessionMenu.sessionId === session.sessionId}
-                        archiveAvailable={archiveErrors[node.nodeId] === undefined}
-                        onMenuOpenChange={open => {
-                          setOpenSessionMenu(current => {
-                            if (open) return { nodeId: node.nodeId, sessionId: session.sessionId }
-                            return current?.nodeId === node.nodeId && current.sessionId === session.sessionId
-                              ? undefined
-                              : current
-                          })
-                        }}
-                        onOpenRemoteSession={onOpenRemoteSession}
-                        onArchiveRemoteSession={(targetNodeId, sessionId) => { void archiveSession(targetNodeId, sessionId) }}
-                        t={t}
-                      />
-                    ))}
-                    {visible.hiddenCount > 0 || sessionOverflow.includes(node.nodeId)
-                      ? (
-                        <button
-                          type="button"
-                          className={WorkspaceBrowserCss.sessionOverflowButton}
-                          aria-expanded={sessionOverflow.includes(node.nodeId)}
-                          onClick={() => {
-                            setSessionOverflow(current => current.includes(node.nodeId)
-                              ? current.filter(id => id !== node.nodeId)
-                              : [...current, node.nodeId])
-                          }}
-                        >
-                          {sessionOverflow.includes(node.nodeId)
-                            ? t('remote.sessionsCollapse')
-                            : t('remote.sessionsExpand', { n: visible.hiddenCount })}
-                        </button>
-                      )
-                      : null}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
+    <>
+      {nodes.map(node => (
+        <RemoteNodeSection key={node.nodeId} node={node}
+          expanded={nodeExpansion[node.nodeId] ?? defaultNodeExpanded}
+          busy={busy} loading={loading[node.nodeId] === true} error={errors[node.nodeId]} data={data[node.nodeId]}
+          selection={selection} now={Date.now()} t={t} workspaceExpansion={workspaceExpansion}
+          overflow={overflow} openSessionMenu={openSessionMenu}
+          onToggleNode={() => { onNodeExpandedChange(node.nodeId, !(nodeExpansion[node.nodeId] ?? defaultNodeExpanded)) }}
+          onRefresh={() => { void refresh() }} onWorkspaceExpandedChange={onWorkspaceExpandedChange}
+          onToggleOverflow={key => { setOverflow(previous => previous.includes(key) ? previous.filter(id => id !== key) : [...previous, key]) }}
+          onSessionMenuChange={(nodeId, sessionId, open) => {
+            setOpenSessionMenu(current => open ? { nodeId, sessionId }
+              : current?.nodeId === nodeId && current.sessionId === sessionId ? undefined : current)
+          }}
+          onOpenRemoteSession={onOpenRemoteSession}
+          onArchiveRemoteSession={(nodeId, sessionId) => { void archiveSession(nodeId, sessionId) }} />
+      ))}
+    </>
   )
 }

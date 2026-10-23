@@ -30,7 +30,7 @@
 │             │ 同源 fetch（信任围栏，不走浏览器 cookie）        │
 │             ▼                                                │
 │  client half (src/client/**)                                 │
-│    sidebar.workspaces ──► 本地组 + 远程组（平级、可折叠）       │
+│    sidebar.workspaces ──► 本地组 + 每节点独立远程组             │
 │    main[key=dsh-master] ──► RemotePanel ──► SessionView      │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -45,7 +45,7 @@
 | --- | --- | --- |
 | 协调器是否在线 | `GET /dsh-master/api/status` | `GET /api/health` + `GET /api/nodes` |
 | 节点列表与在线状态 | `GET /dsh-master/api/nodes` | `GET /api/nodes`（`ready` / `offline` / `revoked`） |
-| 某节点的会话列表 | `GET /dsh-master/api/sessions?nodeId=` | `POST /api/sessions` → `session/list` |
+| 某节点的目录与会话 | `GET /dsh-master/api/sessions?nodeId=` | `session/list` + `workspace/follow` 首个 baseline（随后取消流） |
 | 打开一个会话（历史 + 实时） | `GET /dsh-master/api/session/follow?nodeId=&sessionId=`（NDJSON） | `POST /api/session/follow` → `session/follow` |
 | 发消息 | `POST /dsh-master/api/session/prompt`（**默认关闭**） | `POST /api/session/prompt` → `session/prompt` |
 
@@ -53,11 +53,15 @@
 
 ---
 
-## 4. 左侧树：本地与远程工作区作为平级折叠组
+## 4. 左侧树：本地与每个远程节点平级
 
-用户确认的界面是：本地工作区在上、远程节点组在下。`sidebar.workspaces` 是 single slot，官方 `ui-workspace` 占位且不导出可复用组件，因此不能只在官方树中插一行。
+2026-10-23 用户确认：本地工作区在上，每个远程节点独立成为一个平级工作区组，节点下显示远端已经登记的工作区目录，目录下显示会话。`sidebar.workspaces` 是 single slot，官方 `ui-workspace` 占位且不导出可复用组件，因此继续使用现有 fork。
 
-**决策：由 `dsh-master` 替换官方客户端 entry，并使用其 MIT fork 保留本地浏览器；本地组在上、远程组在下，二者平级并分别折叠/展开。** 本地搜索和添加入口在折叠时仍保留，点搜索会展开本地组；本地列表与远程内容各自在自己的滚动区域内滚动。远程树独立取数，使用同一套 primitives、设计 token 和行尺寸。`tools/import-fork.mjs --check` 约束 fork 的机械 import 头部；本地折叠样式使用属性选择器，远程视图通过注入 renderer 接入。
+**决策：每个节点独立折叠，并允许多个节点同时展开。** 工作区名称、路径和会话归属来自远端 `workspace/follow` baseline，保留空目录及远端目录顺序；会话按 `sessionIds` 匹配，不用 `cwd` 分组。未归属的可见会话放入节点内的「未分组」。每个目录独立应用 5 条会话 overflow；空白和归档会话继续隐藏。
+
+节点和目录的展开状态分别保存于 `remoteNodeExpansion`、`remoteWorkspaceExpansion`；目录键为 `JSON.stringify([nodeId, workspaceId])`，未分组用 `null`，不会与其他节点或本地状态冲突。旧 v5 缓存保留原排序和折叠偏好，旧 `remoteExpanded` 作为尚无独立节点设置时的默认值。
+
+刷新会重新读取节点及全部已展开在线节点，过期请求会取消或忽略。本地列表和各节点内容独立滚动，外层侧栏也提供滚动路径，避免多节点标题被裁切。旧节点缺少工作区协议时显示提示并回退未分组；仅目录解析失败时仍保留有效的归档状态。数据变化仍需手动刷新。远程树使用现有 primitives、设计 token 和行尺寸，远程视图继续通过注入 renderer 接入。
 
 远程会话不能交给官方对话页渲染，所以点击本地会话仍走本地会话页，点击远程会话则调用 `layout.selectPanel('dsh-master')` 并由 `RemotePanel` 打开。用户已确认移除独立的 `sidebar.panellist`「远程」入口。
 

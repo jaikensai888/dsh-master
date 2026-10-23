@@ -169,6 +169,7 @@ describe('CoordinatorClient remote workspace actions', () => {
       sessions: [{
         sessionId: 'session-1', title: 'session-1', updatedAt: 10, running: false, blank: false,
       }],
+      workspaces: [],
       archivedSessionIds: ['session-old'],
     })
   })
@@ -185,9 +186,52 @@ describe('CoordinatorClient remote workspace actions', () => {
     await expect(master.sessions('older-node')).resolves.toMatchObject({
       nodeId: 'older-node',
       sessions: [],
+      workspaces: [],
       archivedSessionIds: [],
+      workspaceError: { code: 'coordinator/endpoint-not-found' },
       archiveError: { code: 'coordinator/endpoint-not-found', message: 'workspace/follow is unavailable' },
     })
+  })
+})
+
+describe('remote workspace registry projection', () => {
+  const workspace = { workspaceId: 'w1', title: 'Renamed project', path: 'D:/repo', sessionIds: ['s1'] }
+
+  it('preserves valid archive state when only workspace membership is unreadable', async () => {
+    const { client } = clientWith(({ url }) => url.endsWith('/api/sessions')
+      ? envelope({ ok: true, value: { items: [{ sessionId: 'hidden' }, { sessionId: 'visible' }] } })
+      : ndjson([{ type: 'data', value: { type: 'baseline', value: { archivedSessionIds: ['hidden'] } } }]))
+    const result = await new MasterService(client, false).sessions('node-a')
+    expect(result.archivedSessionIds).toEqual(['hidden'])
+    expect(result.workspaceError?.code).toBe('master/coordinator-unreadable')
+    expect(result.archiveError).toBeUndefined()
+  })
+
+  it('returns registered directories including empty ones from the same baseline as archives', async () => {
+    const empty = { workspaceId: 'empty', title: 'Empty project', path: '/empty', sessionIds: [] }
+    const { client, calls } = clientWith(({ url }) => url.endsWith('/api/sessions')
+      ? envelope({ ok: true, value: { items: [] } })
+      : ndjson([{ type: 'data', value: { type: 'baseline', value: {
+        items: [workspace, empty], archivedSessionIds: ['archived'],
+      } } }]))
+
+    await expect(new MasterService(client, false).sessions('node-a')).resolves.toEqual({
+      nodeId: 'node-a', sessions: [], workspaces: [workspace, empty], archivedSessionIds: ['archived'],
+    })
+    expect(calls.filter(call => call.url.endsWith('/api/stream'))).toHaveLength(1)
+  })
+
+  it.each([
+    undefined, {}, [{ ...workspace, sessionIds: [1] }], [{ ...workspace, path: 42 }],
+    [workspace, workspace],
+  ])('reports an invalid workspace registry without hiding available sessions (%j)', async items => {
+    const { client } = clientWith(({ url }) => url.endsWith('/api/sessions')
+      ? envelope({ ok: true, value: { items: [{ sessionId: 's1' }] } })
+      : ndjson([{ type: 'data', value: { type: 'baseline', value: { items, archivedSessionIds: [] } } }]))
+    const result = await new MasterService(client, false).sessions('node-a')
+    expect(result.sessions.map(session => session.sessionId)).toEqual(['s1'])
+    expect(result.workspaces).toEqual([])
+    expect(result.workspaceError?.code).toBe('master/coordinator-unreadable')
   })
 })
 

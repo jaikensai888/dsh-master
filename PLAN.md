@@ -1,5 +1,7 @@
 # dsh-master 交接计划
 
+> **2026-10-23 更新**：远程侧栏已改为每节点独立工作区组，二级目录为节点实际登记的工作区，保留空目录及未分组会话。实施与验收记录见 `docs/superpowers/plans/2026-10-23-node-workspaces.md`；最新行为以 README 和 docs/design.md 为准，下文旧的单一远程组层级属于历史设计。
+
 > **2026-10-20 更新**：已适配 Desktop 2.0.18 / DSH 0.2.1-rc.2。设置、Session 引用与图标接口变化及本轮验证边界，以 `docs/GROUND-TRUTH.md` 顶部兼容性更新和 `docs/superpowers/plans/2026-10-20-desktop-compatibility.md` 为准。下文旧安装版本和 desktop CLI 验收命令是历史记录。
 
 > 这份文档写给**接手这个仓库的下一个 agent**。它假定你没有任何先前对话的上下文，只读仓库和本机环境。

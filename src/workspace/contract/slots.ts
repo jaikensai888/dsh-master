@@ -89,13 +89,14 @@ export type DirectoryPickingInjected = {
 /** Component-side view of the picking share: the bound occupancy selector hook. */
 export type DirectoryPickingHooks = PropsHooks<DirectoryPickingInjected['hooks']>
 
-/** Props the fork renders for the remote group and its collapsed node rail. */
+/** Props the fork renders for independent remote node sections and the node rail. */
 export interface RemoteSectionProps {
   readonly t: (key: string, params?: Record<string, unknown>) => string
-  readonly expanded: boolean
-  readonly onToggleGroup: () => void
-  readonly expandedNodeId: string | undefined
-  readonly onExpandedNodeChange: (nodeId: string | undefined) => void
+  readonly defaultNodeExpanded: boolean
+  readonly nodeExpansion: Readonly<Record<string, boolean>>
+  readonly workspaceExpansion: Readonly<Record<string, boolean>>
+  readonly onNodeExpandedChange: (nodeId: string, expanded: boolean) => void
+  readonly onWorkspaceExpandedChange: (key: string, expanded: boolean) => void
   readonly onOpenRemoteSession: (nodeId: string, sessionId: string, nodeName: string, sessionTitle: string) => void
   readonly rail?: boolean
   readonly onRailNodePick?: (nodeId: string) => void

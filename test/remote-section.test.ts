@@ -7,7 +7,7 @@ import { RowsCss, RemoteSectionCss } from '../src/workspace/styles.generated.js'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
   const react = await import('react')
-  const icon = (name: string) => () => react.createElement('i', { 'data-icon': name })
+  const icon = (name: string) => (props: { className?: string }) => react.createElement('i', { 'data-icon': name, className: props.className })
   return {
     Button: (props: {
       icon?: ReactNode
@@ -23,6 +23,9 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
     }, props.icon),
     IconChevronDownOutlineRegular: icon('chevron-down'),
     IconChevronRightOutlineRegular: icon('chevron-right'),
+    IconFolderCloseRegular: icon('folder-closed'),
+    IconFolderOpenRegular: icon('folder-open'),
+    IconTriangleRightFillRegular: icon('triangle'),
     IconArchiveOutlineRegular: icon('archive'),
     IconEllipsisOutlineRegular: icon('ellipsis'),
     IconGlobeOutlineRegular: icon('globe'),
@@ -32,7 +35,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
   }
 })
 
-import { RemoteSection } from '../src/workspace/RemoteSection.js'
+import { RemoteSection, RemoteNodeSection, type RemoteNodeSectionProps } from '../src/workspace/RemoteSection.js'
 import type { RemoteSectionProps } from '../src/workspace/contract/slots.js'
 
 interface RemoteSessionItemProps {
@@ -67,24 +70,20 @@ function findMenu(element: ReactNode): ReactElement<{
   return findMenu(props.children)
 }
 
-describe('the remote workspace group heading', () => {
-  it('shows the disclosure and refresh controls without a globe icon', () => {
+describe('the remote workspace sidebar', () => {
+  it('offers refresh before the node roster loads', () => {
     const props: RemoteSectionProps = {
       t: key => key === 'remote.group' ? '远程工作区' : key,
-      expanded: true,
-      onToggleGroup: () => {},
-      expandedNodeId: undefined,
-      onExpandedNodeChange: () => {},
+      defaultNodeExpanded: true,
+      nodeExpansion: {},
+      workspaceExpansion: {},
+      onNodeExpandedChange: () => {},
+      onWorkspaceExpandedChange: () => {},
       onOpenRemoteSession: () => {},
     }
     const markup = renderToStaticMarkup(createElement(RemoteSection, props))
-    const disclosureSlot = (RemoteSectionCss as Readonly<Record<string, string>>)['disclosureSlot']
 
     expect(markup).toContain('远程工作区')
-    expect(disclosureSlot).toBeDefined()
-    expect(markup).toContain(`class="${disclosureSlot}"`)
-    expect(markup).toContain('aria-hidden="true"')
-    expect(markup).toContain('data-expanded="true"')
     expect(markup).toContain('data-icon="refresh"')
     expect(markup).not.toContain('data-icon="globe"')
   })
@@ -195,19 +194,86 @@ describe('the remote workspace group heading', () => {
     expect(opened).toBe(false)
   })
 
-  it('marks the group for flexible fill only while it is expanded', () => {
-    const props: RemoteSectionProps = {
-      t: key => key,
-      expanded: true,
-      onToggleGroup: () => {},
-      expandedNodeId: undefined,
-      onExpandedNodeChange: () => {},
-      onOpenRemoteSession: () => {},
-    }
-    const expanded = renderToStaticMarkup(createElement(RemoteSection, props))
-    const collapsed = renderToStaticMarkup(createElement(RemoteSection, { ...props, expanded: false }))
+  it('marks each node for flexible fill only while it is expanded', () => {
+    const props = nodeProps()
+    const expanded = renderToStaticMarkup(createElement(RemoteNodeSection, props))
+    const collapsed = renderToStaticMarkup(createElement(RemoteNodeSection, { ...props, expanded: false }))
 
     expect(expanded).toContain(RemoteSectionCss.expanded)
     expect(collapsed).not.toContain(RemoteSectionCss.expanded)
+  })
+})
+
+function nodeProps(): RemoteNodeSectionProps {
+  return {
+    node: { nodeId: 'node-a', nodeName: 'Office', state: 'ready' },
+    expanded: true, busy: false, loading: false, error: undefined,
+    data: {
+      nodeId: 'node-a', archivedSessionIds: [],
+      workspaces: [
+        { workspaceId: 'same', title: 'Actual name', path: '/repo', sessionIds: ['s1'] },
+        { workspaceId: 'empty', title: 'Empty directory', path: '/empty', sessionIds: [] },
+      ],
+      sessions: [
+        { sessionId: 's1', title: 'Assigned', cwd: '/other', updatedAt: 0, running: false, blank: false },
+        { sessionId: 'loose', title: 'Unassigned', cwd: '/repo', updatedAt: 0, running: false, blank: false },
+      ],
+    },
+    selection: undefined, now: 0, workspaceExpansion: {}, overflow: [], openSessionMenu: undefined,
+    onToggleNode: () => {}, onRefresh: () => {}, onToggleOverflow: () => {},
+    onWorkspaceExpandedChange: () => {}, onSessionMenuChange: () => {},
+    onOpenRemoteSession: () => {}, onArchiveRemoteSession: () => {},
+    t: key => key,
+  }
+}
+
+describe('per-node remote workspace hierarchy', () => {
+  it('uses the local folder-to-triangle hover affordance for expanded and collapsed directories', () => {
+    const props = nodeProps()
+    props.workspaceExpansion = { '["node-a","same"]': false }
+    const markup = renderToStaticMarkup(createElement(RemoteNodeSection, props))
+    expect(markup).toContain(`class="${RowsCss.slot} ${RowsCss.folder}"`)
+    expect(markup).toContain(`class="${RowsCss.slot} ${RowsCss.chevron}"`)
+    expect(markup).toContain('data-icon="folder-closed"')
+    expect(markup).toContain('data-icon="folder-open"')
+    expect(markup).toContain(`data-icon="triangle" class="${RowsCss.arrow}"`)
+    expect(markup).toContain(`data-icon="triangle" class="${RowsCss.arrow} ${RowsCss.arrowOpen}"`)
+    expect(markup).not.toContain('data-icon="chevron-right"')
+    expect(markup).not.toContain('data-icon="chevron-down"')
+  })
+  it('renders the node header above registered directories, empty directories and Ungrouped', () => {
+    const markup = renderToStaticMarkup(createElement(RemoteNodeSection, nodeProps()))
+    expect(markup).toContain('data-dsh-remote-node="node-a"')
+    expect(markup).toContain('title="/repo"')
+    expect(markup).toContain('Actual name')
+    expect(markup).toContain('Empty directory')
+    expect(markup).toContain('Assigned')
+    expect(markup).toContain('group.ungrouped')
+    expect(markup).toContain('Unassigned')
+    expect(markup).not.toContain('remote.group')
+  })
+
+  it('collapses one directory using both node and workspace identity', () => {
+    const props = nodeProps()
+    props.workspaceExpansion = { '["node-a","same"]': false }
+    const collapsed = renderToStaticMarkup(createElement(RemoteNodeSection, props))
+    const anotherNode = renderToStaticMarkup(createElement(RemoteNodeSection, {
+      ...props, node: { nodeId: 'node-b', state: 'ready' },
+    }))
+    expect(collapsed).not.toContain('>Assigned<')
+    expect(collapsed).toContain('Unassigned')
+    expect(anotherNode).toContain('>Assigned<')
+  })
+
+  it('shows registry errors and still exposes unassigned sessions', () => {
+    const props = nodeProps()
+    const markup = renderToStaticMarkup(createElement(RemoteNodeSection, {
+      ...props,
+      data: { ...props.data!, workspaces: [], workspaceError: { code: 'coordinator/endpoint-not-found', message: 'upgrade node' } },
+    }))
+    expect(markup).toContain('remote.workspacesUnavailable')
+    expect(markup).toContain('upgrade node')
+    expect(markup).toContain('Assigned')
+    expect(markup).toContain('Unassigned')
   })
 })

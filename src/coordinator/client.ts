@@ -30,6 +30,8 @@ import type {
   MasterQuestionAnswer,
   MasterQuestionOption,
   MasterSession,
+  MasterWorkspace,
+  MasterWorkspaceSnapshot,
 } from '../protocol.js'
 
 /** One upstream failure, normalized from either the coordinator or the node. */
@@ -435,6 +437,11 @@ export class CoordinatorClient {
    * @returns the complete archived session ID set.
    */
   async workspaceArchiveIds(nodeId: string, signal?: AbortSignal): Promise<string[]> {
+    return [...(await this.workspaceSnapshot(nodeId, signal)).archivedSessionIds]
+  }
+
+  /** Read registered directories and archive state from one short-lived baseline stream. */
+  async workspaceSnapshot(nodeId: string, signal?: AbortSignal): Promise<MasterWorkspaceSnapshot> {
     for await (const frame of this.#followWorkspace(nodeId, signal)) {
       const record = asRecord(frame)
       if (str(record ?? {}, 'type') !== 'baseline') {
@@ -443,7 +450,14 @@ export class CoordinatorClient {
           'workspace/follow did not begin with a baseline',
         ))
       }
-      return readArchivedSessionIds(asRecord(record?.['value']))
+      const value = asRecord(record?.['value'])
+      const archivedSessionIds = readArchivedSessionIds(value)
+      try {
+        return { workspaces: readWorkspaces(value), archivedSessionIds }
+      } catch (cause) {
+        if (!(cause instanceof MasterUpstreamError)) throw cause
+        return { workspaces: [], archivedSessionIds, workspaceError: cause.toWire() }
+      }
     }
     throw new MasterUpstreamError(toMasterError(
       'master/coordinator-unreadable',
@@ -643,6 +657,31 @@ function* emitFollowRecord(record: Record<string, unknown>, status: number, endp
         `${endpoint} emitted an unknown record type (HTTP ${String(status)})`,
       ))
   }
+}
+
+/** Validate the registry before using its identities or session membership. */
+function readWorkspaces(value: Record<string, unknown> | undefined): MasterWorkspace[] {
+  const items = value?.['items']
+  const seen = new Set<string>()
+  if (Array.isArray(items)) {
+    const workspaces: MasterWorkspace[] = []
+    for (const item of items) {
+      const row = asRecord(item)
+      const workspaceId = row === undefined ? undefined : str(row, 'workspaceId')
+      const title = row === undefined ? undefined : str(row, 'title')
+      const path = row === undefined ? undefined : str(row, 'path')
+      const sessionIds = row?.['sessionIds']
+      if (workspaceId === undefined || workspaceId.length === 0 || seen.has(workspaceId)
+        || title === undefined || path === undefined || !Array.isArray(sessionIds)
+        || !sessionIds.every(id => typeof id === 'string')) break
+      seen.add(workspaceId)
+      workspaces.push({ workspaceId, title, path, sessionIds })
+    }
+    if (workspaces.length === items.length) return workspaces
+  }
+  throw new MasterUpstreamError(toMasterError(
+    'master/coordinator-unreadable', 'workspace/follow did not contain a valid workspace registry',
+  ))
 }
 
 /** Read the complete archive-ID field at the remote trust boundary. */

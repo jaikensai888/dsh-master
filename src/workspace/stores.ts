@@ -36,6 +36,9 @@ type WorkspaceViewState = {
   localExpanded?: boolean
   /** Whether the remote-node group is expanded; optional for v5 persistence migration. */
   remoteExpanded?: boolean
+  /** Independent remote state; local account pruning must never remove these maps. */
+  remoteNodeExpansion: Record<string, boolean>
+  remoteWorkspaceExpansion: Record<string, boolean>
 }
 
 /**
@@ -48,6 +51,8 @@ type WorkspaceViewActions = {
   setGroupExpanded: (draft: WorkspaceViewState, key: string, expanded: boolean) => void
   setLocalExpanded: (draft: WorkspaceViewState, expanded: boolean) => void
   setRemoteExpanded: (draft: WorkspaceViewState, expanded: boolean) => void
+  setRemoteNodeExpanded: (draft: WorkspaceViewState, nodeId: string, expanded: boolean) => void
+  setRemoteWorkspaceExpanded: (draft: WorkspaceViewState, key: string, expanded: boolean) => void
   retainAccountKeys: (draft: WorkspaceViewState, workspaceKeys: readonly string[]) => void
   syncSessionOrderAccount: (
     draft: WorkspaceViewState,
@@ -72,6 +77,8 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
       sessionUpdatedAtByAccount: {},
       localExpanded: true,
       remoteExpanded: true,
+      remoteNodeExpansion: {},
+      remoteWorkspaceExpansion: {},
     }),
     persist: 'dsh.workspace.view.v5',
     actions: {
@@ -80,6 +87,8 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
       setGroupExpanded: (d, key: string, expanded: boolean) => { d.groupExpansion[key] = expanded },
       setLocalExpanded: (d, expanded: boolean) => { d.localExpanded = expanded },
       setRemoteExpanded: (d, expanded: boolean) => { d.remoteExpanded = expanded },
+      setRemoteNodeExpanded: (d, nodeId: string, expanded: boolean) => { d.remoteNodeExpansion[nodeId] = expanded },
+      setRemoteWorkspaceExpanded: (d, key: string, expanded: boolean) => { d.remoteWorkspaceExpansion[key] = expanded },
       retainAccountKeys: (d, workspaceKeys: readonly string[]) => {
         const retained = new Set(workspaceKeys)
         d.groupExpansion = Object.fromEntries(
@@ -112,6 +121,8 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
         draft.sessionUpdatedAtByAccount ??= {}
         draft.localExpanded ??= true
         draft.remoteExpanded ??= true
+        draft.remoteNodeExpansion ??= {}
+        draft.remoteWorkspaceExpansion ??= {}
       })
       return instance
     },

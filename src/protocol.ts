@@ -85,6 +85,21 @@ export interface MasterSession {
   readonly cwd?: string
 }
 
+/** An authoritative workspace registered on one remote node. */
+export interface MasterWorkspace {
+  readonly workspaceId: string
+  readonly title: string
+  readonly path: string
+  readonly sessionIds: readonly string[]
+}
+
+/** One node's complete workspace registry baseline. */
+export interface MasterWorkspaceSnapshot {
+  readonly workspaces: readonly MasterWorkspace[]
+  readonly archivedSessionIds: readonly string[]
+  readonly workspaceError?: MasterError
+}
+
 /** Host-confirmed archive state returned alongside a remote session list. */
 export interface MasterArchiveValue {
   readonly archivedSessionIds: readonly string[]
@@ -100,7 +115,10 @@ export interface MasterNodesValue {
 export interface MasterSessionsValue {
   readonly nodeId: string
   readonly sessions: readonly MasterSession[]
+  readonly workspaces: readonly MasterWorkspace[]
   readonly archivedSessionIds: readonly string[]
+  /** The registry could not be read; sessions remain accessible under Ungrouped. */
+  readonly workspaceError?: MasterError
   /** Present when the node can list sessions but does not expose workspace archive state. */
   readonly archiveError?: MasterError
 }
