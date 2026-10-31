@@ -262,7 +262,8 @@ node lib/cli.js --port 39472        # 绑回环；不要用 start.cmd（它绑 0
 | 会话生命周期通知 | `api-session/added\|removed\|status\|activity\|error` 同样走 `$events`，没透传 | 常驻订阅 + 手动刷新 |
 | 远程会话的「等待审批」标记 | 那是客户端对 forwarded event 的本地投影 | 同第 1 条 |
 | token 级流式增量 | `assistant-stream` 的 `chunk` 是 provider 形状，**不猜** | 显示「输出中」，等 durable `assistant/message` |
-| 队列 / 模型切换 / diff | `session/control`、`session/selectModel`、`workspaceFiles/changes` 未接入 | 后续阶段 |
+| 文件修改 diff 卡片 | ✅ 已支持 `write` / `edit`：调用级差异 + 回合汇总；`str_replace_editor` 只在运行中显示意图 | 差异路径不是下载 ID；打开 / 预览 / 编辑仍未接入 |
+| 队列 / 模型切换 / 工作区变更汇总 | `session/control`、`session/selectModel`、`workspaceFiles/changes` 未接入；远程 `workspace/changes` 事件只带 turn，不含文件列表 | 后续阶段 |
 | 向上翻页加载更早历史 | `hasMore` 已读到并展示提示 | 实现 `session/page` 分页 |
 
 ---

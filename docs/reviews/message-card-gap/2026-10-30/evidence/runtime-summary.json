@@ -1,0 +1,42 @@
+{
+  "capturedAt": "2026-10-30T02:59:19.187Z",
+  "origin": "http://127.0.0.1:56574",
+  "processPath": "E:/DSH2/DeepSeek Harness.exe",
+  "archive": "E:/DSH2/resources/app.asar",
+  "officialPackageVersion": "0.2.1-rc.2",
+  "coordinator": {
+    "url": "http://192.168.0.13:8101",
+    "reachable": true
+  },
+  "nodeCount": 3,
+  "nodes": [
+    {
+      "nodeId": "node-2d78325c8c0ec940a080aafee4e5b4c6",
+      "nodeName": "offiec1",
+      "state": "ready",
+      "capabilityCount": 146
+    },
+    {
+      "nodeId": "node-354138e6dc311d00f0314c599f7204f7",
+      "nodeName": "ou",
+      "state": "offline",
+      "capabilityCount": 0
+    },
+    {
+      "nodeId": "node-b7ae1e560774708d7e8f22f523c592a0",
+      "nodeName": "my-desktop",
+      "state": "ready",
+      "capabilityCount": 160
+    }
+  ],
+  "registeredClientEntries": [
+    "@deepseek-ai/dsh-client-ui-chat",
+    "@deepseek-ai/dsh-client-ui-tool",
+    "dsh-master"
+  ],
+  "limitations": [
+    "Client entry registration does not prove bytes of an already materialized UI bundle",
+    "No paired same-session official/remote UI screenshots",
+    "No deployment coordinator source SHA comparison"
+  ]
+}

@@ -16,6 +16,7 @@ import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-sto
 
 /** Browser-local order account for the hierarchy-free flat Session list. */
 export const FLAT_SESSION_ORDER_KEY = '__flat_session_order__'
+export type WorkspaceBrowseScope = { kind: 'local' } | { kind: 'remote'; nodeId: string }
 
 /** Session-list grouping mode: workspace sections or one flat recency list. */
 export type SessionGroupBy = 'workspace' | 'flat'
@@ -24,6 +25,7 @@ export type SessionOrderBy = 'manual' | 'updated'
 
 /** Workspace browser viewing state persisted across surface remounts and reloads. */
 type WorkspaceViewState = {
+  browseScope: WorkspaceBrowseScope
   groupBy: SessionGroupBy
   orderBy: SessionOrderBy
   /** Explicit zero-or-five-session state keyed by Workspace group identity. */
@@ -46,6 +48,7 @@ type WorkspaceViewState = {
  * return type); drift fails assignability at the defineStore call.
  */
 type WorkspaceViewActions = {
+  setBrowseScope: (draft: WorkspaceViewState, scope: WorkspaceBrowseScope) => void
   setGroupBy: (draft: WorkspaceViewState, mode: SessionGroupBy) => void
   setOrderBy: (draft: WorkspaceViewState, mode: SessionOrderBy) => void
   setGroupExpanded: (draft: WorkspaceViewState, key: string, expanded: boolean) => void
@@ -70,6 +73,7 @@ type WorkspaceViewActions = {
 export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState, WorkspaceViewActions> {
   const handle = defineStore({
     init: (): WorkspaceViewState => ({
+      browseScope: { kind: 'local' },
       groupBy: 'workspace',
       orderBy: 'updated',
       groupExpansion: {},
@@ -82,6 +86,7 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
     }),
     persist: 'dsh.workspace.view.v5',
     actions: {
+      setBrowseScope: (d, scope: WorkspaceBrowseScope) => { d.browseScope = scope },
       setGroupBy: (d, mode: SessionGroupBy) => { d.groupBy = mode },
       setOrderBy: (d, mode: SessionOrderBy) => { d.orderBy = mode },
       setGroupExpanded: (d, key: string, expanded: boolean) => { d.groupExpansion[key] = expanded },
@@ -116,6 +121,7 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
       const instance = handle.create(scopeKey)
       // Official v5 snapshots replace init wholesale and omit the fork's timestamp map.
       instance.store.update(draft => {
+        draft.browseScope ??= { kind: 'local' }
         draft.groupExpansion ??= {}
         draft.sessionOrderByAccount ??= {}
         draft.sessionUpdatedAtByAccount ??= {}

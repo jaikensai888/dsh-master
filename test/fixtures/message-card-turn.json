@@ -1,0 +1,939 @@
+{
+  "type": "snapshot",
+  "header": {
+    "version": 3,
+    "id": "sanitized-query-logs",
+    "createdAt": 0,
+    "isSeeded": false
+  },
+  "records": [
+    {
+      "type": "event",
+      "event": {
+        "type": "turn/start",
+        "seq": 2817,
+        "time": 1793339103592,
+        "data": {
+          "turn": 12
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/start",
+        "seq": 2819,
+        "time": 1793339103717,
+        "data": {
+          "turn": 12,
+          "step": 1
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "assistant/message",
+        "seq": 2822,
+        "time": 1793339110778,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 1,
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "reasoning",
+                "text": "执行过程记录。"
+              },
+              {
+                "type": "tool-call",
+                "id": "call_00_7a0EiiAhf2OC9zLDtMIl9555",
+                "name": "pwsh",
+                "arguments": "{}"
+              }
+            ],
+            "source": {
+              "kind": "model",
+              "provider": "deepseek-official",
+              "model": "deepseek-flash",
+              "replayState": {
+                "response": {
+                  "kind": "deepseek-messages",
+                  "version": 1,
+                  "model": "deepseek-flash"
+                },
+                "blocks": [
+                  {
+                    "type": "reasoning",
+                    "signature": "ddbad969-287b-4c3b-8997-abebab47b037"
+                  },
+                  {
+                    "type": "tool-call"
+                  }
+                ]
+              }
+            },
+            "id": "c092974c-f923-4acb-b5ee-ccf99748deb5"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "tool/call",
+        "seq": 2823,
+        "time": 1793339110780,
+        "data": {
+          "turn": 12,
+          "step": 1,
+          "callId": "call_00_7a0EiiAhf2OC9zLDtMIl9555",
+          "name": "pwsh",
+          "arguments": "{}"
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "tool/result",
+        "seq": 2826,
+        "time": 1793339113297,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 1,
+          "message": {
+            "role": "tool",
+            "source": {
+              "kind": "tool",
+              "callId": "call_00_7a0EiiAhf2OC9zLDtMIl9555"
+            },
+            "toolCallId": "call_00_7a0EiiAhf2OC9zLDtMIl9555",
+            "content": [
+              {
+                "type": "text",
+                "text": "执行过程记录。"
+              }
+            ],
+            "isError": false,
+            "id": "3f17442b-a005-4bac-ab70-8f025be46c36"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/end",
+        "seq": 2827,
+        "time": 1793339113297,
+        "data": {
+          "turn": 12,
+          "step": 1
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/start",
+        "seq": 2828,
+        "time": 1793339113331,
+        "data": {
+          "turn": 12,
+          "step": 2
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "assistant/message",
+        "seq": 2830,
+        "time": 1793339116630,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 2,
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "reasoning",
+                "text": "执行过程记录。"
+              },
+              {
+                "type": "tool-call",
+                "id": "call_00_JLguYOyj4KdqMpeo5wW22405",
+                "name": "pwsh",
+                "arguments": "{}"
+              }
+            ],
+            "source": {
+              "kind": "model",
+              "provider": "deepseek-official",
+              "model": "deepseek-flash",
+              "replayState": {
+                "response": {
+                  "kind": "deepseek-messages",
+                  "version": 1,
+                  "model": "deepseek-flash"
+                },
+                "blocks": [
+                  {
+                    "type": "reasoning",
+                    "signature": "312a0bea-e490-44d1-b7ae-429ea0d12a0b"
+                  },
+                  {
+                    "type": "tool-call"
+                  }
+                ]
+              }
+            },
+            "id": "fad12d41-d010-4847-9a37-9b387a8b5dad"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "tool/call",
+        "seq": 2831,
+        "time": 1793339116631,
+        "data": {
+          "turn": 12,
+          "step": 2,
+          "callId": "call_00_JLguYOyj4KdqMpeo5wW22405",
+          "name": "pwsh",
+          "arguments": "{}"
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "tool/result",
+        "seq": 2834,
+        "time": 1793339118900,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 2,
+          "message": {
+            "role": "tool",
+            "source": {
+              "kind": "tool",
+              "callId": "call_00_JLguYOyj4KdqMpeo5wW22405"
+            },
+            "toolCallId": "call_00_JLguYOyj4KdqMpeo5wW22405",
+            "content": [
+              {
+                "type": "text",
+                "text": "执行过程记录。"
+              }
+            ],
+            "isError": false,
+            "id": "4502e3a3-3837-4f7b-b085-7d3414beef47"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/end",
+        "seq": 2835,
+        "time": 1793339118900,
+        "data": {
+          "turn": 12,
+          "step": 2
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/start",
+        "seq": 2836,
+        "time": 1793339118930,
+        "data": {
+          "turn": 12,
+          "step": 3
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "assistant/message",
+        "seq": 2838,
+        "time": 1793339124279,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 3,
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "reasoning",
+                "text": "执行过程记录。"
+              },
+              {
+                "type": "tool-call",
+                "id": "call_00_Cl9YJpLfx2tQof5iB0FH5869",
+                "name": "pwsh",
+                "arguments": "{}"
+              }
+            ],
+            "source": {
+              "kind": "model",
+              "provider": "deepseek-official",
+              "model": "deepseek-flash",
+              "replayState": {
+                "response": {
+                  "kind": "deepseek-messages",
+                  "version": 1,
+                  "model": "deepseek-flash"
+                },
+                "blocks": [
+                  {
+                    "type": "reasoning",
+                    "signature": "abf3852a-758c-4d04-83c5-4a69d2d38f62"
+                  },
+                  {
+                    "type": "tool-call"
+                  }
+                ]
+              }
+            },
+            "id": "51eea25f-c792-40fe-8305-20bfd435bbe7"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "tool/call",
+        "seq": 2839,
+        "time": 1793339124280,
+        "data": {
+          "turn": 12,
+          "step": 3,
+          "callId": "call_00_Cl9YJpLfx2tQof5iB0FH5869",
+          "name": "pwsh",
+          "arguments": "{}"
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "tool/result",
+        "seq": 2842,
+        "time": 1793339126545,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 3,
+          "message": {
+            "role": "tool",
+            "source": {
+              "kind": "tool",
+              "callId": "call_00_Cl9YJpLfx2tQof5iB0FH5869"
+            },
+            "toolCallId": "call_00_Cl9YJpLfx2tQof5iB0FH5869",
+            "content": [
+              {
+                "type": "text",
+                "text": "执行过程记录。"
+              }
+            ],
+            "isError": false,
+            "id": "379f4247-333a-4a24-809c-9a85b7d8b2ac"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/end",
+        "seq": 2843,
+        "time": 1793339126545,
+        "data": {
+          "turn": 12,
+          "step": 3
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/start",
+        "seq": 2844,
+        "time": 1793339126597,
+        "data": {
+          "turn": 12,
+          "step": 4
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "assistant/message",
+        "seq": 2846,
+        "time": 1793339132345,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 4,
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "reasoning",
+                "text": "执行过程记录。"
+              },
+              {
+                "type": "tool-call",
+                "id": "call_00_sAtLJCBGkyeKQfJar4jG5219",
+                "name": "pwsh",
+                "arguments": "{}"
+              }
+            ],
+            "source": {
+              "kind": "model",
+              "provider": "deepseek-official",
+              "model": "deepseek-flash",
+              "replayState": {
+                "response": {
+                  "kind": "deepseek-messages",
+                  "version": 1,
+                  "model": "deepseek-flash"
+                },
+                "blocks": [
+                  {
+                    "type": "reasoning",
+                    "signature": "b4871d50-3be9-464f-89ab-8aafe38b961f"
+                  },
+                  {
+                    "type": "tool-call"
+                  }
+                ]
+              }
+            },
+            "id": "23297d66-5a7d-4814-93dd-7483c60ebd98"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "tool/call",
+        "seq": 2847,
+        "time": 1793339132346,
+        "data": {
+          "turn": 12,
+          "step": 4,
+          "callId": "call_00_sAtLJCBGkyeKQfJar4jG5219",
+          "name": "pwsh",
+          "arguments": "{}"
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "tool/result",
+        "seq": 2850,
+        "time": 1793339134685,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 4,
+          "message": {
+            "role": "tool",
+            "source": {
+              "kind": "tool",
+              "callId": "call_00_sAtLJCBGkyeKQfJar4jG5219"
+            },
+            "toolCallId": "call_00_sAtLJCBGkyeKQfJar4jG5219",
+            "content": [
+              {
+                "type": "text",
+                "text": "执行过程记录。"
+              }
+            ],
+            "isError": false,
+            "id": "4529d77a-7afa-4e6c-806f-687c4944cc56"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/end",
+        "seq": 2851,
+        "time": 1793339134686,
+        "data": {
+          "turn": 12,
+          "step": 4
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/start",
+        "seq": 2852,
+        "time": 1793339134728,
+        "data": {
+          "turn": 12,
+          "step": 5
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "assistant/message",
+        "seq": 2854,
+        "time": 1793339139091,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 5,
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "reasoning",
+                "text": "执行过程记录。"
+              },
+              {
+                "type": "tool-call",
+                "id": "call_00_TpAN40hOppel8xHumLsr7691",
+                "name": "pwsh",
+                "arguments": "{}"
+              }
+            ],
+            "source": {
+              "kind": "model",
+              "provider": "deepseek-official",
+              "model": "deepseek-flash",
+              "replayState": {
+                "response": {
+                  "kind": "deepseek-messages",
+                  "version": 1,
+                  "model": "deepseek-flash"
+                },
+                "blocks": [
+                  {
+                    "type": "reasoning",
+                    "signature": "b4b9d683-7743-4f8e-abc0-75b5e439395e"
+                  },
+                  {
+                    "type": "tool-call"
+                  }
+                ]
+              }
+            },
+            "id": "79be826e-0f29-4905-9a42-ca5cf91dd6ca"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "tool/call",
+        "seq": 2855,
+        "time": 1793339139092,
+        "data": {
+          "turn": 12,
+          "step": 5,
+          "callId": "call_00_TpAN40hOppel8xHumLsr7691",
+          "name": "pwsh",
+          "arguments": "{}"
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "tool/result",
+        "seq": 2858,
+        "time": 1793339141487,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 5,
+          "message": {
+            "role": "tool",
+            "source": {
+              "kind": "tool",
+              "callId": "call_00_TpAN40hOppel8xHumLsr7691"
+            },
+            "toolCallId": "call_00_TpAN40hOppel8xHumLsr7691",
+            "content": [
+              {
+                "type": "text",
+                "text": "执行过程记录。"
+              }
+            ],
+            "isError": false,
+            "id": "46c7cbf7-c6dd-4c5b-b1f0-93ec5de2e4b9"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/end",
+        "seq": 2859,
+        "time": 1793339141487,
+        "data": {
+          "turn": 12,
+          "step": 5
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/start",
+        "seq": 2860,
+        "time": 1793339141525,
+        "data": {
+          "turn": 12,
+          "step": 6
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "assistant/message",
+        "seq": 2862,
+        "time": 1793339144735,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 6,
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "reasoning",
+                "text": "执行过程记录。"
+              },
+              {
+                "type": "tool-call",
+                "id": "call_00_Iw1jDiwaGxItaafyMCTx8862",
+                "name": "pwsh",
+                "arguments": "{}"
+              }
+            ],
+            "source": {
+              "kind": "model",
+              "provider": "deepseek-official",
+              "model": "deepseek-flash",
+              "replayState": {
+                "response": {
+                  "kind": "deepseek-messages",
+                  "version": 1,
+                  "model": "deepseek-flash"
+                },
+                "blocks": [
+                  {
+                    "type": "reasoning",
+                    "signature": "80b6833f-ab0d-42ed-abf2-375b7d7bebbc"
+                  },
+                  {
+                    "type": "tool-call"
+                  }
+                ]
+              }
+            },
+            "id": "f2616105-7102-4835-ba22-ca2ce4edce42"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "tool/call",
+        "seq": 2863,
+        "time": 1793339144736,
+        "data": {
+          "turn": 12,
+          "step": 6,
+          "callId": "call_00_Iw1jDiwaGxItaafyMCTx8862",
+          "name": "pwsh",
+          "arguments": "{}"
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "tool/result",
+        "seq": 2866,
+        "time": 1793339147339,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 6,
+          "message": {
+            "role": "tool",
+            "source": {
+              "kind": "tool",
+              "callId": "call_00_Iw1jDiwaGxItaafyMCTx8862"
+            },
+            "toolCallId": "call_00_Iw1jDiwaGxItaafyMCTx8862",
+            "content": [
+              {
+                "type": "text",
+                "text": "执行过程记录。"
+              }
+            ],
+            "isError": false,
+            "id": "f1ebdbf2-1952-4aaa-a78d-3e211860ea7c"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/end",
+        "seq": 2867,
+        "time": 1793339147339,
+        "data": {
+          "turn": 12,
+          "step": 6
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/start",
+        "seq": 2868,
+        "time": 1793339147371,
+        "data": {
+          "turn": 12,
+          "step": 7
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "assistant/message",
+        "seq": 2870,
+        "time": 1793339150626,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 7,
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "reasoning",
+                "text": "执行过程记录。"
+              },
+              {
+                "type": "tool-call",
+                "id": "call_00_a6j5EQNvcNPM69FvIR9C8223",
+                "name": "pwsh",
+                "arguments": "{}"
+              }
+            ],
+            "source": {
+              "kind": "model",
+              "provider": "deepseek-official",
+              "model": "deepseek-flash",
+              "replayState": {
+                "response": {
+                  "kind": "deepseek-messages",
+                  "version": 1,
+                  "model": "deepseek-flash"
+                },
+                "blocks": [
+                  {
+                    "type": "reasoning",
+                    "signature": "9ef1977e-a95c-42f5-91e2-3c9f4d6bc479"
+                  },
+                  {
+                    "type": "tool-call"
+                  }
+                ]
+              }
+            },
+            "id": "8a50a1c5-c7ae-41b4-b713-e3184392edc1"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "tool/call",
+        "seq": 2871,
+        "time": 1793339150627,
+        "data": {
+          "turn": 12,
+          "step": 7,
+          "callId": "call_00_a6j5EQNvcNPM69FvIR9C8223",
+          "name": "pwsh",
+          "arguments": "{}"
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "tool/result",
+        "seq": 2874,
+        "time": 1793339152831,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 7,
+          "message": {
+            "role": "tool",
+            "source": {
+              "kind": "tool",
+              "callId": "call_00_a6j5EQNvcNPM69FvIR9C8223"
+            },
+            "toolCallId": "call_00_a6j5EQNvcNPM69FvIR9C8223",
+            "content": [
+              {
+                "type": "text",
+                "text": "执行过程记录。"
+              }
+            ],
+            "isError": false,
+            "id": "d0a8bf6b-47b4-4250-bc97-65fb5b257c8a"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/end",
+        "seq": 2875,
+        "time": 1793339152831,
+        "data": {
+          "turn": 12,
+          "step": 7
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/start",
+        "seq": 2876,
+        "time": 1793339152871,
+        "data": {
+          "turn": 12,
+          "step": 8
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "assistant/message",
+        "seq": 2878,
+        "time": 1793339156287,
+        "surfaceOp": "append",
+        "data": {
+          "turn": 12,
+          "step": 8,
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "reasoning",
+                "text": ""
+              },
+              {
+                "type": "text",
+                "text": "已提交，仅包含当前项目的改动。"
+              }
+            ],
+            "source": {
+              "kind": "model",
+              "provider": "deepseek-official",
+              "model": "deepseek-flash",
+              "replayState": {
+                "response": {
+                  "kind": "deepseek-messages",
+                  "version": 1,
+                  "model": "deepseek-flash"
+                },
+                "blocks": [
+                  {
+                    "type": "reasoning",
+                    "signature": "7df29ac2-d3a4-4d85-9a6b-c67491763286"
+                  },
+                  {
+                    "type": "text"
+                  }
+                ]
+              }
+            },
+            "id": "774ccdec-f78f-4ca5-b3bc-87c187ce1ee0"
+          }
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "step/end",
+        "seq": 2879,
+        "time": 1793339156288,
+        "data": {
+          "turn": 12,
+          "step": 8
+        }
+      }
+    },
+    {
+      "type": "event",
+      "event": {
+        "type": "turn/end",
+        "seq": 2880,
+        "time": 1793339162590,
+        "data": {
+          "turn": 12,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      }
+    }
+  ],
+  "hasMore": false,
+  "projections": {
+    "asOfSeq": 2881,
+    "values": {}
+  }
+}

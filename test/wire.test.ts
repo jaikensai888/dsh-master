@@ -39,13 +39,35 @@ describe('readSnapshot', () => {
     expect(view?.unrendered).toBe(0)
   })
 
+  it('labels DSH-injected context instead of showing it as typed input', () => {
+    const view = readSnapshot(snapshot([
+      entry(1, 'user/message', {
+        source: {
+          kind: 'agent-instructions',
+          form: 'instructions',
+          changes: [{ action: 'replace', path: 'xingliu\\AGENTS.md' }],
+        },
+        content: [{ type: 'text', text: '<system-reminder>…</system-reminder>' }],
+      }),
+      entry(2, 'user/message', {
+        source: { kind: 'time-context', form: 'snapshot' },
+        content: [{ type: 'text', text: 'Time sampled while preparing turn 1' }],
+      }),
+    ]))
+    expect(view?.rows.map(row => [row.kind, row.text, row.detail])).toEqual([
+      ['context', 'xingliu\\AGENTS.md', '<system-reminder>…</system-reminder>'],
+      ['context', '时间上下文', 'Time sampled while preparing turn 1'],
+    ])
+    expect(view?.unrendered).toBe(0)
+  })
+
   it('counts events it cannot render rather than dropping them silently', () => {
     const view = readSnapshot(snapshot([
       entry(1, 'turn/start', { turn: 1 }),
       entry(2, 'compaction/summary', { compactionId: 'c1' }),
     ]))
     expect(view?.rows).toEqual([])
-    expect(view?.unrendered).toBe(2)
+    expect(view?.unrendered).toBe(1) // turn/start now contributes lifecycle state.
   })
 
   it('returns undefined for anything that is not a snapshot', () => {

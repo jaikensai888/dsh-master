@@ -69,7 +69,7 @@ describe('remote session composer', () => {
       expect(html).toMatch(new RegExp(`<button\\b(?=[^>]*data-control="${control}")(?=[^>]*disabled="")`, 'u'))
       expect(html).toContain(`data-control="${control}"`)
     }
-    expect([...html.matchAll(/<button\b(?=[^>]*data-control="attachment")(?=[^>]*disabled="")/gu)]).toHaveLength(2)
+    expect([...html.matchAll(/<button\b(?=[^>]*data-control="attachment")(?=[^>]*disabled="")/gu)]).toHaveLength(1)
     expect(html).toContain('暂不支持远程会话')
   })
 

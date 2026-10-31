@@ -22,6 +22,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { handleFileRoute } from './files-api.js'
 import { isTrustedMasterRequest } from './net/trust-fence.js'
 import {
   ROUTE_PREFIX,
@@ -142,6 +143,19 @@ function bodyText(body: Record<string, unknown>, key: string): string | undefine
   return typeof value === 'string' && value.trim() !== '' ? value : undefined
 }
 
+/**
+ * Read optional attachment ids.
+ * @param value - the request field.
+ * @returns an array (empty when absent), or `null` when the field is invalid.
+ */
+function readAttachmentIds(value: unknown): string[] | null {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length === 0 || value.length > 5) return null
+  if (!value.every(id => typeof id === 'string' && id.trim() !== '')) return null
+  const ids = value as string[]
+  return new Set(ids).size === ids.length ? ids : null
+}
+
 /** Validate the JSON-safe shape before forwarding a user answer to the node. */
 function questionAnswer(value: unknown): MasterQuestionAnswer | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
@@ -259,6 +273,13 @@ export function createMasterRouteHandler(
         ? url.pathname.slice(ROUTE_PREFIX.length)
         : url.pathname
       const method = request.method ?? 'GET'
+
+      if (route.startsWith('/api/files/')) {
+        // The file routes add their own loopback check; the shared fence above
+        // has already refused cross-site and rebinding authorities.
+        await handleFileRoute(request, response, url, route, deps)
+        return
+      }
 
       if (route === '/api/status') {
         if (method !== 'GET' && method !== 'HEAD') {
@@ -492,8 +513,16 @@ export function createMasterRouteHandler(
           return
         }
         const mode = body['mode'] === 'steer' ? 'steer' : 'queue'
+        const attachmentIds = readAttachmentIds(body['attachmentIds'])
+        if (attachmentIds === null) {
+          sendFailure(response, 400, failure(
+            'master/invalid-arguments',
+            'attachmentIds must be an array of 1 to 5 unique non-empty strings when present',
+          ))
+          return
+        }
         try {
-          await service.prompt(nodeId, sessionId, text, mode)
+          await service.prompt(nodeId, sessionId, text, mode, undefined, attachmentIds)
           sendJson(response, 200, { ok: true, value: { accepted: true } })
         } catch (error) {
           const mapped = classify(error)

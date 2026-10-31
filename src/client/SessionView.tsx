@@ -19,7 +19,6 @@ import {
   Button,
   IconChevronDownOutlineRegular as IconChevronDownOutline14,
   IconChevronRightOutlineRegular as IconChevronRightOutline14,
-  IconPlusOutlineRegular as IconPlusOutline16,
   IconSendOutlineRegular as IconSendOutline14,
   IconWarningOutlineRegular as IconWarningOutline16,
   MarkdownText,
@@ -32,19 +31,41 @@ import {
   ApiError,
   answerRemoteQuestion,
   cancelRemoteQuestion,
+  fetchArtifacts,
+  fetchFileSupport,
   fetchPendingQuestions,
   followSession,
   sendPrompt,
 } from './api.js'
-import { COPY, MARKDOWN_LABELS } from './copy.js'
+import { AttachmentPicker } from './AttachmentPicker.js'
+import { ArtifactList, mergeArtifacts } from './ArtifactCard.js'
+import { FileChangeCard, TurnChangesCard } from './FileChangeCard.js'
 import {
+  attachmentIds,
+  canSubmit,
+  isUncertainPromptFailure,
+  newLocalAttachment,
+  removeAttachment as removeAttachmentRow,
+  selectFiles,
+  updateAttachment,
+  uploadAttachment,
+  type LocalAttachment,
+} from './attachments.js'
+import { COPY, MARKDOWN_LABELS } from './copy.js'
+import { observeConversationWidth } from './conversation-width.js'
+import {
+  conversationItems,
   hasPendingUserQuestion,
   mergeRows,
+  mergeTurnEvents,
   readEvent,
   readSnapshot,
   readStreamFrame,
   type ConversationRow,
+  type TurnEvent,
+  type TurnGroup,
 } from './wire.js'
+import type { FileArtifact, FileDescribe } from '../files-protocol.js'
 import type { MasterQuestion, MasterQuestionAnswer, MasterPendingQuestionRequest } from '../protocol.js'
 
 /** What the view needs to open one session. */
@@ -54,7 +75,15 @@ export interface SessionViewProps {
   readonly title: string
   /** Whether the deployment enabled sending prompts. */
   readonly promptEnabled: boolean
+  /**
+   * Test/inspection override for the file-support probe. Production leaves it
+   * undefined and the view asks the node when it opens the session.
+   */
+  readonly fileSupportOverride?: FileSupportState | undefined
 }
+
+/** The node's answer to "can this session carry files?". */
+export type FileSupportState = 'loading' | 'unsupported' | 'error' | FileDescribe
 
 /** How the follow stream is doing, for the header chip. */
 type Phase = 'connecting' | 'live' | 'ended' | 'failed'
@@ -64,6 +93,8 @@ function roleLabel(row: ConversationRow): string {
   switch (row.kind) {
     case 'user': return COPY.roleUser
     case 'assistant': return COPY.roleAssistant
+    case 'reasoning': return '思考过程'
+    case 'context': return COPY.contextInjection
     case 'tool-call': return COPY.roleToolCall
     case 'tool-result': return COPY.roleToolResult
     case 'notice': return COPY.roleNotice
@@ -74,12 +105,43 @@ function roleLabel(row: ConversationRow): string {
  * Render one conversation row.
  *
  * Assistant and user bodies go through `MarkdownText`; tool calls follow the Web UI's
- * compact disclosure row and reveal their input/output only when expanded.
+ * compact disclosure row and reveal their input/output only when expanded. A
+ * `write`/`edit` call that carried structured diffs renders the file-change card
+ * instead, so what it changed is visible without opening the raw argument JSON.
  *
  * @param row - the row.
+ * @param hideRole - whether the row belongs to a turn's final answer.
+ * @param cwd - the session workspace root, used to shorten recorded paths.
  * @returns the row element.
  */
-function Row({ row }: { readonly row: ConversationRow }): ReactElement {
+function Row({ row, hideRole = false, cwd }: {
+  readonly row: ConversationRow
+  readonly hideRole?: boolean
+  readonly cwd?: string | undefined
+}): ReactElement {
+  if (row.kind === 'tool-call' && row.change !== undefined) {
+    return <FileChangeCard change={row.change} cwd={cwd} />
+  }
+  if (row.kind === 'context') {
+    return (
+      <details className="dsh-master-context">
+        <summary>{COPY.contextInjection} · {row.text}</summary>
+        {row.detail === undefined ? null : (
+          <div className="dsh-master-context-body">
+            <MarkdownText text={row.detail} labels={MARKDOWN_LABELS} />
+          </div>
+        )}
+      </details>
+    )
+  }
+  if (row.kind === 'reasoning') {
+    return (
+      <details className="dsh-master-reasoning">
+        <summary>思考过程</summary>
+        <MarkdownText text={row.text} labels={MARKDOWN_LABELS} />
+      </details>
+    )
+  }
   if (row.kind === 'tool-call' || row.kind === 'tool-result') {
     const isCall = row.kind === 'tool-call'
     const output = isCall ? row.output : row.text
@@ -120,7 +182,7 @@ function Row({ row }: { readonly row: ConversationRow }): ReactElement {
   }
   if (row.kind === 'notice') {
     return (
-      <div className="dsh-master-notice">
+      <div className={row.failed === true ? 'dsh-master-error' : 'dsh-master-notice'}>
         <span>{roleLabel(row)}</span>
         <span>·</span>
         <span>{row.text}</span>
@@ -138,15 +200,70 @@ function Row({ row }: { readonly row: ConversationRow }): ReactElement {
   }
   return (
     <div className="dsh-master-turn">
-      <div className="dsh-master-role">
+      {hideRole ? null : <div className="dsh-master-role">
         {roleLabel(row)}
         {row.detail === undefined ? '' : ` ${row.detail}`}
-      </div>
+      </div>}
       <div className="dsh-master-text">
         <MarkdownText text={row.text} labels={MARKDOWN_LABELS} />
       </div>
     </div>
   )
+}
+
+function TurnProcess({ group, cwd }: { readonly group: TurnGroup; readonly cwd?: string | undefined }): ReactElement {
+  const seconds = group.durationMs === undefined ? undefined : Math.max(1, Math.floor(group.durationMs / 1000))
+  const label = group.status === 'running' ? '正在处理'
+    : group.status === 'error' ? '执行失败'
+      : group.status === 'stopped' ? '已中断'
+        : group.status === 'unknown' ? '执行记录'
+          : seconds === undefined ? '已完成' : `已完成，用时 ${seconds} 秒`
+  // A finished turn is a summary line; the process is what it summarizes. While it
+  // runs there is nothing else to read yet, so keep the steps in view.
+  const showProcess = group.status === 'running' || group.status === 'error' || group.status === 'stopped'
+  return (
+    <div className="dsh-master-turn-group" data-state={group.status}>
+      <details
+        key={`${group.key}:${group.status}`}
+        className="dsh-master-process"
+        open={showProcess}
+      >
+        <summary className="dsh-master-process-summary">
+          {group.status === 'running' ? <StateDot state="ongoing" /> : null}
+          <span>{label}</span>
+          {group.process.length === 0 ? null : <IconChevronDownOutline14 />}
+        </summary>
+        <div className="dsh-master-process-body">
+          {group.process.length === 0 ? <div className="dsh-master-hint">暂无可展开的过程记录。</div>
+            : group.process.map(row => <Row key={row.key} row={row} cwd={cwd} />)}
+        </div>
+      </details>
+      {group.compatibility === undefined ? null : <div className="dsh-master-hint">{group.compatibility}</div>}
+      {group.failure === undefined ? null : <div className="dsh-master-error" role="alert">{group.failure}</div>}
+      {group.visible.map(row => <Row key={row.key} row={row} cwd={cwd} />)}
+      {group.answer.length === 0 ? null : <div className="dsh-master-response" data-turn-answer="">
+        {group.answer.map(row => <Row key={row.key} row={row} hideRole cwd={cwd} />)}
+      </div>}
+      {group.changes === undefined || group.status === 'running' ? null : (
+        <TurnChangesCard summary={group.changes} cwd={cwd} />
+      )}
+    </div>
+  )
+}
+
+/** Pure transcript surface, also used to verify real event fixtures without starting an agent. */
+export function ConversationLog({ rows, events, cwd }: {
+  readonly rows: readonly ConversationRow[]
+  readonly events: readonly TurnEvent[]
+  readonly cwd?: string | undefined
+}): ReactElement {
+  return <>
+    {events.length === 0 && rows.some(row => row.kind === 'assistant') ? (
+      <div className="dsh-master-hint">节点未提供回合信息，保留逐条记录。</div>
+    ) : null}
+    {conversationItems(rows, events).map(item => item.kind === 'turn-group'
+      ? <TurnProcess key={item.key} group={item} cwd={cwd} /> : <Row key={item.key} row={item} cwd={cwd} />)}
+  </>
 }
 
 type QuestionSelections = Readonly<Record<string, readonly string[]>>
@@ -362,6 +479,7 @@ export function RemoteQuestionForm(props: {
 export function SessionView(props: SessionViewProps): ReactElement {
   const { nodeId, sessionId, promptEnabled } = props
   const [rows, setRows] = useState<readonly ConversationRow[]>([])
+  const [turnEvents, setTurnEvents] = useState<readonly TurnEvent[]>([])
   const [unrendered, setUnrendered] = useState(0)
   const [hasMore, setHasMore] = useState(false)
   const [cwd, setCwd] = useState<string | undefined>(undefined)
@@ -375,13 +493,131 @@ export function SessionView(props: SessionViewProps): ReactElement {
   const [questionCompatibilityFor, setQuestionCompatibilityFor] = useState<{ nodeId: string; sessionId: string } | undefined>()
   const [questionError, setQuestionError] = useState<string | undefined>()
   const [questionActionId, setQuestionActionId] = useState<string | undefined>()
+  const [fileSupport, setFileSupport] = useState<FileSupportState>(props.fileSupportOverride ?? 'loading')
+  const [attachments, setAttachments] = useState<readonly LocalAttachment[]>([])
+  const [attachmentErrors, setAttachmentErrors] = useState<readonly string[]>([])
+  const [artifacts, setArtifacts] = useState<readonly FileArtifact[]>([])
+  const [artifactError, setArtifactError] = useState<string | undefined>(undefined)
+  const [sendUncertain, setSendUncertain] = useState(false)
   const logRef = useRef<HTMLDivElement | null>(null)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
   const settledQuestions = useRef(new Set<string>())
+  const sessionKey = `${nodeId}\u0000${sessionId}`
+  const sessionKeyRef = useRef(sessionKey)
+  const uploadControllers = useRef(new Map<string, AbortController>())
+  const uploadQueue = useRef<LocalAttachment[]>([])
+  const activeUploads = useRef(0)
+  useEffect(() => {
+    const element = bodyRef.current
+    if (element !== null) return observeConversationWidth(element)
+  }, [])
   const watchQuestions = hasPendingUserQuestion(rows)
+
+  /** Stop one upload and remove it from the pending queue. */
+  const abortUploadFor = useCallback((localId: string): void => {
+    uploadControllers.current.get(localId)?.abort()
+    uploadControllers.current.delete(localId)
+    uploadQueue.current = uploadQueue.current.filter(entry => entry.localId !== localId)
+  }, [])
+
+  /** Stop every upload owned by this view instance. */
+  const abortAllUploads = useCallback((): void => {
+    for (const controller of uploadControllers.current.values()) controller.abort()
+    uploadControllers.current.clear()
+    uploadQueue.current = []
+    activeUploads.current = 0
+  }, [])
+
+  useEffect(() => {
+    sessionKeyRef.current = sessionKey
+    setAttachments([])
+    setAttachmentErrors([])
+    setArtifacts([])
+    setArtifactError(undefined)
+    setSendUncertain(false)
+    abortAllUploads()
+
+    const override = props.fileSupportOverride
+    if (override !== undefined) {
+      setFileSupport(override)
+      return () => { abortAllUploads() }
+    }
+
+    const controller = new AbortController()
+    setFileSupport('loading')
+    void fetchFileSupport(nodeId, sessionId, controller.signal)
+      .then((describe) => {
+        if (!controller.signal.aborted) setFileSupport(describe)
+      })
+      .catch((cause: unknown) => {
+        if (controller.signal.aborted) return
+        const code = cause instanceof ApiError ? cause.code : undefined
+        const unsupported = code === 'coordinator/capability-unavailable'
+          || code === 'node/capability-unavailable'
+          || code === 'coordinator/endpoint-not-found'
+          || code === 'coordinator/capability-mismatch'
+        setFileSupport(unsupported ? 'unsupported' : 'error')
+      })
+    return () => {
+      controller.abort()
+      abortAllUploads()
+    }
+  }, [nodeId, sessionId, sessionKey, props.fileSupportOverride, abortAllUploads])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setInterval> | undefined
+
+    const load = async (): Promise<void> => {
+      try {
+        const value = await fetchArtifacts(nodeId, sessionId, controller.signal)
+        if (controller.signal.aborted) return
+        setArtifacts(previous => mergeArtifacts(previous, value.artifacts))
+        setArtifactError(undefined)
+      } catch (cause) {
+        if (controller.signal.aborted) return
+        // A session without the capability simply has no artifacts; anything
+        // else is worth showing once, next to the cards.
+        const code = cause instanceof ApiError ? cause.code : undefined
+        if (code !== 'coordinator/capability-unavailable' && code !== 'node/capability-unavailable') {
+          setArtifactError(`${COPY.artifactLoadFailed}：${cause instanceof Error ? cause.message : String(cause)}`)
+        }
+      }
+    }
+
+    const stop = (): void => {
+      if (timer !== undefined) {
+        clearInterval(timer)
+        timer = undefined
+      }
+    }
+    const start = (): void => {
+      if (timer !== undefined) return
+      void load()
+      timer = setInterval(() => {
+        if (!document.hidden) void load()
+      }, 3_000)
+    }
+    const onVisibility = (): void => {
+      if (document.hidden) stop()
+      else if (streaming) start()
+    }
+
+    if (streaming) start()
+    else void load()
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      controller.abort()
+      stop()
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [nodeId, sessionId, streaming, phase])
 
   useEffect(() => {
     const controller = new AbortController()
     setRows([])
+    setTurnEvents([])
     setUnrendered(0)
     setHasMore(false)
     setCwd(undefined)
@@ -399,6 +635,7 @@ export function SessionView(props: SessionViewProps): ReactElement {
           const snapshot = readSnapshot(record.value)
           if (snapshot !== undefined) {
             setRows(snapshot.rows)
+            setTurnEvents(snapshot.turnEvents)
             setUnrendered(snapshot.unrendered)
             setHasMore(snapshot.hasMore)
             setCwd(snapshot.cwd)
@@ -407,6 +644,7 @@ export function SessionView(props: SessionViewProps): ReactElement {
           const contribution = readEvent(record.value)
           if (contribution !== undefined) {
             setRows(previous => mergeRows(previous, contribution.rows))
+            setTurnEvents(previous => mergeTurnEvents(previous, contribution.turnEvents))
             setUnrendered(count => count + contribution.unrendered)
             return
           }
@@ -514,18 +752,131 @@ export function SessionView(props: SessionViewProps): ReactElement {
       .finally(() => { setQuestionActionId(undefined) })
   }, [nodeId, sessionId])
 
+  const startUploadRef = useRef<(entry: LocalAttachment) => void>(() => undefined)
+
+  const startUpload = useCallback((entry: LocalAttachment): void => {
+    if (typeof fileSupport !== 'object') return
+    if (sessionKeyRef.current !== `${entry.nodeId}\u0000${entry.sessionId}`) return
+    if (activeUploads.current >= 2) {
+      uploadQueue.current.push(entry)
+      return
+    }
+    activeUploads.current += 1
+    const controller = new AbortController()
+    uploadControllers.current.set(entry.localId, controller)
+    setAttachments(previous => updateAttachment(previous, entry.localId, { status: 'uploading' }))
+    void uploadAttachment(entry.nodeId, entry.sessionId, entry.file, {
+      limits: fileSupport.limits,
+      signal: controller.signal,
+      onProgress: (received) => {
+        if (sessionKeyRef.current !== sessionKey) return
+        setAttachments(previous => updateAttachment(previous, entry.localId, { received }))
+      },
+    })
+      .then((record) => {
+        if (sessionKeyRef.current !== sessionKey) return
+        setAttachments(previous => updateAttachment(previous, entry.localId, {
+          status: 'ready',
+          received: record.size,
+          attachment: record,
+        }))
+      })
+      .catch((cause: unknown) => {
+        if (controller.signal.aborted || sessionKeyRef.current !== sessionKey) return
+        setAttachments(previous => updateAttachment(previous, entry.localId, {
+          status: 'failed',
+          error: cause instanceof ApiError ? `${cause.code}: ${cause.message}` : String(cause),
+        }))
+      })
+      .finally(() => {
+        activeUploads.current = Math.max(0, activeUploads.current - 1)
+        uploadControllers.current.delete(entry.localId)
+        const next = uploadQueue.current.shift()
+        if (next !== undefined) startUploadRef.current(next)
+      })
+  }, [fileSupport, sessionKey])
+  startUploadRef.current = startUpload
+
+  const handleSelect = useCallback((files: readonly File[]): void => {
+    if (typeof fileSupport !== 'object') return
+    const { accepted, rejected } = selectFiles(files, attachments.length, fileSupport.limits)
+    setAttachmentErrors(rejected.map(row => `${row.name}：${row.reason}`))
+    if (accepted.length === 0) return
+    const entries = accepted.map(file => newLocalAttachment(nodeId, sessionId, file))
+    setAttachments(previous => [...previous, ...entries])
+    for (const entry of entries) startUpload(entry)
+  }, [attachments.length, fileSupport, nodeId, sessionId, startUpload])
+
+  const handleRemove = useCallback((localId: string): void => {
+    abortUploadFor(localId)
+    setAttachments(previous => removeAttachmentRow(previous, localId))
+    setAttachmentErrors([])
+  }, [abortUploadFor])
+
+  const handleRetry = useCallback((localId: string): void => {
+    const entry = attachments.find(attachment => attachment.localId === localId)
+    if (entry === undefined) return
+    const retried: LocalAttachment = { ...entry, status: 'selected', received: 0, error: undefined }
+    setAttachments(previous => updateAttachment(previous, localId, {
+      status: 'selected',
+      received: 0,
+      error: undefined,
+    }))
+    startUpload(retried)
+  }, [attachments, startUpload])
+
   const submit = useCallback((): void => {
     const text = draft.trim()
-    if (text === '' || sending) return
+    if (text === '' || sending || sendUncertain || !promptEnabled) return
+    const ids = attachmentIds(attachments)
+    if (attachments.length > 0 && (ids.length !== attachments.length || !attachments.every(row => row.status === 'ready'))) {
+      setError(COPY.attachmentNeedReady)
+      return
+    }
+    const key = sessionKeyRef.current
     setSending(true)
     setError(undefined)
-    void sendPrompt(nodeId, sessionId, text, mode)
-      .then(() => { setDraft('') })
-      .catch((cause: unknown) => {
-        setError(cause instanceof ApiError ? `${cause.code}: ${cause.message}` : String(cause))
+    setSendUncertain(false)
+    void sendPrompt(nodeId, sessionId, text, mode, undefined, ids.length === 0 ? undefined : ids)
+      .then(() => {
+        if (sessionKeyRef.current !== key) return
+        setDraft('')
+        setAttachments([])
+        setAttachmentErrors([])
       })
-      .finally(() => { setSending(false) })
-  }, [draft, mode, nodeId, sending, sessionId])
+      .catch((cause: unknown) => {
+        if (sessionKeyRef.current !== key) return
+        if (!isUncertainPromptFailure(cause)) {
+          // A known pre-dispatch refusal is safe to correct and retry.
+          setError(`${cause instanceof ApiError ? cause.code : 'master/refused'}: ${cause instanceof Error ? cause.message : String(cause)}`)
+        } else {
+          // The response never arrived. Re-sending could run the turn twice.
+          setSendUncertain(true)
+          setError(COPY.sendUncertain)
+        }
+      })
+      .finally(() => {
+        if (sessionKeyRef.current === key) setSending(false)
+      })
+  }, [attachments, draft, mode, nodeId, sending, sessionId, sendUncertain, promptEnabled])
+
+  const attachmentsUsable = typeof fileSupport === 'object'
+  const attachmentLimit = attachmentsUsable
+    ? fileSupport.limits.maxAttachmentsPerMessage
+    : 5
+  const attachmentDisabledReason = !promptEnabled
+    ? COPY.attachmentUploadDisabled
+    : fileSupport === 'unsupported'
+      ? COPY.attachmentUnsupported
+      : fileSupport === 'loading'
+        ? COPY.attachmentUnavailable
+        : fileSupport === 'error'
+          ? COPY.attachmentUnavailable
+          : attachments.length >= attachmentLimit ? COPY.attachmentLimit : undefined
+  const sendEnabled = promptEnabled
+    && !sending
+    && (attachments.length === 0 || attachmentsUsable)
+    && canSubmit(draft, attachments, promptEnabled, sendUncertain)
 
   const phaseText = streaming
     ? COPY.streaming
@@ -535,7 +886,7 @@ export function SessionView(props: SessionViewProps): ReactElement {
           : COPY.connecting
 
   return (
-    <div className="dsh-master-body">
+    <div className="dsh-master-body" ref={bodyRef}>
       <div className="dsh-master-head">
         <span className="dsh-master-label" title={props.title}>{props.title}</span>
         {cwd === undefined ? null : <span className="dsh-master-meta">{cwd}</span>}
@@ -548,9 +899,9 @@ export function SessionView(props: SessionViewProps): ReactElement {
       <div className="dsh-master-log" ref={logRef}>
         <div className="dsh-master-log-column">
           {hasMore ? <div className="dsh-master-hint">{COPY.loadOlderPending}</div> : null}
-          {rows.length === 0
+          {rows.length === 0 && turnEvents.length === 0
             ? <div className="dsh-master-hint">{COPY.emptyConversation}</div>
-            : rows.map(row => <Row key={row.key} row={row} />)}
+            : <ConversationLog rows={rows} events={turnEvents} cwd={cwd} />}
           {questionCompatibilityFor?.nodeId === nodeId && questionCompatibilityFor.sessionId === sessionId ? (
             <div className="dsh-master-question-compatibility" role="status">{COPY.questionCompatibility}</div>
           ) : null}
@@ -558,10 +909,19 @@ export function SessionView(props: SessionViewProps): ReactElement {
             <div className="dsh-master-question-error" role="alert">{questionError}</div>
           )}
           {unrendered === 0 ? null : (
-            <div className="dsh-master-hint">另有 {unrendered} 条事件本版本未渲染（例如思考块、压缩、子代理等）。</div>
+            <div className="dsh-master-hint">另有 {unrendered} 条事件本版本未渲染（例如压缩、子代理等）。</div>
           )}
         </div>
       </div>
+
+      <ArtifactList
+        artifacts={artifacts}
+        nodeId={nodeId}
+        sessionId={sessionId}
+        deliveryTool={typeof fileSupport === 'object' ? fileSupport.deliveryTool
+          : fileSupport === 'unsupported' ? 'unavailable' : undefined}
+      />
+      {artifactError === undefined ? null : <div className="dsh-master-error">{artifactError}</div>}
 
       {questionRequests.length > 0
         ? questionRequests.map(request => (
@@ -576,6 +936,29 @@ export function SessionView(props: SessionViewProps): ReactElement {
         ))
         : (
           <div className="dsh-master-composer">
+            {sendUncertain ? (
+              <button
+                type="button"
+                className="dsh-master-toolbar-select"
+                onClick={() => { setSendUncertain(false); setError(undefined) }}
+              >
+                {COPY.confirmPromptRetry}
+              </button>
+            ) : null}
+            {fileSupport === 'unsupported' ? (
+              <div className="dsh-master-hint" role="status">{COPY.attachmentUnsupported}</div>
+            ) : null}
+            {fileSupport === 'error' ? (
+              <div className="dsh-master-hint" role="status">{COPY.attachmentCheckFailed}</div>
+            ) : null}
+            {attachmentErrors.length === 0 ? null : (
+              <div className="dsh-master-attachment-errors" role="alert">
+                <span>{COPY.attachmentRejected}</span>
+                <ul>
+                  {attachmentErrors.map(error => <li key={error}>{error}</li>)}
+                </ul>
+              </div>
+            )}
             <textarea
               className="dsh-master-composer-input"
               value={draft}
@@ -591,30 +974,15 @@ export function SessionView(props: SessionViewProps): ReactElement {
             />
             <div className="dsh-master-composer-toolbar">
               <div className="dsh-master-composer-leading">
-                <div className="dsh-master-attachment-controls">
-                  <button
-                    type="button"
-                    className="dsh-master-toolbar-icon"
-                    data-control="attachment"
-                    aria-label={COPY.attachmentUnavailable}
-                    title={COPY.attachmentUnavailable}
-                    disabled
-                  >
-                    <IconPlusOutline16 />
-                  </button>
-                  <button
-                    type="button"
-                    className="dsh-master-toolbar-icon"
-                    data-control="attachment"
-                    aria-label={COPY.attachmentUnavailable}
-                    title={COPY.attachmentUnavailable}
-                    disabled
-                  >
-                    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none">
-                      <path d="M5.5 8.75 9.9 4.3a2.15 2.15 0 0 1 3.05 3.04L7.2 13.1a3.45 3.45 0 0 1-4.88-4.88l6.1-6.1" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                </div>
+                <AttachmentPicker
+                  attachments={attachments}
+                  disabled={!attachmentsUsable || !promptEnabled}
+                  disabledReason={attachmentDisabledReason}
+                  canAdd={attachments.length < attachmentLimit}
+                  onSelect={handleSelect}
+                  onRemove={handleRemove}
+                  onRetry={handleRetry}
+                />
                 <button
                   type="button"
                   className="dsh-master-toolbar-select"
@@ -667,7 +1035,7 @@ export function SessionView(props: SessionViewProps): ReactElement {
                   icon={<IconSendOutline14 />}
                   aria-label={sending ? COPY.sending : COPY.send}
                   title={sending ? COPY.sending : COPY.send}
-                  disabled={!promptEnabled || sending || draft.trim() === ''}
+                  disabled={!sendEnabled}
                   onClick={submit}
                 />
               </div>

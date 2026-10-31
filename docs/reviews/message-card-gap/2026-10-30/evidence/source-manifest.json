@@ -1,0 +1,114 @@
+[
+  {
+    "package": "dsh-client-ui-chat",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-client-ui-chat/lib/client.js",
+    "sha256": "a130b58fd24ea9b1e2a6a0f516009e9f9bfa9dc289cc8ebf004a735496fa52ca",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-client-ui-chat.js"
+  },
+  {
+    "package": "dsh-client-ui-tool",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-client-ui-tool/lib/client.js",
+    "sha256": "c37c08369505ce10d0e16282f0dce817db62664aac68ffbed8eba172da629c9e",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-client-ui-tool.js"
+  },
+  {
+    "package": "dsh-client-ui-approval",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-client-ui-approval/lib/client.js",
+    "sha256": "16ed09fdd7f62c627bf548013d56f63ec4afee01b901b0b3ce72615abee715a8",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-client-ui-approval.js"
+  },
+  {
+    "package": "dsh-client-ui-user-questions",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-client-ui-user-questions/lib/client.js",
+    "sha256": "bf50bedc929b46a196acfa377e1ee3160974cd0865968ce3902176c376e9a6c3",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-client-ui-user-questions.js"
+  },
+  {
+    "package": "dsh-client-ui-subagent",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-client-ui-subagent/lib/client.js",
+    "sha256": "2248242d7dbb043fa153881bf3ce0e981ac694f990dfd3a5351859e7cf0b4886",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-client-ui-subagent.js"
+  },
+  {
+    "package": "dsh-client-ui-goal",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-client-ui-goal/lib/client.js",
+    "sha256": "4f3bcba287afccc64df494b4ac115bec852b4800319f0cb950e4a1e28fdcc409",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-client-ui-goal.js"
+  },
+  {
+    "package": "dsh-client-ui-jobs",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-client-ui-jobs/lib/client.js",
+    "sha256": "b51a948d373dcbbd237dad98b72ca460ed057f578c34947bf89f06283c08206f",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-client-ui-jobs.js"
+  },
+  {
+    "package": "dsh-client-ui-plan",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-client-ui-plan/lib/client.js",
+    "sha256": "6ae51a6af764f8a3d12937e645c8bfc2fb4ee4c1c59574cb7391d4386518167e",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-client-ui-plan.js"
+  },
+  {
+    "package": "dsh-client-ui-workflow-run",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-client-ui-workflow-run/lib/client.js",
+    "sha256": "111b44ea6030098031180418245e3d8bacb8bf8fe33ce5ec71d5a68d90970ce5",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-client-ui-workflow-run.js"
+  },
+  {
+    "package": "dsh-client-ui-conversation",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js",
+    "sha256": "843dbcd884e05d77e525bf84b9e6dce180fd49ac8486a3c75591c291f09c9afa",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-client-ui-conversation.js"
+  },
+  {
+    "package": "dsh-api-session-controller",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-api-session-controller/lib/index.js",
+    "sha256": "a9801acb577b03053c5d5a3191ff555c5f1d791d0acddec113bea4511e33b386",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-api-session-controller.js"
+  },
+  {
+    "package": "dsh-session",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-session/lib/index.js",
+    "sha256": "2f5dd07cb5c744a29abbb8003a8a4cefd9e582c6e2538074ca299a0ddd02a3bf",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-session.js"
+  },
+  {
+    "package": "dsh-user-approval",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-user-approval/lib/index.js",
+    "sha256": "6a5ad1ba3c3dc3abbbae52e6c8c4463970ee0c1c8988cebb0d5cf2acd17ee90b",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-user-approval.js"
+  },
+  {
+    "package": "dsh-user-questions",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-user-questions/lib/index.js",
+    "sha256": "e1c51afac2e31be8593c6426976e5f31dbe2a709b85ae1ea43ed406146f54265",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-user-questions.js"
+  },
+  {
+    "package": "dsh-client-ui-cordis",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-client-ui-cordis/lib/client.js",
+    "sha256": "a1706492c5a108118ce5a3099278044cd30270b3e1dd004500c6fb87c1dd312d",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-client-ui-cordis.js"
+  },
+  {
+    "package": "dsh-experimental-client-ui-agent-team",
+    "version": "0.2.1-rc.2",
+    "asarPath": "dsh/node_modules/@deepseek-ai/dsh-experimental-client-ui-agent-team/lib/client.js",
+    "sha256": "53dab9f0f9f320729cf82520e7122c9c9bad617235c1b2d6c706754aeebe044e",
+    "local": "docs/reviews/message-card-gap/2026-10-30/sources/dsh-experimental-client-ui-agent-team.js"
+  }
+]

@@ -16,7 +16,7 @@
  * menu in between; the flow and its error dialog live in WorkspacePicker
  * (same package — direct composition, no slot between them).
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCloseFillRegular as IconCloseFill14, IconPersonalizationOutlineRegular as IconPersonalizationOutline16,
@@ -33,10 +33,11 @@ import type { WorkspaceBrowserProps } from '../contract/slots.js'
 import type { SessionNode, SessionOrderBy } from '../tree.js'
 import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from '../tree.js'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.js'
-import { FLAT_SESSION_ORDER_KEY } from '../stores.js'
+import { FLAT_SESSION_ORDER_KEY, type WorkspaceBrowseScope } from '../stores.js'
 import { WorkspacePickFlow } from '../WorkspacePicker.js'
 import { runSessionAction } from '../navigation.js'
 import { WorkspaceBrowserCss as css } from '../styles.generated.js'
+import { getRemoteSelection, subscribeRemoteSelection } from '../../client/selection.js'
 
 /**
  * Column slide length (--ds-transition-duration-slow): rail-search focus waits it out —
@@ -857,7 +858,18 @@ export function WorkspaceBrowser({
   const groupBy = useStore(s => s.groupBy)
   const orderBy = useStore(s => s.orderBy)
   const groupExpansion = useStore(s => s.groupExpansion)
-  const localExpanded = useStore(s => s.localExpanded ?? true)
+  const browseScope = useStore(s => s.browseScope ?? { kind: 'local' } as WorkspaceBrowseScope)
+  const [chooserMount, setChooserMount] = useState<HTMLElement | null>(null)
+  const [requestChooser, setRequestChooser] = useState(false)
+  const currentRemoteSelection = useSyncExternalStore(subscribeRemoteSelection, getRemoteSelection, getRemoteSelection)
+  const currentLocalSession = useSessions(s => s.current)
+  const currentScope: WorkspaceBrowseScope | undefined = currentRemoteSelection
+    ? { kind: 'remote', nodeId: currentRemoteSelection.nodeId }
+    : currentLocalSession ? { kind: 'local' } : undefined
+  const differentScope = currentScope !== undefined && (currentScope.kind !== browseScope.kind
+    || currentScope.kind === 'remote' && browseScope.kind === 'remote' && currentScope.nodeId !== browseScope.nodeId)
+  const changeBrowseScope = (scope: WorkspaceBrowseScope) => { actions.setBrowseScope(scope) }
+  const openLocal = (id: SessionId) => { actions.setBrowseScope({ kind: 'local' }); open(id) }
   const defaultRemoteNodeExpanded = useStore(s => s.remoteExpanded ?? true)
   const remoteNodeExpansion = useStore(s => s.remoteNodeExpansion)
   const remoteWorkspaceExpansion = useStore(s => s.remoteWorkspaceExpansion)
@@ -1101,23 +1113,29 @@ export function WorkspaceBrowser({
     })
   }
 
-  const toggleLocalGroup = () => { actions.setLocalExpanded(!localExpanded) }
-  const localSectionLabel = groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')
+  const localSectionLabel = t('section.workspaces')
   const remoteSectionProps = {
+    browseScope,
+    onBrowseScopeChange: changeBrowseScope,
+    chooserMount,
+    contentHidden: normalizedQuery !== '',
+    onExpandChooser: () => { setRequestChooser(true); expandSidebar() },
+    requestChooser,
+    onChooserOpened: () => { setRequestChooser(false) },
+    rail: !wide,
     t,
     defaultNodeExpanded: defaultRemoteNodeExpanded,
     nodeExpansion: remoteNodeExpansion,
     workspaceExpansion: remoteWorkspaceExpansion,
     onNodeExpandedChange: actions.setRemoteNodeExpanded,
     onWorkspaceExpandedChange: actions.setRemoteWorkspaceExpanded,
-    onOpenRemoteSession: openRemoteSession,
+    onOpenRemoteSession: (nodeId: string, sessionId: string, nodeName: string, sessionTitle: string) => {
+      actions.setBrowseScope({ kind: 'remote', nodeId })
+      openRemoteSession(nodeId, sessionId, nodeName, sessionTitle)
+    },
   }
-  // Each remote node renders as a sibling of the local section.
+  // Keep one remote data owner mounted across scope changes and rail transitions.
   const remoteSection = renderRemoteSection(remoteSectionProps)
-  const pickRemoteRailNode = (nodeId: string) => {
-    actions.setRemoteNodeExpanded(nodeId, true)
-    expandSidebar()
-  }
 
   return (
     <div className={clsx(css.root, !wide && css.rail)} data-dsh-workspace-browser="">
@@ -1125,25 +1143,16 @@ export function WorkspaceBrowser({
         className={css.treeBody}
         data-dsh-local-section=""
         data-wide={wide}
-        data-collapsed={!localExpanded}
+        data-collapsed={false}
       >
         <div className={css.sectionHeader}>
+
         {wide && (
-          <button
-            type="button"
-            className={css.iconButton}
-            data-dsh-local-disclosure=""
-            aria-label={localSectionLabel}
-            aria-expanded={localExpanded}
-            onClick={toggleLocalGroup}
-          >
-          </button>
-        )}
-        {wide && (
-          <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
+          <span data-dsh-workspace-title="" className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
             {localSectionLabel}
           </span>
         )}
+        {wide && <span data-dsh-node-chooser="" hidden={searchExpanded} ref={setChooserMount} />}
         {wide && (
           <div className={clsx(css.searchSlot, searchExpanded && css.searchSlotExpanded)}>
             <div
@@ -1215,7 +1224,7 @@ export function WorkspaceBrowser({
           {/* Adding is the button's one action, so a composition with no
               picking affordance has nothing to offer here: the region hides the
               button rather than leaving a dead one in the header. */}
-          {directoryFlowAvailable && (
+          {directoryFlowAvailable && browseScope.kind === 'local' && (
             <Tooltip label={t('workspace.add')} side="bottom" delayMs={500}>
               <button
                 ref={wsPlusRef}
@@ -1270,14 +1279,18 @@ export function WorkspaceBrowser({
       </div>}
 
         {/* Keep the local scrolling list inside its own top-level workspace group. */}
-        {wide && localExpanded && (
-          <div className={css.listArea}>
+        {wide && differentScope && <div data-dsh-browse-context="" role="status">
+          {t('browse.sessionElsewhere', { name: currentRemoteSelection?.nodeName ?? currentRemoteSelection?.nodeId ?? t('browse.local') })}
+          <button type="button" onClick={() => { if (currentScope) changeBrowseScope(currentScope) }}>{t('browse.return')}</button>
+        </div>}
+        {wide && (
+          <div className={css.listArea} data-dsh-local-list="" hidden={browseScope.kind !== 'local' && normalizedQuery === ''}>
           {normalizedQuery !== ''
           ? (
             <SearchResults
               useSessions={useSessions}
               useSessionPendingInteraction={useSessionPendingInteraction}
-              open={open}
+              open={openLocal}
               workspaces={workspaces}
               archivedSessionIds={archivedSessionIds}
               query={normalizedQuery}
@@ -1290,7 +1303,7 @@ export function WorkspaceBrowser({
             ? (
               <FlatList
                 useSessions={useSessions} useSessionPendingInteraction={useSessionPendingInteraction}
-                open={open} forkSession={forkSession}
+                open={openLocal} forkSession={forkSession}
                 onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
                 archivedSessionIds={archivedSessionIds}
                 orderBy={orderBy}
@@ -1317,7 +1330,7 @@ export function WorkspaceBrowser({
                 setSessionOrder={actions.setSessionOrder}
                 archivedSessionIds={archivedSessionIds}
                 startSession={requestStartSession}
-                open={open}
+                open={openLocal}
                 insertWorkspaceBefore={insertWorkspaceBefore}
                 insertSessionBefore={insertSessionBefore}
                 orderBy={orderBy}
@@ -1336,18 +1349,13 @@ export function WorkspaceBrowser({
             )}
           </div>
         )}
+      {remoteSection}
       </div>
 
       {wide && sessionActionError !== null && (
         <div className={css.renameError} role="alert">{sessionActionError}</div>
       )}
 
-      {wide && remoteSection}
-      {!wide && <div className={css.listArea}>{renderRemoteSection({
-          ...remoteSectionProps,
-          rail: true,
-          onRailNodePick: pickRemoteRailNode,
-        })}</div>}
 
       <Modal
         open={renameTarget !== null}

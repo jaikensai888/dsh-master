@@ -144,6 +144,11 @@ export interface MasterPromptRequest {
   readonly text: string
   /** `queue` appends to the inbox; `steer` interrupts the running turn. */
   readonly mode?: 'queue' | 'steer'
+  /**
+   * Attachments already confirmed by the target node. The host resolves them
+   * again before sending; the browser cannot supply a remote path.
+   */
+  readonly attachmentIds?: readonly string[]
 }
 
 /** One option exposed by the remote `ask_user_question` tool. */

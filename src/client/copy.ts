@@ -38,6 +38,38 @@ export const COPY = {
   steer: '插话',
   sendHint: '⌘/Ctrl + Enter 发送',
   attachmentUnavailable: '附件（暂不支持远程会话）',
+  attachmentAdd: '添加附件',
+  attachmentLimit: '已达到每条消息的附件上限',
+  attachmentList: '已选择的附件',
+  attachmentSelected: '等待上传',
+  attachmentUploading: '上传中',
+  attachmentReady: '已就绪',
+  attachmentFailed: '上传失败',
+  attachmentRemove: '移除',
+  attachmentCancel: '取消',
+  attachmentRetry: '重试',
+  attachmentUnsupported: '此远程节点版本较旧，不支持文件附件。请升级 dsh-node 后刷新页面。',
+  attachmentCheckFailed: '无法读取节点文件能力，附件暂不可用。',
+  attachmentRejected: '以下文件未加入',
+  attachmentNeedReady: '请等待所有附件上传完成后再发送',
+  attachmentUploadDisabled: '发送已被关闭，无法上传附件',
+  sendUncertain: '发送结果未确认，请先查看会话后再决定是否重发。',
+  confirmPromptRetry: '已检查会话，允许重新发送',
+  artifactSection: '本次会话的交付文件',
+  artifactEmpty: '尚无交付文件。发送「请生成并交付一个可下载的文件」即可开始。',
+  artifactDeliveryUnavailable: '此节点尚未启用文件交付工具，请升级或检查 dsh-node 后重试。',
+  artifactDownload: '保存到本地',
+  artifactUnavailable: '不可下载',
+  artifactExpired: '已过期',
+  artifactMissing: '文件已失效',
+  artifactExpires: '到期',
+  artifactLoadFailed: '读取交付文件失败',
+  fileChangeWrite: '写入',
+  fileChangeEdit: '编辑',
+  fileChangeReplace: '替换',
+  fileChangeOversized: '过大',
+  fileChangeTruncated: '差异过长，仅显示前 400 行。',
+  fileChangesCollapse: '收起',
   permissionUnavailable: '权限（暂不支持远程会话）',
   modelUnavailable: '模型（暂不支持远程会话）',
   questionHeading: '需要你回答',
@@ -61,10 +93,50 @@ export const COPY = {
   toolOutput: '输出',
   toolRunning: '运行中…',
   roleNotice: '事件',
+  contextInjection: '上下文注入',
   interrupted: '（已中断）',
   approvalWaiting: '等待授权',
   approvalDecided: '授权结果',
 } as const
+
+/**
+ * Title of a multi-file change card, matching the shipped client's wording.
+ * @param count - distinct files the turn changed.
+ * @returns the heading text.
+ */
+export function fileChangesTitle(count: number): string {
+  return `已编辑 ${String(count)} 个文件`
+}
+
+/**
+ * Title of a single-file change card.
+ * @param name - the file's trailing path segment.
+ * @returns the heading text.
+ */
+export function fileChangeEdited(name: string): string {
+  return `已编辑 ${name}`
+}
+
+/**
+ * Expand toggle copy for a folded file list.
+ * @param count - distinct files the turn changed.
+ * @returns the button text.
+ */
+export function fileChangeAll(count: number): string {
+  return `全部 ${String(count)} 个文件`
+}
+
+/**
+ * Accessible label for the expand toggle when the list is folded.
+ * @param count - distinct files the turn changed.
+ * @returns the aria-label.
+ */
+export function fileChangeExpandAria(count: number): string {
+  return `展开全部 ${String(count)} 个改动文件`
+}
+
+/** Accessible label for the expand toggle once the whole list is visible. */
+export const FILE_CHANGE_COLLAPSE_ARIA = '收起改动文件列表'
 
 /**
  * Render an age as a short Chinese phrase.
@@ -87,4 +159,39 @@ export function timeAgo(time: number, now: number): string {
   const hours = Math.round(minutes / 60)
   if (hours < 24) return `${String(hours)} 小时前`
   return `${String(Math.round(hours / 24))} 天前`
+}
+
+/**
+ * Format a byte count with binary units.
+ *
+ * The node advertises bytes, and 20 MiB is a binary limit; showing decimal MB
+ * would make a file that is accepted look over the limit.
+ * @param bytes - non-negative byte count.
+ * @returns a short human-readable size.
+ */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  if (bytes < 1024) return `${String(Math.round(bytes))} B`
+  const units = ['KiB', 'MiB', 'GiB'] as const
+  let value = bytes / 1024
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value >= 10 ? String(Math.round(value)) : value.toFixed(1)} ${units[unit]}`
+}
+
+/**
+ * Format an ISO timestamp in the browser's local time.
+ * @param iso - ISO-8601 string from node metadata.
+ * @returns `YYYY-MM-DD HH:mm`, or the input when it is not a valid date.
+ */
+export function formatDateTime(iso: string): string {
+  const time = Date.parse(iso)
+  if (!Number.isFinite(time)) return iso
+  const date = new Date(time)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+    + `${pad(date.getHours())}:${pad(date.getMinutes())}`
 }

@@ -27,12 +27,16 @@ dsh-node（远程机器） ──拨出 WS──► dsh-coordinator ──/api�
 | 某节点的会话列表 | ✅ 已实现 |
 | 每节点独立远程工作区（真实目录、空目录、未分组、独立折叠与 5 条会话 overflow） | ✅ 已实现；隔离浏览器验证通过，真实远端待复验 |
 | 打开会话：历史快照 + 实时事件 | ✅ 已实现，覆盖文本 / 工具调用 / 工具结果 / 少量事件 |
+| 回合过程与最终答复 | ✅ 已完成回合折叠为「已完成，用时 N 秒」，运行中展开过程；DSH 注入的 `time-context` / `agent-instructions` 显示为「上下文注入」，不再伪装成用户消息或拆散回合 |
 | 工具调用与结果展示 | ✅ 按 `callId` 合并为一条可折叠记录；显示工具名和结果摘要，展开查看输入 / 输出，失败结果标记为错误 |
 | 发送消息（queue / steer） | ✅ 已实现，**默认关闭**，需显式开启 |
+| 输入框「＋」上传本地文件到远程会话 | ✅ 已实现；多文件、进度、取消、失败重试；需升级 `dsh-node` |
+| Agent 交付产物与下载到本机 | ✅ 已实现；`deliver_file` 登记、会话文件卡片、浏览器原生下载、刷新/重启后仍在 |
 | `ask_user_question` 提问交互 | ✅ 远程表单与原始调用结构化应答；需升级 `dsh-node` |
 | 工具授权审批 | ❌ 未实现（与 `ask_user_question` 是不同通道） |
 | 会话生命周期通知（远程新建会话自动出现） | ❌ 未通，需手动刷新 |
-| diff / 队列 / 模型切换 / 向上翻页 | ❌ 未实现 |
+| `write` / `edit` 文件修改卡片 | ✅ 已实现；从工具参数与 `meta.diffs` 识别，调用级差异 + 回合汇总（`已编辑 N 个文件`）；打开 / 预览 / 编辑不在本期 |
+| 队列 / 模型切换 / 向上翻页 | ❌ 未实现 |
 
 纯结构化 `tool-call` 内容不会再作为助手正文重复显示。
 
@@ -80,7 +84,7 @@ pnpm build
 | `coordinatorUrl` | `http://127.0.0.1:39472` | coordinator 的 origin，末尾斜杠会被去掉 |
 | `apiToken` | 无 | 兼容旧配置的 coordinator **operator** token（不是节点 token）；凭据服务中的 token 优先。只作为请求头发送，不进任何响应或日志 |
 | `trustedHosts` | `[]` | 额外允许访问本插件路由的 authority。回环地址始终允许 |
-| `allowPrompt` | `false` | **发消息会在远程机器上真实跑一个 agent 回合**（可改文件、执行工具）。默认关闭，关闭时在读请求体之前就拒绝 |
+| `allowPrompt` | `false` | **发消息会在远程机器上真实跑一个 agent 回合**（可改文件、执行工具）。默认关闭；关闭时在读请求体之前就拒绝新消息与新上传，已登记产物仍可下载 |
 | `requestTimeoutMs` | `30000` | 单次 coordinator 调用的截止时间 |
 
 在 DSH 主界面左侧「插件」中打开 **dsh-master 插件详情页**，即可修改 `coordinatorUrl` 和 operator token；「设置 → 内置插件」只展示运行信息。独立的「内置插件配置 → dsh-master」卡片也保留同一表单。URL 保存到当前 profile，立即用于后续请求，重启后保留；新 token 通过 DSH 凭据服务保存，不会写入普通设置文件，也不会回传显示。token 输入框留空表示不修改。凭据服务中的 token 优先于旧配置里的 `apiToken`，旧 YAML 配置仍兼容。
@@ -100,9 +104,32 @@ pnpm build
 | GET | `/dsh-master/api/session/follow?nodeId=&sessionId=` | NDJSON 长流：`open` → `data`… → `end`，失败为 `error` 记录 |
 | POST | `/dsh-master/api/session/question-answer` | `{nodeId, sessionId, requestId, answer}`；把选项和自定义文本返回给原问题调用，不创建新消息 |
 | POST | `/dsh-master/api/session/question-cancel` | `{nodeId, sessionId, requestId}`；取消原问题调用 |
-| POST | `/dsh-master/api/session/prompt` | `{nodeId, sessionId, text, mode?}`；`allowPrompt` 为假时返回 403 `master/prompt-disabled` |
+| POST | `/dsh-master/api/session/prompt` | `{nodeId, sessionId, text, mode?, attachmentIds?}`；`allowPrompt` 为假时返回 403 `master/prompt-disabled` |
+| POST | `/dsh-master/api/files/describe` 等 | 附件上传代理：`describe`/`beginUpload`/`writeChunk`/`commitUpload`/`abortUpload`/`listArtifacts`；`allowPrompt` 为假时拒绝写操作 |
+| GET | `/dsh-master/api/files/download?nodeId=&sessionId=&artifactId=` | 逐块读取产物并流式下载；响应头含 UTF-8 `filename*`、`octet-stream`、`no-store`、`nosniff` |
 
 节点与 coordinator 的业务错误码原样保留（例如 `session/not-found`、`coordinator/node-offline`），本插件自己的拒绝用 `master/*`。
+
+### 文件附件（2026-10-29 新增）
+
+- 远程会话的「本次会话的交付文件」在尚无文件时显示交付说明；节点缺少交付工具时显示升级/检查提示。
+  可直接发送「请生成并交付一个可下载的文件」，无需先上传附件。模型须成功调用 `deliver_file` 后才会出现下载卡片；仅返回路径或宿主 `present` 卡片不会登记远程下载。
+- 单文件 **20 MiB**、每消息最多 **5 个**附件、每节点最多 **2 个活跃上传**；附件与产物保留 **7 天**。
+  这些值来自节点 `describe`，前端不另设权威限制。
+- 上传按 256 KiB 原始块串行传输，浏览器只发送 `attachmentIds`；远端路径由**宿主**在
+  `resolveAttachments` 之后追加到 prompt，浏览器无法指定。
+- 文件路由比其余面板路由更严格：除现有 Host/Origin/Sec-Fetch-Site 围栏外，还要求
+  `socket.remoteAddress` 与 `Host` 都是回环地址；`trustedHosts` **不能**放开文件路由。
+- 下载使用浏览器原生保存位置（启用「下载前询问位置」时可选择）。服务端保留最后一块直到
+  长度与 SHA-256 都通过；中途失败会销毁响应，不会把 JSON 追加到二进制流。
+- 旧 node 不支持 `sessionFiles` 时，「＋」被禁用并提示升级；纯文本会话保持可用。
+- 切换节点/会话会取消进行中的上传并清空本次附件；发送结果不明时只提示检查会话，不自动重发。
+
+设计与冻结契约见
+[`docs/superpowers/specs/2026-10-29-session-files-contract.md`](docs/superpowers/specs/2026-10-29-session-files-contract.md)。
+
+升级顺序：**node → coordinator → master**。三仓库都构建后重启桌面实例；回滚插件前先停止新传输，
+并保留 node 的 `$DSH_HOME/dsh-node/files/`（删除等于丢弃未到期附件与产物）。
 
 ## 开发
 
@@ -119,6 +146,13 @@ pnpm dev         # tsdown --watch
 ```powershell
 $env:DSH_RUNTIME_ROOT = 'E:\DSH\DSH Desktop\resources\app\node_modules'
 pnpm test
+```
+
+三仓库都在本机相邻目录且已构建时，可运行真实进程冒烟（真实 coordinator + 真实 dsh-node
+文件服务 + 真实 master 路由，只伪造 node 的本地 DSH Gateway）：
+
+```powershell
+node tools/e2e-session-files.mjs
 ```
 
 2026-10-20 已在隔离 home/profile、相同安装版本的 Host + Web UI 中验证：启动、本地/远程侧栏、目录选择、添加工作区、创建并打开空白会话、从插件页返回本地会话、Coordinator URL 保存后即时生效及重启持久化。测试时 coordinator 离线，未发送本地或远程 prompt；真实远程节点的端到端通信未在本轮重测。

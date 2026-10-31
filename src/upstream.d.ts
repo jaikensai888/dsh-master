@@ -513,6 +513,7 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   export type AnchorRef = RefObject<HTMLElement | null>
 
   export function IconGlobeOutlineRegular(props: IconProps): ReactElement
+  export function IconCheckOutlineRegular(props: IconProps): ReactElement
   export function IconChevronDownOutlineRegular(props: IconProps): ReactElement
   export function IconChevronRightOutlineRegular(props: IconProps): ReactElement
   export function IconRefreshOutlineRegular(props: IconProps): ReactElement

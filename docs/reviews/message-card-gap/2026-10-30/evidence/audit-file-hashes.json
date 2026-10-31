@@ -1,0 +1,169 @@
+{
+  "capturedAt": "2026-10-30T02:53:01.335Z",
+  "sourceArchive": "E:/DSH2/resources/app.asar",
+  "sources": [
+    {
+      "file": "dsh-api-job-controller-client.js",
+      "bytes": 12030,
+      "sha256": "f3e718cacc81fedbfb3e55c022f1ca891798fef845b51e03f965656e41e88ece"
+    },
+    {
+      "file": "dsh-api-session-controller-client.js",
+      "bytes": 166568,
+      "sha256": "82f2301c18f0e51340c1eedf8ecdfb939e873b3770a80632e438b86e82887d0e"
+    },
+    {
+      "file": "dsh-api-session-controller-typert.host.js",
+      "bytes": 365047,
+      "sha256": "0c12316ed398710bcd87520f2332ebb647f0ab5f71cdfe04551c0592b48b2c3c"
+    },
+    {
+      "file": "dsh-api-session-controller.js",
+      "bytes": 132150,
+      "sha256": "a9801acb577b03053c5d5a3191ff555c5f1d791d0acddec113bea4511e33b386"
+    },
+    {
+      "file": "dsh-client-ui-approval.js",
+      "bytes": 14372,
+      "sha256": "16ed09fdd7f62c627bf548013d56f63ec4afee01b901b0b3ce72615abee715a8"
+    },
+    {
+      "file": "dsh-client-ui-chat.js",
+      "bytes": 593891,
+      "sha256": "a130b58fd24ea9b1e2a6a0f516009e9f9bfa9dc289cc8ebf004a735496fa52ca"
+    },
+    {
+      "file": "dsh-client-ui-conversation.js",
+      "bytes": 773901,
+      "sha256": "843dbcd884e05d77e525bf84b9e6dce180fd49ac8486a3c75591c291f09c9afa"
+    },
+    {
+      "file": "dsh-client-ui-cordis.js",
+      "bytes": 75473,
+      "sha256": "a1706492c5a108118ce5a3099278044cd30270b3e1dd004500c6fb87c1dd312d"
+    },
+    {
+      "file": "dsh-client-ui-goal.js",
+      "bytes": 27173,
+      "sha256": "4f3bcba287afccc64df494b4ac115bec852b4800319f0cb950e4a1e28fdcc409"
+    },
+    {
+      "file": "dsh-client-ui-jobs.js",
+      "bytes": 32589,
+      "sha256": "b51a948d373dcbbd237dad98b72ca460ed057f578c34947bf89f06283c08206f"
+    },
+    {
+      "file": "dsh-client-ui-plan.js",
+      "bytes": 31594,
+      "sha256": "6ae51a6af764f8a3d12937e645c8bfc2fb4ee4c1c59574cb7391d4386518167e"
+    },
+    {
+      "file": "dsh-client-ui-subagent.js",
+      "bytes": 49698,
+      "sha256": "2248242d7dbb043fa153881bf3ce0e981ac694f990dfd3a5351859e7cf0b4886"
+    },
+    {
+      "file": "dsh-client-ui-tool.js",
+      "bytes": 198182,
+      "sha256": "c37c08369505ce10d0e16282f0dce817db62664aac68ffbed8eba172da629c9e"
+    },
+    {
+      "file": "dsh-client-ui-user-questions.js",
+      "bytes": 89470,
+      "sha256": "bf50bedc929b46a196acfa377e1ee3160974cd0865968ce3902176c376e9a6c3"
+    },
+    {
+      "file": "dsh-client-ui-workflow-run.js",
+      "bytes": 30371,
+      "sha256": "111b44ea6030098031180418245e3d8bacb8bf8fe33ce5ec71d5a68d90970ce5"
+    },
+    {
+      "file": "dsh-experimental-client-ui-agent-team.js",
+      "bytes": 25373,
+      "sha256": "53dab9f0f9f320729cf82520e7122c9c9bad617235c1b2d6c706754aeebe044e"
+    },
+    {
+      "file": "dsh-session-known-event-types.js",
+      "bytes": 2923,
+      "sha256": "f2adf39f26ecf7cc84bceaef1dcf8210395a13aa02e16828df1038a27a404edd"
+    },
+    {
+      "file": "dsh-session-types.js",
+      "bytes": 2748,
+      "sha256": "91723a2522999e2c8b6c455796ad699794a6f0abfcb44d9cb883edb13142ff9b"
+    },
+    {
+      "file": "dsh-session.js",
+      "bytes": 94982,
+      "sha256": "2f5dd07cb5c744a29abbb8003a8a4cefd9e582c6e2538074ca299a0ddd02a3bf"
+    },
+    {
+      "file": "dsh-user-approval.js",
+      "bytes": 8478,
+      "sha256": "6a5ad1ba3c3dc3abbbae52e6c8c4463970ee0c1c8988cebb0d5cf2acd17ee90b"
+    },
+    {
+      "file": "dsh-user-questions.js",
+      "bytes": 28131,
+      "sha256": "e1c51afac2e31be8593c6426976e5f31dbe2a709b85ae1ea43ed406146f54265"
+    }
+  ],
+  "repoFiles": [
+    {
+      "file": "src/client/wire.ts",
+      "sha256": "10304b8f47a012affb0be372b3e38e0d36b304d7f9e6eaa95157574236a1ea7f",
+      "mtime": "2026-09-29T09:04:30.809Z"
+    },
+    {
+      "file": "src/client/SessionView.tsx",
+      "sha256": "4dd59fab4a1c50b6d714cb6037c918a7635a313ebf232c7b9a644278673baa6d",
+      "mtime": "2026-10-30T02:51:09.659Z"
+    },
+    {
+      "file": "src/client/api.ts",
+      "sha256": "ebc1215100b06c49768d28b49e9ad973de85a974b04d56765d5553d0c968e100",
+      "mtime": "2026-10-29T03:43:18.852Z"
+    },
+    {
+      "file": "src/coordinator/client.ts",
+      "sha256": "9aca3ebaf366f8cb1f6ffe99313d1b631154e4c52ca0915f72827c7b3c8076bb",
+      "mtime": "2026-10-29T03:41:52.928Z"
+    },
+    {
+      "file": "src/http-api.ts",
+      "sha256": "e4bb7cc9e042f3fb162bc0206b3aedffbde4e055075736e534b31e228aa6adad",
+      "mtime": "2026-10-29T04:12:09.101Z"
+    },
+    {
+      "file": "src/service.ts",
+      "sha256": "a00590ff918e95dc0f2672f4ecd5a79ac1310fe1b5c106f54a0620e85dc0d428",
+      "mtime": "2026-10-30T02:51:06.419Z"
+    },
+    {
+      "file": "lib/client.js",
+      "sha256": "4feb9302fc84ac8f00a7a862f0b43977c0e552b8c4d7be60a068c872ed30d793",
+      "mtime": "2026-10-30T02:51:40.017Z"
+    },
+    {
+      "file": "lib/index.js",
+      "sha256": "e4469a5db18b6737dd7ef9606f7f1cca2d4dc1d56f5c7f4c42bafc894d59c6aa",
+      "mtime": "2026-10-30T02:51:40.016Z"
+    },
+    {
+      "file": "../dsh-node/src/stream-manager.ts",
+      "sha256": "d25dc1a319919db74cdc41182ace906f4c4d8ab6c9b5ed9d3613566deb5f0985",
+      "mtime": "2026-09-20T02:25:22.021Z"
+    },
+    {
+      "file": "../dsh-node/src/index.ts",
+      "sha256": "762d4cd523acca4b66d374eccedb13a22117e830c430faff72ecf7b3aa7dc7f3",
+      "mtime": "2026-10-29T04:00:19.233Z"
+    },
+    {
+      "file": "../dsh-coordinator/src/http-api.ts",
+      "sha256": "24fdd9a5e899bfaac9aaa82d755d5aa91c9f43bc88d374a5d82eb9d1574c1625",
+      "mtime": "2026-10-29T03:40:32.543Z"
+    }
+  ],
+  "manifestUpdatedAt": "2026-10-30T02:59:19.130Z"
+}

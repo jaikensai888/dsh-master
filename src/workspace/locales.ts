@@ -13,6 +13,18 @@
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
+  'browse.local': '本地',
+  'browse.stale': '连接不可用，以下为上次加载的快照；恢复连接前无法打开或归档会话。',
+  'browse.sessionElsewhere': '当前会话仍属于 {name}',
+  'browse.return': '返回会话所在节点',
+  'browse.choose': '切换工作节点',
+  'browse.search': '搜索节点名称或 ID…',
+  'browse.online': '在线',
+  'browse.offline': '离线',
+  'browse.revoked': '已撤销',
+  'browse.connecting': '连接中',
+  'browse.currentSession': '当前会话',
+  'browse.removed': '所选节点已移除，已返回本地',
   'group.ungrouped': '未分组',
   'session.new': '新会话',
   'section.workspaces': '工作区',
@@ -100,6 +112,18 @@ export type WorkspaceKey = keyof typeof zh
 
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
+  'browse.local': 'Local',
+  'browse.stale': 'Connection unavailable. Showing the last snapshot; opening and archiving sessions is disabled until reconnected.',
+  'browse.sessionElsewhere': 'Current session remains on {name}',
+  'browse.return': 'Return to session node',
+  'browse.choose': 'Switch workspace node',
+  'browse.search': 'Search nodes by name or ID…',
+  'browse.online': 'Online',
+  'browse.offline': 'Offline',
+  'browse.revoked': 'Revoked',
+  'browse.connecting': 'Connecting',
+  'browse.currentSession': 'Current session',
+  'browse.removed': 'Selected node removed; returned to local',
   'group.ungrouped': 'Ungrouped',
   'session.new': 'New Session',
   'section.workspaces': 'Workspaces',

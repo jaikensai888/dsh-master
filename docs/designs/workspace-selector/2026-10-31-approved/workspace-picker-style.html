@@ -1,0 +1,61 @@
+<div id="dsh-picker-style" class="viz-dotted-background">
+<style>
+#dsh-picker-style{padding:36px 18px 48px;font-family:Inter,'Segoe UI','Microsoft YaHei',sans-serif;color:#ececef;min-height:350px}
+#dsh-picker-style *{box-sizing:border-box}
+#dsh-picker-style .context{max-width:400px;margin:auto}
+#dsh-picker-style .heading{display:flex;align-items:center;gap:8px;color:#b7b7bf;margin:0 0 12px 4px;font-size:14px}
+#dsh-picker-style button{font:inherit;color:inherit;border:0;cursor:inherit}
+#dsh-picker-style .trigger{display:inline-flex;align-items:center;justify-content:center;background:transparent;padding:4px;border-radius:5px;color:#b7b7bf}
+#dsh-picker-style .trigger i{width:12px;height:12px}
+#dsh-picker-style .popover{padding:8px;background:#242426;border:1px solid #424247;border-radius:12px;box-shadow:0 16px 40px #0004,0 3px 8px #0003;color:#ededf0}
+#dsh-picker-style .search{margin:2px 2px 8px}
+#dsh-picker-style input{font:13px/20px Inter,'Segoe UI','Microsoft YaHei',sans-serif;width:100%;min-width:0;height:38px;padding:8px 11px;border-radius:7px;border:1px solid #48484f;background:#1c1c1f;color:#e9e9ee;outline:none}
+#dsh-picker-style input::placeholder{color:#92929c}
+#dsh-picker-style input:focus{border-color:#839bd0;box-shadow:0 0 0 2px #819bd01a}
+#dsh-picker-style button:focus-visible{outline:2px solid #91a9df;outline-offset:1px}
+#dsh-picker-style .choice{display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;text-align:left;border-radius:7px;background:transparent;min-height:42px}
+#dsh-picker-style .choice:hover{background:#303034}
+#dsh-picker-style .choice[aria-pressed="true"]{background:#333338}
+#dsh-picker-style .local{font-size:14px;font-weight:400;margin-bottom:3px}
+#dsh-picker-style .remote{min-height:66px}
+#dsh-picker-style .text{flex:1;min-width:0}
+#dsh-picker-style .name{font-size:14px;font-weight:500;line-height:21px;display:block}
+#dsh-picker-style .meta{display:flex;align-items:center;gap:5px;min-width:0;color:#9d9da7;font-size:11px;line-height:18px;margin-top:2px;white-space:nowrap}
+#dsh-picker-style .id{overflow:hidden;text-overflow:ellipsis}
+#dsh-picker-style .tag{color:#bdbdc7;background:#414147;border-radius:4px;font-size:11px;padding:2px 5px;white-space:nowrap}
+#dsh-picker-style .tick{width:14px;height:14px;flex-shrink:0;color:#e3e3eb}
+#dsh-picker-style .tick[hidden]{visibility:hidden;display:block}
+#dsh-picker-style .footer{margin-top:8px;border-top:1px solid #3b3b40;padding-top:5px}
+#dsh-picker-style .refresh{display:flex;align-items:center;gap:8px;width:100%;padding:9px 12px;border-radius:6px;text-align:left;background:transparent;color:#bdbdc7;font-size:12px}
+#dsh-picker-style .refresh:hover{background:#303034;color:#ededf0}
+#dsh-picker-style .refresh i{width:13px;height:13px}
+#dsh-picker-style .empty{padding:14px 12px;font-size:12px;color:#aaaab4}
+#dsh-picker-style [hidden]{display:none}
+@media(max-width:420px){#dsh-picker-style{padding:28px 8px 38px}#dsh-picker-style .choice{gap:8px;padding-left:10px;padding-right:10px}#dsh-picker-style .meta{font-size:11px}}
+</style>
+<div class="context">
+<div class="heading">工作区 <button class="trigger cursor-interaction" aria-label="选择工作区节点" aria-expanded="true"><i data-lucide="chevron-up" aria-hidden="true"></i></button></div>
+<div class="popover" role="dialog" aria-label="选择工作区节点">
+<div class="search"><input aria-label="搜索节点名称或 ID" placeholder="搜索节点名称或 ID…"></div>
+<button class="choice local cursor-interaction" data-node="local" aria-pressed="false"><span class="text">本地</span><i class="tick" data-lucide="check" aria-hidden="true" hidden></i></button>
+<button class="choice remote cursor-interaction" data-node="office1" aria-pressed="true" data-tooltip="office1 · node-2d78325c8c0ec940a080aafee4e5b4c6">
+<span class="text"><span class="name">office1</span><span class="meta"><span>在线</span><span>·</span><span class="id">node-2d78325c8c0ec940a080aafee4e5b4c6</span></span></span>
+<span class="tag">当前会话</span><i class="tick" data-lucide="check" aria-hidden="true"></i>
+</button>
+<div class="empty" hidden>未找到匹配的节点</div>
+<div class="footer"><button class="refresh cursor-interaction"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新远程节点</span></button></div>
+</div>
+</div>
+<script>
+(()=>{
+const root=document.getElementById('dsh-picker-style');
+const pop=root.querySelector('.popover');const trigger=root.querySelector('.trigger');
+const choices=Array.from(root.querySelectorAll('[data-node]'));
+trigger.addEventListener('click',()=>{pop.hidden=!pop.hidden;trigger.setAttribute('aria-expanded',String(!pop.hidden))});
+root.querySelector('input').addEventListener('input',e=>{const term=e.target.value.trim().toLowerCase();choices.forEach(b=>{const data=b.dataset.node==='local'?'本地 local':'office1 node-2d78325c8c0ec940a080aafee4e5b4c6';b.hidden=!data.includes(term)});root.querySelector('.empty').hidden=choices.some(b=>!b.hidden)});
+choices.forEach(b=>b.addEventListener('click',()=>{choices.forEach(c=>{const selected=c===b;c.setAttribute('aria-pressed',String(selected));c.querySelector('.tick').hidden=!selected});pop.hidden=true;trigger.setAttribute('aria-expanded','false');trigger.focus()}));
+root.querySelector('.refresh').addEventListener('click',()=>{const input=root.querySelector('input');input.value='';choices.forEach(b=>b.hidden=false);root.querySelector('.empty').hidden=true});
+root.addEventListener('keydown',e=>{if(e.key==='Escape'){pop.hidden=true;trigger.setAttribute('aria-expanded','false');trigger.focus()}});
+})();
+</script>
+</div>

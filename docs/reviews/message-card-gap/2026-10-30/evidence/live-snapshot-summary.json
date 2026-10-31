@@ -1,0 +1,1473 @@
+{
+  "capturedAt": "2026-10-30T02:48:04.528Z",
+  "origin": "http://127.0.0.1:56574",
+  "nodeId": "node-b7ae1e560774708d7e8f22f523c592a0",
+  "samples": [
+    {
+      "sessionId": "session-0034e095-df5b-456e-9693-581b00746059",
+      "title": "DSH 会话双向文件附件实现",
+      "nodeName": "my-desktop",
+      "frameKeys": [
+        "type",
+        "header",
+        "cursor",
+        "records",
+        "hasMore",
+        "projections",
+        "assistantStream"
+      ],
+      "hasMore": true,
+      "recordCount": 358,
+      "projectionKeys": [
+        "asOfSeq",
+        "values"
+      ],
+      "projectionValueKeys": [
+        "title",
+        "goal",
+        "tokenUsage",
+        "contextPressure",
+        "contextBreakdown",
+        "inbox",
+        "sessionStats",
+        "turnOutline",
+        "agentPreset",
+        "userQuestions",
+        "permissions",
+        "workingDirectory",
+        "subagentCatalog",
+        "subagentTiming",
+        "subagent",
+        "todos",
+        "plan",
+        "modelSelection",
+        "sessionListMetadata",
+        "imageLimits"
+      ],
+      "counts": {
+        "assistant/message": 49,
+        "tool/call": 51,
+        "tool/result": 51,
+        "step/end": 49,
+        "step/start": 48,
+        "session-log-deepseek/delivery-accepted": 48,
+        "job/registered": 29,
+        "job/settled": 29,
+        "user/message": 1,
+        "goal/change": 1,
+        "workspace/changes": 1,
+        "turn/end": 1
+      },
+      "tools": {
+        "edit": 17,
+        "pwsh": 29,
+        "read": 3,
+        "get_goal": 1,
+        "update_goal": 1
+      },
+      "examples": {
+        "assistant/message": {
+          "seq": 2469,
+          "keys": [
+            "turn",
+            "step",
+            "message",
+            "usage",
+            "stream"
+          ],
+          "nested": {
+            "message": [
+              "role",
+              "content",
+              "source",
+              "id"
+            ],
+            "usage": [
+              "inputTokens",
+              "outputTokens",
+              "cacheReadTokens",
+              "cacheWriteTokens",
+              "totalTokens"
+            ]
+          },
+          "blockTypes": [
+            "reasoning",
+            "text"
+          ]
+        },
+        "tool/call": {
+          "seq": 2470,
+          "keys": [
+            "turn",
+            "step",
+            "callId",
+            "name",
+            "arguments"
+          ],
+          "nested": {}
+        },
+        "tool/result": {
+          "seq": 2471,
+          "keys": [
+            "turn",
+            "step",
+            "message",
+            "meta"
+          ],
+          "nested": {
+            "message": [
+              "role",
+              "source",
+              "toolCallId",
+              "content",
+              "isError",
+              "id"
+            ],
+            "meta": [
+              "path",
+              "diffs"
+            ]
+          },
+          "contentTypes": [
+            "text"
+          ]
+        },
+        "step/end": {
+          "seq": 2472,
+          "keys": [
+            "turn",
+            "step"
+          ],
+          "nested": {}
+        },
+        "step/start": {
+          "seq": 2473,
+          "keys": [
+            "turn",
+            "step"
+          ],
+          "nested": {}
+        },
+        "session-log-deepseek/delivery-accepted": {
+          "seq": 2474,
+          "keys": [
+            "sessionId",
+            "sessionFormatVersion",
+            "throughSeq"
+          ],
+          "nested": {}
+        },
+        "job/registered": {
+          "seq": 2483,
+          "keys": [
+            "jobId",
+            "owner",
+            "kind",
+            "label",
+            "startedAt",
+            "toolCall"
+          ],
+          "nested": {
+            "toolCall": [
+              "callId",
+              "rootCallId"
+            ]
+          }
+        },
+        "job/settled": {
+          "seq": 2484,
+          "keys": [
+            "jobId",
+            "owner",
+            "kind",
+            "label",
+            "startedAt",
+            "toolCall",
+            "finishedAt",
+            "status",
+            "cause",
+            "producerReported",
+            "detail"
+          ],
+          "nested": {
+            "toolCall": [
+              "callId",
+              "rootCallId"
+            ]
+          }
+        },
+        "user/message": {
+          "seq": 2788,
+          "keys": [
+            "content",
+            "source",
+            "role",
+            "id"
+          ],
+          "nested": {
+            "source": [
+              "kind",
+              "form",
+              "sections"
+            ]
+          }
+        },
+        "goal/change": {
+          "seq": 2818,
+          "keys": [
+            "kind",
+            "version",
+            "operation",
+            "goal",
+            "roundsStarted",
+            "createdAt",
+            "updatedAt"
+          ],
+          "nested": {
+            "goal": [
+              "id",
+              "revision",
+              "objective",
+              "phase",
+              "maxGoalRounds"
+            ]
+          }
+        },
+        "workspace/changes": {
+          "seq": 2825,
+          "keys": [
+            "turn"
+          ],
+          "nested": {}
+        },
+        "turn/end": {
+          "seq": 2826,
+          "keys": [
+            "turn",
+            "reason"
+          ],
+          "nested": {
+            "reason": [
+              "kind"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "sessionId": "session-354f5e6a-0bef-469a-95d0-7bc7604e7257",
+      "title": "查询识别日志是否存在",
+      "nodeName": "my-desktop",
+      "frameKeys": [
+        "type",
+        "header",
+        "cursor",
+        "records",
+        "hasMore",
+        "projections",
+        "assistantStream"
+      ],
+      "hasMore": true,
+      "recordCount": 344,
+      "projectionKeys": [
+        "asOfSeq",
+        "values"
+      ],
+      "projectionValueKeys": [
+        "title",
+        "goal",
+        "tokenUsage",
+        "contextPressure",
+        "contextBreakdown",
+        "inbox",
+        "sessionStats",
+        "turnOutline",
+        "agentPreset",
+        "userQuestions",
+        "permissions",
+        "workingDirectory",
+        "subagentCatalog",
+        "subagentTiming",
+        "subagent",
+        "todos",
+        "plan",
+        "modelSelection",
+        "sessionListMetadata",
+        "imageLimits"
+      ],
+      "counts": {
+        "assistant/message": 48,
+        "tool/call": 56,
+        "tool/result": 56,
+        "step/end": 48,
+        "step/start": 47,
+        "session-log-deepseek/delivery-accepted": 47,
+        "job/registered": 18,
+        "job/settled": 18,
+        "agent/inbox/spliced": 2,
+        "user/message": 2,
+        "workspace/changes": 1,
+        "turn/end": 1
+      },
+      "tools": {
+        "edit": 24,
+        "read": 10,
+        "pwsh": 18,
+        "read_image": 3,
+        "job_kill": 1
+      },
+      "examples": {
+        "assistant/message": {
+          "seq": 1038,
+          "keys": [
+            "turn",
+            "step",
+            "message",
+            "usage",
+            "stream"
+          ],
+          "nested": {
+            "message": [
+              "role",
+              "content",
+              "source",
+              "id"
+            ],
+            "usage": [
+              "inputTokens",
+              "outputTokens",
+              "cacheReadTokens",
+              "cacheWriteTokens",
+              "totalTokens"
+            ]
+          },
+          "blockTypes": [
+            "reasoning",
+            "text"
+          ]
+        },
+        "tool/call": {
+          "seq": 1039,
+          "keys": [
+            "turn",
+            "step",
+            "callId",
+            "name",
+            "arguments"
+          ],
+          "nested": {}
+        },
+        "tool/result": {
+          "seq": 1040,
+          "keys": [
+            "turn",
+            "step",
+            "message",
+            "meta"
+          ],
+          "nested": {
+            "message": [
+              "role",
+              "source",
+              "toolCallId",
+              "content",
+              "isError",
+              "id"
+            ],
+            "meta": [
+              "path",
+              "diffs"
+            ]
+          },
+          "contentTypes": [
+            "text"
+          ]
+        },
+        "step/end": {
+          "seq": 1041,
+          "keys": [
+            "turn",
+            "step"
+          ],
+          "nested": {}
+        },
+        "step/start": {
+          "seq": 1042,
+          "keys": [
+            "turn",
+            "step"
+          ],
+          "nested": {}
+        },
+        "session-log-deepseek/delivery-accepted": {
+          "seq": 1043,
+          "keys": [
+            "sessionId",
+            "sessionFormatVersion",
+            "throughSeq"
+          ],
+          "nested": {}
+        },
+        "job/registered": {
+          "seq": 1064,
+          "keys": [
+            "jobId",
+            "owner",
+            "kind",
+            "label",
+            "startedAt",
+            "toolCall"
+          ],
+          "nested": {
+            "toolCall": [
+              "callId",
+              "rootCallId"
+            ]
+          }
+        },
+        "job/settled": {
+          "seq": 1065,
+          "keys": [
+            "jobId",
+            "owner",
+            "kind",
+            "label",
+            "startedAt",
+            "toolCall",
+            "finishedAt",
+            "status",
+            "cause",
+            "producerReported",
+            "detail"
+          ],
+          "nested": {
+            "toolCall": [
+              "callId",
+              "rootCallId"
+            ]
+          }
+        },
+        "agent/inbox/spliced": {
+          "seq": 1146,
+          "keys": [
+            "target",
+            "start",
+            "inserted"
+          ],
+          "nested": {}
+        },
+        "user/message": {
+          "seq": 1149,
+          "keys": [
+            "content",
+            "source",
+            "role",
+            "id"
+          ],
+          "nested": {
+            "source": [
+              "kind",
+              "form",
+              "changes"
+            ]
+          }
+        },
+        "workspace/changes": {
+          "seq": 1380,
+          "keys": [
+            "turn"
+          ],
+          "nested": {}
+        },
+        "turn/end": {
+          "seq": 1381,
+          "keys": [
+            "turn",
+            "reason"
+          ],
+          "nested": {
+            "reason": [
+              "kind"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "sessionId": "session-330849fe-6281-43b0-aab7-3909af886dfb",
+      "title": "GPU推理选项实现",
+      "nodeName": "my-desktop",
+      "frameKeys": [
+        "type",
+        "header",
+        "cursor",
+        "records",
+        "hasMore",
+        "projections",
+        "assistantStream"
+      ],
+      "hasMore": true,
+      "recordCount": 304,
+      "projectionKeys": [
+        "asOfSeq",
+        "values"
+      ],
+      "projectionValueKeys": [
+        "title",
+        "goal",
+        "tokenUsage",
+        "contextPressure",
+        "contextBreakdown",
+        "inbox",
+        "sessionStats",
+        "turnOutline",
+        "agentPreset",
+        "userQuestions",
+        "permissions",
+        "workingDirectory",
+        "subagentCatalog",
+        "subagentTiming",
+        "subagent",
+        "todos",
+        "plan",
+        "modelSelection",
+        "sessionListMetadata",
+        "imageLimits"
+      ],
+      "counts": {
+        "assistant/message": 44,
+        "tool/call": 43,
+        "job/registered": 12,
+        "job/settled": 12,
+        "tool/result": 43,
+        "step/end": 44,
+        "step/start": 43,
+        "session-log-deepseek/delivery-accepted": 43,
+        "turn/end": 4,
+        "agent/inbox/spliced": 6,
+        "turn/start": 3,
+        "user/message": 6,
+        "workspace/changes": 1
+      },
+      "tools": {
+        "pwsh": 12,
+        "read": 13,
+        "grep": 1,
+        "edit": 17
+      },
+      "examples": {
+        "assistant/message": {
+          "seq": 1450,
+          "keys": [
+            "turn",
+            "step",
+            "message",
+            "usage",
+            "stream"
+          ],
+          "nested": {
+            "message": [
+              "role",
+              "content",
+              "source",
+              "id"
+            ],
+            "usage": [
+              "inputTokens",
+              "outputTokens",
+              "cacheReadTokens",
+              "cacheWriteTokens",
+              "totalTokens"
+            ]
+          },
+          "blockTypes": [
+            "reasoning",
+            "text"
+          ]
+        },
+        "tool/call": {
+          "seq": 1451,
+          "keys": [
+            "turn",
+            "step",
+            "callId",
+            "name",
+            "arguments"
+          ],
+          "nested": {}
+        },
+        "job/registered": {
+          "seq": 1452,
+          "keys": [
+            "jobId",
+            "owner",
+            "kind",
+            "label",
+            "startedAt",
+            "toolCall"
+          ],
+          "nested": {
+            "toolCall": [
+              "callId",
+              "rootCallId"
+            ]
+          }
+        },
+        "job/settled": {
+          "seq": 1453,
+          "keys": [
+            "jobId",
+            "owner",
+            "kind",
+            "label",
+            "startedAt",
+            "toolCall",
+            "finishedAt",
+            "status",
+            "cause",
+            "producerReported",
+            "detail"
+          ],
+          "nested": {
+            "toolCall": [
+              "callId",
+              "rootCallId"
+            ]
+          }
+        },
+        "tool/result": {
+          "seq": 1454,
+          "keys": [
+            "turn",
+            "step",
+            "message",
+            "meta"
+          ],
+          "nested": {
+            "message": [
+              "role",
+              "source",
+              "toolCallId",
+              "content",
+              "isError",
+              "id"
+            ],
+            "meta": [
+              "cwd"
+            ]
+          },
+          "contentTypes": [
+            "text"
+          ]
+        },
+        "step/end": {
+          "seq": 1455,
+          "keys": [
+            "turn",
+            "step"
+          ],
+          "nested": {}
+        },
+        "step/start": {
+          "seq": 1456,
+          "keys": [
+            "turn",
+            "step"
+          ],
+          "nested": {}
+        },
+        "session-log-deepseek/delivery-accepted": {
+          "seq": 1457,
+          "keys": [
+            "sessionId",
+            "sessionFormatVersion",
+            "throughSeq"
+          ],
+          "nested": {}
+        },
+        "turn/end": {
+          "seq": 1460,
+          "keys": [
+            "turn",
+            "reason"
+          ],
+          "nested": {
+            "reason": [
+              "kind"
+            ]
+          }
+        },
+        "agent/inbox/spliced": {
+          "seq": 1461,
+          "keys": [
+            "target",
+            "start",
+            "inserted"
+          ],
+          "nested": {}
+        },
+        "turn/start": {
+          "seq": 1462,
+          "keys": [
+            "turn"
+          ],
+          "nested": {}
+        },
+        "user/message": {
+          "seq": 1465,
+          "keys": [
+            "content",
+            "source",
+            "role",
+            "id"
+          ],
+          "nested": {
+            "source": [
+              "kind",
+              "rpcId",
+              "clientTimeZone"
+            ]
+          }
+        },
+        "workspace/changes": {
+          "seq": 1752,
+          "keys": [
+            "turn"
+          ],
+          "nested": {}
+        }
+      }
+    },
+    {
+      "sessionId": "session-495908a5-f04e-4824-aae1-0863d581295a",
+      "title": "WebSocket视频帧解码错误排查",
+      "nodeName": "my-desktop",
+      "frameKeys": [
+        "type",
+        "header",
+        "cursor",
+        "records",
+        "hasMore",
+        "projections",
+        "assistantStream"
+      ],
+      "hasMore": false,
+      "recordCount": 192,
+      "projectionKeys": [
+        "asOfSeq",
+        "values"
+      ],
+      "projectionValueKeys": [
+        "title",
+        "goal",
+        "tokenUsage",
+        "contextPressure",
+        "contextBreakdown",
+        "inbox",
+        "sessionStats",
+        "turnOutline",
+        "agentPreset",
+        "userQuestions",
+        "permissions",
+        "workingDirectory",
+        "subagentCatalog",
+        "subagentTiming",
+        "subagent",
+        "todos",
+        "plan",
+        "modelSelection",
+        "sessionListMetadata",
+        "imageLimits"
+      ],
+      "counts": {
+        "permission/preset": 2,
+        "sandbox/mode": 2,
+        "approval/policy": 2,
+        "agent/inbox/spliced": 4,
+        "turn/start": 1,
+        "step/start": 20,
+        "system/message": 1,
+        "user/message": 8,
+        "request/header": 1,
+        "request/context": 1,
+        "session/title": 2,
+        "session/title-llm-request": 1,
+        "session-log-deepseek/delivery-accepted": 21,
+        "assistant/message": 20,
+        "tool/call": 26,
+        "tool/result": 26,
+        "job/registered": 12,
+        "job/settled": 12,
+        "step/end": 20,
+        "assistant/attempt": 1,
+        "llm/retry": 1,
+        "llm/retry-started": 1,
+        "approval/asked": 2,
+        "approval/decided": 2,
+        "command/run": 1,
+        "command/done": 1,
+        "turn/end": 1
+      },
+      "tools": {
+        "skill": 2,
+        "pwsh": 12,
+        "glob": 3,
+        "grep": 3,
+        "read": 6
+      },
+      "examples": {
+        "permission/preset": {
+          "seq": 0,
+          "keys": [
+            "preset"
+          ],
+          "nested": {}
+        },
+        "sandbox/mode": {
+          "seq": 1,
+          "keys": [
+            "mode"
+          ],
+          "nested": {}
+        },
+        "approval/policy": {
+          "seq": 2,
+          "keys": [
+            "policy"
+          ],
+          "nested": {}
+        },
+        "agent/inbox/spliced": {
+          "seq": 3,
+          "keys": [
+            "target",
+            "start",
+            "inserted"
+          ],
+          "nested": {}
+        },
+        "turn/start": {
+          "seq": 4,
+          "keys": [
+            "turn"
+          ],
+          "nested": {}
+        },
+        "step/start": {
+          "seq": 6,
+          "keys": [
+            "turn",
+            "step"
+          ],
+          "nested": {}
+        },
+        "system/message": {
+          "seq": 7,
+          "keys": [
+            "turn",
+            "step",
+            "message"
+          ],
+          "nested": {
+            "message": [
+              "role",
+              "content",
+              "source",
+              "id"
+            ]
+          }
+        },
+        "user/message": {
+          "seq": 8,
+          "keys": [
+            "content",
+            "source",
+            "role",
+            "id"
+          ],
+          "nested": {
+            "source": [
+              "kind",
+              "rpcId",
+              "clientTimeZone"
+            ]
+          }
+        },
+        "request/header": {
+          "seq": 13,
+          "keys": [
+            "header",
+            "reason"
+          ],
+          "nested": {
+            "header": [
+              "config",
+              "adapterDefaults",
+              "tools"
+            ]
+          }
+        },
+        "request/context": {
+          "seq": 14,
+          "keys": [
+            "provider",
+            "model",
+            "contextWindow",
+            "systemPromptUpdate"
+          ],
+          "nested": {}
+        },
+        "session/title": {
+          "seq": 15,
+          "keys": [
+            "title",
+            "messageSeqs",
+            "source"
+          ],
+          "nested": {
+            "source": [
+              "kind"
+            ]
+          }
+        },
+        "session/title-llm-request": {
+          "seq": 16,
+          "keys": [
+            "titleProvider",
+            "messageSeqs",
+            "route",
+            "system",
+            "messages",
+            "maxTokens",
+            "reasoningEffort"
+          ],
+          "nested": {
+            "route": [
+              "provider",
+              "model"
+            ]
+          }
+        },
+        "session-log-deepseek/delivery-accepted": {
+          "seq": 17,
+          "keys": [
+            "sessionId",
+            "sessionFormatVersion",
+            "throughSeq"
+          ],
+          "nested": {}
+        },
+        "assistant/message": {
+          "seq": 20,
+          "keys": [
+            "turn",
+            "step",
+            "message",
+            "usage",
+            "stream"
+          ],
+          "nested": {
+            "message": [
+              "role",
+              "content",
+              "source",
+              "id"
+            ],
+            "usage": [
+              "inputTokens",
+              "outputTokens",
+              "cacheReadTokens",
+              "cacheWriteTokens",
+              "totalTokens"
+            ]
+          },
+          "blockTypes": [
+            "reasoning",
+            "text"
+          ]
+        },
+        "tool/call": {
+          "seq": 21,
+          "keys": [
+            "turn",
+            "step",
+            "callId",
+            "name",
+            "arguments"
+          ],
+          "nested": {}
+        },
+        "tool/result": {
+          "seq": 22,
+          "keys": [
+            "turn",
+            "step",
+            "message"
+          ],
+          "nested": {
+            "message": [
+              "role",
+              "source",
+              "toolCallId",
+              "content",
+              "isError",
+              "id"
+            ]
+          },
+          "contentTypes": [
+            "text"
+          ]
+        },
+        "job/registered": {
+          "seq": 24,
+          "keys": [
+            "jobId",
+            "owner",
+            "kind",
+            "label",
+            "startedAt",
+            "toolCall"
+          ],
+          "nested": {
+            "toolCall": [
+              "callId",
+              "rootCallId"
+            ]
+          }
+        },
+        "job/settled": {
+          "seq": 25,
+          "keys": [
+            "jobId",
+            "owner",
+            "kind",
+            "label",
+            "startedAt",
+            "toolCall",
+            "finishedAt",
+            "status",
+            "cause",
+            "producerReported",
+            "detail"
+          ],
+          "nested": {
+            "toolCall": [
+              "callId",
+              "rootCallId"
+            ]
+          }
+        },
+        "step/end": {
+          "seq": 27,
+          "keys": [
+            "turn",
+            "step"
+          ],
+          "nested": {}
+        },
+        "assistant/attempt": {
+          "seq": 59,
+          "keys": [
+            "turn",
+            "step",
+            "stream"
+          ],
+          "nested": {}
+        },
+        "llm/retry": {
+          "seq": 60,
+          "keys": [
+            "retryId",
+            "turn",
+            "step",
+            "provider",
+            "mode",
+            "policyKey",
+            "retry",
+            "maxRetries",
+            "delayMs",
+            "failure"
+          ],
+          "nested": {
+            "failure": [
+              "message",
+              "code"
+            ]
+          }
+        },
+        "llm/retry-started": {
+          "seq": 61,
+          "keys": [
+            "retryId",
+            "turn",
+            "step",
+            "retry"
+          ],
+          "nested": {}
+        },
+        "approval/asked": {
+          "seq": 105,
+          "keys": [
+            "id",
+            "toolName",
+            "callId",
+            "reason"
+          ],
+          "nested": {}
+        },
+        "approval/decided": {
+          "seq": 106,
+          "keys": [
+            "id",
+            "outcome"
+          ],
+          "nested": {}
+        },
+        "command/run": {
+          "seq": 118,
+          "keys": [
+            "commandId",
+            "name",
+            "args",
+            "source"
+          ],
+          "nested": {
+            "source": [
+              "kind"
+            ]
+          }
+        },
+        "command/done": {
+          "seq": 123,
+          "keys": [
+            "commandId",
+            "kind",
+            "text"
+          ],
+          "nested": {}
+        },
+        "turn/end": {
+          "seq": 191,
+          "keys": [
+            "turn",
+            "reason"
+          ],
+          "nested": {
+            "reason": [
+              "kind"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "sessionId": "session-9f96d87f-0b61-4b7e-9eab-1922c8117e14",
+      "title": "烧脑中Ing",
+      "nodeName": "my-desktop",
+      "frameKeys": [
+        "type",
+        "header",
+        "cursor",
+        "records",
+        "hasMore",
+        "projections",
+        "assistantStream"
+      ],
+      "hasMore": true,
+      "recordCount": 239,
+      "projectionKeys": [
+        "asOfSeq",
+        "values"
+      ],
+      "projectionValueKeys": [
+        "title",
+        "goal",
+        "tokenUsage",
+        "contextPressure",
+        "contextBreakdown",
+        "inbox",
+        "sessionStats",
+        "turnOutline",
+        "agentPreset",
+        "userQuestions",
+        "permissions",
+        "workingDirectory",
+        "subagentCatalog",
+        "subagentTiming",
+        "subagent",
+        "todos",
+        "plan",
+        "modelSelection",
+        "sessionListMetadata",
+        "imageLimits"
+      ],
+      "counts": {
+        "assistant/message": 43,
+        "tool/call": 41,
+        "tool/result": 41,
+        "step/end": 43,
+        "step/start": 42,
+        "agent/inbox/spliced": 6,
+        "user/message": 7,
+        "todo/write": 1,
+        "turn/end": 3,
+        "turn/start": 2,
+        "session/end-seed": 1,
+        "system/message": 1,
+        "request/header": 1,
+        "developer/message": 1,
+        "session-log-deepseek/delivery-accepted": 3,
+        "job/registered": 1,
+        "job/settled": 1,
+        "workspace/changes": 1
+      },
+      "tools": {
+        "pwsh": 30,
+        "read": 4,
+        "edit": 2,
+        "job_output": 1,
+        "todo_write": 1,
+        "skill": 2,
+        "write": 1
+      },
+      "examples": {
+        "assistant/message": {
+          "seq": 1558,
+          "keys": [
+            "turn",
+            "step",
+            "message",
+            "usage",
+            "stream"
+          ],
+          "nested": {
+            "message": [
+              "role",
+              "content",
+              "source",
+              "id"
+            ],
+            "usage": [
+              "inputTokens",
+              "outputTokens",
+              "totalTokens",
+              "cacheReadTokens",
+              "reasoningTokens"
+            ]
+          },
+          "blockTypes": [
+            "reasoning",
+            "text"
+          ]
+        },
+        "tool/call": {
+          "seq": 1559,
+          "keys": [
+            "turn",
+            "step",
+            "callId",
+            "name",
+            "arguments"
+          ],
+          "nested": {}
+        },
+        "tool/result": {
+          "seq": 1560,
+          "keys": [
+            "turn",
+            "step",
+            "message"
+          ],
+          "nested": {
+            "message": [
+              "role",
+              "source",
+              "toolCallId",
+              "content",
+              "isError",
+              "id"
+            ]
+          },
+          "contentTypes": [
+            "text"
+          ]
+        },
+        "step/end": {
+          "seq": 1561,
+          "keys": [
+            "turn",
+            "step"
+          ],
+          "nested": {}
+        },
+        "step/start": {
+          "seq": 1562,
+          "keys": [
+            "turn",
+            "step"
+          ],
+          "nested": {}
+        },
+        "agent/inbox/spliced": {
+          "seq": 1633,
+          "keys": [
+            "target",
+            "start",
+            "inserted"
+          ],
+          "nested": {}
+        },
+        "user/message": {
+          "seq": 1640,
+          "keys": [
+            "content",
+            "source",
+            "role",
+            "id"
+          ],
+          "nested": {
+            "source": [
+              "kind",
+              "form",
+              "summary"
+            ]
+          }
+        },
+        "todo/write": {
+          "seq": 1728,
+          "keys": [
+            "todos"
+          ],
+          "nested": {}
+        },
+        "turn/end": {
+          "seq": 1744,
+          "keys": [
+            "turn",
+            "reason"
+          ],
+          "nested": {
+            "reason": [
+              "kind"
+            ]
+          }
+        },
+        "turn/start": {
+          "seq": 1746,
+          "keys": [
+            "turn"
+          ],
+          "nested": {}
+        },
+        "session/end-seed": {
+          "seq": 1765,
+          "keys": [],
+          "nested": {}
+        },
+        "system/message": {
+          "seq": 1770,
+          "keys": [
+            "turn",
+            "step",
+            "message"
+          ],
+          "nested": {
+            "message": [
+              "role",
+              "content",
+              "source",
+              "id"
+            ]
+          }
+        },
+        "request/header": {
+          "seq": 1776,
+          "keys": [
+            "header",
+            "reason",
+            "startsSeries"
+          ],
+          "nested": {
+            "header": [
+              "config",
+              "adapterDefaults",
+              "tools"
+            ]
+          }
+        },
+        "developer/message": {
+          "seq": 1777,
+          "keys": [
+            "turn",
+            "step",
+            "message",
+            "headerSeq"
+          ],
+          "nested": {
+            "message": [
+              "source",
+              "content",
+              "role",
+              "id"
+            ]
+          }
+        },
+        "session-log-deepseek/delivery-accepted": {
+          "seq": 1778,
+          "keys": [
+            "sessionId",
+            "sessionFormatVersion",
+            "throughSeq"
+          ],
+          "nested": {}
+        },
+        "job/registered": {
+          "seq": 1787,
+          "keys": [
+            "jobId",
+            "owner",
+            "kind",
+            "label",
+            "startedAt",
+            "toolCall"
+          ],
+          "nested": {
+            "toolCall": [
+              "callId",
+              "rootCallId"
+            ]
+          }
+        },
+        "job/settled": {
+          "seq": 1788,
+          "keys": [
+            "jobId",
+            "owner",
+            "kind",
+            "label",
+            "startedAt",
+            "toolCall",
+            "finishedAt",
+            "status",
+            "cause",
+            "producerReported",
+            "detail"
+          ],
+          "nested": {
+            "toolCall": [
+              "callId",
+              "rootCallId"
+            ]
+          }
+        },
+        "workspace/changes": {
+          "seq": 1795,
+          "keys": [
+            "turn"
+          ],
+          "nested": {}
+        }
+      }
+    }
+  ]
+}

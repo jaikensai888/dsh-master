@@ -1,0 +1,166 @@
+{
+  "capturedAt": "2026-10-30T02:49:50.506Z",
+  "method": "read-only live snapshots replayed against current src/client/wire.ts, not GUI acceptance",
+  "results": [
+    {
+      "sessionId": "session-0034e095-df5b-456e-9693-581b00746059",
+      "title": "DSH 会话双向文件附件实现",
+      "records": 359,
+      "rows": 95,
+      "unrendered": 213,
+      "kindCounts": {
+        "assistant": 43,
+        "tool-call": 51,
+        "user": 1
+      },
+      "sourceShapes": [
+        "[\"kind\",\"callId\"]"
+      ],
+      "callIdMatches": 51,
+      "toolResults": 51,
+      "wireErrorFlags": 1,
+      "messageIsErrorCount": 1,
+      "dataErrorCount": 1,
+      "metaKeySets": [
+        "[\"path\",\"diffs\"]",
+        "[\"cwd\"]",
+        "[\"path\",\"offset\",\"lines\",\"totalLines\",\"lang\"]",
+        "[]"
+      ],
+      "assistantBlockTypes": [
+        "reasoning",
+        "tool-call",
+        "text"
+      ]
+    },
+    {
+      "sessionId": "session-354f5e6a-0bef-469a-95d0-7bc7604e7257",
+      "title": "查询识别日志是否存在",
+      "records": 344,
+      "rows": 93,
+      "unrendered": 195,
+      "kindCounts": {
+        "assistant": 35,
+        "tool-call": 56,
+        "user": 2
+      },
+      "sourceShapes": [
+        "[\"kind\",\"callId\"]"
+      ],
+      "callIdMatches": 56,
+      "toolResults": 56,
+      "wireErrorFlags": 5,
+      "messageIsErrorCount": 5,
+      "dataErrorCount": 5,
+      "metaKeySets": [
+        "[\"path\",\"diffs\"]",
+        "[\"path\",\"offset\",\"lines\",\"totalLines\",\"lang\"]",
+        "[\"cwd\"]",
+        "[]",
+        "[\"path\"]"
+      ],
+      "assistantBlockTypes": [
+        "reasoning",
+        "tool-call",
+        "text"
+      ]
+    },
+    {
+      "sessionId": "session-330849fe-6281-43b0-aab7-3909af886dfb",
+      "title": "GPU推理选项实现",
+      "records": 305,
+      "rows": 71,
+      "unrendered": 191,
+      "kindCounts": {
+        "assistant": 22,
+        "tool-call": 43,
+        "user": 6
+      },
+      "sourceShapes": [
+        "[\"kind\",\"callId\"]"
+      ],
+      "callIdMatches": 43,
+      "toolResults": 43,
+      "wireErrorFlags": 2,
+      "messageIsErrorCount": 2,
+      "dataErrorCount": 2,
+      "metaKeySets": [
+        "[\"cwd\"]",
+        "[\"path\",\"offset\",\"lines\",\"totalLines\",\"lang\"]",
+        "[\"shape\",\"files\",\"truncated\",\"total\"]",
+        "[]",
+        "[\"path\",\"diffs\"]"
+      ],
+      "assistantBlockTypes": [
+        "reasoning",
+        "tool-call",
+        "text"
+      ]
+    },
+    {
+      "sessionId": "session-495908a5-f04e-4824-aae1-0863d581295a",
+      "title": "WebSocket视频帧解码错误排查",
+      "records": 193,
+      "rows": 59,
+      "unrendered": 108,
+      "kindCounts": {
+        "user": 8,
+        "assistant": 20,
+        "tool-call": 26,
+        "notice": 5
+      },
+      "sourceShapes": [
+        "[\"kind\",\"callId\"]"
+      ],
+      "callIdMatches": 26,
+      "toolResults": 26,
+      "wireErrorFlags": 0,
+      "messageIsErrorCount": 4,
+      "dataErrorCount": 0,
+      "metaKeySets": [
+        "[]",
+        "[\"shape\",\"paths\",\"truncated\",\"total\"]",
+        "[\"shape\",\"files\",\"truncated\",\"total\"]",
+        "[\"path\",\"offset\",\"lines\",\"totalLines\",\"lang\"]",
+        "[\"cwd\"]"
+      ],
+      "assistantBlockTypes": [
+        "reasoning",
+        "tool-call",
+        "text"
+      ]
+    },
+    {
+      "sessionId": "session-9f96d87f-0b61-4b7e-9eab-1922c8117e14",
+      "title": "烧脑中Ing",
+      "records": 239,
+      "rows": 84,
+      "unrendered": 108,
+      "kindCounts": {
+        "assistant": 36,
+        "tool-call": 41,
+        "user": 7
+      },
+      "sourceShapes": [
+        "[\"kind\",\"callId\"]"
+      ],
+      "callIdMatches": 41,
+      "toolResults": 41,
+      "wireErrorFlags": 1,
+      "messageIsErrorCount": 2,
+      "dataErrorCount": 1,
+      "metaKeySets": [
+        "[]",
+        "[\"path\",\"offset\",\"lines\",\"totalLines\",\"lang\"]",
+        "[\"diffs\"]",
+        "[\"operation\",\"path\",\"diffs\"]",
+        "[\"cwd\"]"
+      ],
+      "assistantBlockTypes": [
+        "text",
+        "tool-call",
+        "reasoning"
+      ]
+    }
+  ]
+}

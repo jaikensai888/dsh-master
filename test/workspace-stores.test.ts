@@ -25,6 +25,16 @@ vi.mock('@deepseek-ai/dsh-client-store', () => ({
 import { createWorkspaceViewStore } from '../src/workspace/stores.js'
 
 describe('workspace view persistence compatibility', () => {
+  it('migrates browse scope independently of session and directory preferences', () => {
+    persistence.value = { groupBy: 'workspace', groupExpansion: { local: true } }
+    const store = createWorkspaceViewStore().create()
+    expect(store.getSnapshot().browseScope).toEqual({ kind: 'local' })
+    store.actions.setBrowseScope({ kind: 'remote', nodeId: 'my-desktop' })
+    expect(store.getSnapshot().browseScope).toEqual({ kind: 'remote', nodeId: 'my-desktop' })
+    expect(store.getSnapshot().groupExpansion).toEqual({ local: true })
+    persistence.value = { ...store.getSnapshot() }
+    expect(createWorkspaceViewStore().create().getSnapshot().browseScope).toEqual({ kind: 'remote', nodeId: 'my-desktop' })
+  })
   it('migrates and isolates node and directory expansion without local pruning', () => {
     persistence.value = { groupBy: 'workspace', orderBy: 'manual', groupExpansion: { local: true }, remoteExpanded: false }
     const store = createWorkspaceViewStore().create()

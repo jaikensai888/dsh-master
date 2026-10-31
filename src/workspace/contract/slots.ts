@@ -91,6 +91,13 @@ export type DirectoryPickingHooks = PropsHooks<DirectoryPickingInjected['hooks']
 
 /** Props the fork renders for independent remote node sections and the node rail. */
 export interface RemoteSectionProps {
+  readonly browseScope?: import('../stores.js').WorkspaceBrowseScope
+  readonly onBrowseScopeChange?: (scope: import('../stores.js').WorkspaceBrowseScope) => void
+  readonly chooserMount?: HTMLElement | null
+  readonly contentHidden?: boolean
+  readonly onExpandChooser?: () => void
+  readonly requestChooser?: boolean
+  readonly onChooserOpened?: () => void
   readonly t: (key: string, params?: Record<string, unknown>) => string
   readonly defaultNodeExpanded: boolean
   readonly nodeExpansion: Readonly<Record<string, boolean>>

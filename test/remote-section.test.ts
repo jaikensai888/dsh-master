@@ -35,7 +35,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
   }
 })
 
-import { RemoteSection, RemoteNodeSection, type RemoteNodeSectionProps } from '../src/workspace/RemoteSection.js'
+import { RemoteSection, RemoteNodeSection, RemoteSessionItem, type RemoteNodeSectionProps } from '../src/workspace/RemoteSection.js'
 import type { RemoteSectionProps } from '../src/workspace/contract/slots.js'
 
 interface RemoteSessionItemProps {
@@ -71,6 +71,36 @@ function findMenu(element: ReactNode): ReactElement<{
 }
 
 describe('the remote workspace sidebar', () => {
+  it('labels stale snapshots and blocks opening their session rows', () => {
+    const opened = vi.fn()
+    const props = {
+      node: { nodeId: 'a', state: 'ready' }, expanded: true, compact: true, unavailable: true,
+      busy: false, loading: false, error: 'coordinator offline', selection: undefined, now: 0,
+      workspaceExpansion: {}, overflow: [], openSessionMenu: undefined,
+      data: { nodeId: 'a', sessions: [{sessionId:'s',title:'stale session',running:false,blank:false,updatedAt:0}], workspaces: [], archivedSessionIds: [] },
+      t: (key: string) => key, onToggleNode: () => {}, onRefresh: () => {}, onWorkspaceExpandedChange: () => {},
+      onToggleOverflow: () => {}, onSessionMenuChange: () => {}, onOpenRemoteSession: opened, onArchiveRemoteSession: () => {},
+    }
+    const element = RemoteNodeSection(props)
+    expect(renderToStaticMarkup(element)).toContain('browse.stale')
+    function findRow(n: ReactNode): ReactElement<RemoteSessionItemProps> | undefined {
+      if (Array.isArray(n)) return n.map(findRow).find(Boolean)
+      if (!isValidElement(n)) return
+      if (n.type === RemoteSessionItem) return n as ReactElement<RemoteSessionItemProps>
+      return findRow((n.props as {children?:ReactNode}).children)
+    }
+    const row = findRow(element)!
+    row.props.onOpenRemoteSession('a','s','a','stale session')
+    expect(opened).not.toHaveBeenCalled()
+  })
+  it('keeps the remote owner renderless when browsing local without a chooser mount', () => {
+    const markup = renderToStaticMarkup(createElement(RemoteSection, {
+      t: (key: string) => key, defaultNodeExpanded: true, nodeExpansion: {}, workspaceExpansion: {},
+      onNodeExpandedChange: () => {}, onWorkspaceExpandedChange: () => {}, onOpenRemoteSession: () => {},
+      browseScope: { kind: 'local' }, onBrowseScopeChange: () => {},
+    }))
+    expect(markup).toBe('')
+  })
   it('offers refresh before the node roster loads', () => {
     const props: RemoteSectionProps = {
       t: key => key === 'remote.group' ? '远程工作区' : key,

@@ -1,7 +1,27 @@
 [data-dsh-workspace-browser] {
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
 }
+
+[data-dsh-workspace-title] { flex: none; }
+[data-dsh-node-chooser] { display: inline-flex; margin-right: auto; }
+[data-dsh-node-chooser][hidden] { display: none; }
+[data-dsh-local-list][hidden] { display: none; }
+[data-dsh-browse-context] {
+  flex: none;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+[data-dsh-browse-context] button {
+  border: 0;
+  padding: 4px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+[data-dsh-workspace-browser] [data-dsh-remote-node] { margin-top: 0; }
 
 [data-dsh-local-section][data-wide="true"][data-collapsed="false"] {
   min-height: 72px;

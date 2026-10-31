@@ -1,0 +1,17 @@
+import {build} from 'tsdown';
+import {readFileSync,writeFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+const dir='docs/designs/workspace-selector/2026-10-30-review';
+const files=['src/workspace/RemoteSection.tsx','src/workspace/rows/WorkspaceBrowser.tsx','src/workspace/rows/Rows.tsx','src/workspace/WorkspacePicker.tsx','src/workspace/WorkspaceNodeChooser.tsx'];
+const icons=new Set(files.flatMap(f=>readFileSync(f,'utf8').match(/Icon[A-Za-z0-9]+Regular/g)??[]));
+writeFileSync(`${dir}/preview-primitives.tsx`, `import React from 'react';
+export const Button=({icon,children,...props}:any)=><button {...props}>{icon}{children}</button>;
+export const Tooltip=({children}:any)=><>{children}</>;
+export const HoverCard=({children,anchor}:any)=><>{anchor??children}</>;
+export const Menu=({anchor,open,items,onSelect}:any)=><>{anchor}{open&&<div>{items.map((i:any)=><button onClick={()=>onSelect(i.id)}>{i.label}</button>)}</div>}</>;
+export const Modal=()=>null;export const StateDot=()=> <span>●</span>;
+export const relativeTime=()=>({unit:'minutes',n:3});
+${[...icons].map(n=>`export const ${n}=({className}:any)=><span className={className}>${n.includes('Triangle')?'▸':n.includes('Folder')?'▱':n.includes('Search')?'⌕':n.includes('Close')?'×':'⋯'}</span>;`).join('\n')}`);
+writeFileSync(`${dir}/preview-store.ts`,'export const defineStore=()=>({});');
+writeFileSync(`${dir}/preview-cordis.ts`,'export class Service {}');
+await build({config:false,entry:{'preview-bundle':`${dir}/preview.tsx`},outDir:dir,format:'iife',platform:'browser',clean:false,dts:false,noExternal:()=>true,alias:{'@deepseek-ai/dsh-client-ui-primitives':resolve(dir,'preview-primitives.tsx'),'@deepseek-ai/dsh-client-store':resolve(dir,'preview-store.ts'),'@deepseek-ai/cordis':resolve(dir,'preview-cordis.ts')},define:{'process.env.NODE_ENV':JSON.stringify('development')}});

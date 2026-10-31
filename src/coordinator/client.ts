@@ -513,6 +513,32 @@ export class CoordinatorClient {
     }, signal)
   }
 
+  /**
+   * Call one operation on the coordinator's **closed** file route.
+   *
+   * Not `/api/invoke`: the coordinator maps the operation name to one
+   * `sessionFiles/*` endpoint and validates every field. That is what keeps a
+   * browser from reaching an arbitrary node endpoint through this client.
+   *
+   * @param nodeId - target node.
+   * @param operation - one of the coordinator's file operations.
+   * @param args - operation arguments; `nodeId` is added here.
+   * @param signal - caller cancellation.
+   * @returns the node's value.
+   */
+  async fileOperation(
+    nodeId: string,
+    operation: string,
+    args: Readonly<Record<string, unknown>>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return this.#call(`/api/files/${encodeURIComponent(operation)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId, ...args }),
+    }, signal)
+  }
+
   async *#followWorkspace(nodeId: string, signal?: AbortSignal): AsyncGenerator<unknown> {
     let response: Response
     try {

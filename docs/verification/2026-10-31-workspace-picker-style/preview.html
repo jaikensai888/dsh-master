@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>工作区节点选择器 · 真实组件隔离预览</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    font-family: Inter, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    background: #151517;
+    color: #ebedf2;
+  }
+  /* The picker's --dsw-* dependencies, copied from DSH's dark theme so the preview
+     renders the same tokens the host provides. Not a product stylesheet. */
+  body[data-ds-dark-theme] {
+    --dsw-alias-bg-layer-1: rgb(35, 35, 36);
+    --dsw-alias-border-l2: rgba(255, 255, 255, 0.12);
+    --dsw-alias-border-l3: rgba(255, 255, 255, 0.16);
+    --dsw-alias-border-l4: rgba(255, 255, 255, 0.2);
+    --dsw-alias-interactive-bg-active: rgba(255, 255, 255, 0.14);
+    --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.08);
+    --dsw-alias-label-caption: rgb(129, 133, 140);
+    --dsw-alias-label-dimmed: rgb(67, 69, 74);
+    --dsw-alias-label-primary: rgb(249, 250, 251);
+    --dsw-alias-label-secondary: rgb(207, 211, 214);
+    --dsw-alias-label-tertiary: rgb(173, 178, 184);
+    --dsw-alias-state-business-primary: rgb(103, 158, 254);
+    --dsw-specific-sidebar-fill: rgb(27, 27, 28);
+  }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 16px 0; }
+  .control {
+    font: 12px/18px inherit; padding: 5px 10px; border-radius: 6px; cursor: pointer;
+    border: 1px solid #424247; background: #242426; color: #bdbdc7;
+  }
+  .control:hover { background: #303034; color: #ededf0; }
+  .control-active { border-color: #839bd0; color: #ededf0; }
+  .app { display: flex; gap: 32px; padding: 16px; align-items: flex-start; }
+  .sidebar {
+    width: 280px; flex: none; min-height: 520px; padding: 12px; border-radius: 12px;
+    background: #1b1b1c; display: flex; flex-direction: column; gap: 4px;
+    border: 1px solid #2d2d31;
+  }
+  .brand { margin: 8px 4px 20px; font-size: 14px; font-weight: 600; letter-spacing: .04em; color: #ebedf2; }
+  .nav-item { height: 34px; padding: 0 10px; display: flex; align-items: center; border-radius: 8px; color: #adb2b8; font-size: 14px; }
+  .heading {
+    display: flex; align-items: center; gap: 4px; height: 34px; padding: 0 8px 0 12px;
+    border-radius: 8px; color: #adb2b8; font-size: 14px;
+  }
+  .tree { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: #212123; color: #81858c; font-size: 12px; line-height: 18px; }
+  main { flex: 1; min-width: 0; }
+  main h3 { margin: 4px 0 12px; font-size: 15px; font-weight: 500; color: #ebedf2; }
+  main p { font-size: 13px; line-height: 21px; color: #adb2b8; max-width: 720px; }
+  main .fine { color: #81858c; font-size: 12px; }
+  main pre { padding: 10px 12px; border-radius: 8px; background: #1b1b1c; color: #cfd3d6; font-size: 12px; }
+  strong { color: #ebedf2; }
+</style>
+</head>
+<body data-ds-dark-theme>
+  <div id="root"></div>
+  <script src="./preview-bundle.iife.js"></script>
+</body>
+</html>

@@ -22,27 +22,38 @@ import {
   type MasterStatus,
   type MasterStreamRecord,
 } from '../protocol.js'
+import type {
+  FileAbortUpload,
+  FileArtifactList,
+  FileBeginUpload,
+  FileDescribe,
+  FileWriteChunk,
+} from '../files-protocol.js'
 
 /** One failed call, with the code the host reported. */
 export class ApiError extends Error {
   /** `master/*` for this plugin's refusals; otherwise the coordinator's or a node's code. */
   readonly code: string
+  /** Non-sensitive context the host preserved from upstream. */
+  readonly details: Readonly<Record<string, unknown>> | undefined
 
   /**
    * @param code - the reported code.
    * @param message - a human-readable line.
+   * @param details - optional upstream context.
    */
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, details?: Readonly<Record<string, unknown>>) {
     super(message)
     this.name = 'ApiError'
     this.code = code
+    this.details = details
   }
 }
 
 /** Unwrap an envelope, throwing on the failure arm. */
 function unwrap<T>(envelope: MasterEnvelope<T>): T {
   if (envelope.ok) return envelope.value
-  throw new ApiError(envelope.error.code, envelope.error.message)
+  throw new ApiError(envelope.error.code, envelope.error.message, envelope.error.details)
 }
 
 const FOLLOW_RETRY_INITIAL_MS = 1_000
@@ -207,6 +218,7 @@ export async function cancelRemoteQuestion(
  * @param text - prompt text.
  * @param mode - `queue` (default) or `steer`.
  * @param signal - caller cancellation.
+ * @param attachmentIds - confirmed attachments for this session.
  */
 export async function sendPrompt(
   nodeId: string,
@@ -214,11 +226,18 @@ export async function sendPrompt(
   text: string,
   mode: 'queue' | 'steer',
   signal?: AbortSignal,
+  attachmentIds?: readonly string[],
 ): Promise<void> {
   const response = await fetch(`${ROUTE_PREFIX}/api/session/prompt`, init(signal, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ nodeId, sessionId, text, mode }),
+    body: JSON.stringify({
+      nodeId,
+      sessionId,
+      text,
+      mode,
+      ...(attachmentIds === undefined || attachmentIds.length === 0 ? {} : { attachmentIds }),
+    }),
   }))
   unwrap(await envelopeOf(response) as MasterEnvelope<unknown>)
 }
@@ -303,4 +322,99 @@ export async function followSession(
     await waitForFollowRetry(signal, delayMs)
     retry = opened ? 0 : Math.min(retry + 1, 5)
   }
+}
+
+/**
+ * Call one file operation through the host's proxy.
+ *
+ * @param nodeId - target node.
+ * @param sessionId - target session.
+ * @param operation - browser-facing operation.
+ * @param fields - operation-specific fields.
+ * @param signal - caller cancellation.
+ * @returns the host's validated value.
+ */
+export async function fileOperation<T>(
+  nodeId: string,
+  sessionId: string,
+  operation: string,
+  fields: Readonly<Record<string, unknown>>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const response = await fetch(`${ROUTE_PREFIX}/api/files/${encodeURIComponent(operation)}`, init(signal, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ nodeId, sessionId, ...fields }),
+  }))
+  return unwrap(await envelopeOf(response) as MasterEnvelope<T>)
+}
+
+/** Read the node's file limits and delivery-tool state. */
+export function fetchFileSupport(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<FileDescribe> {
+  return fileOperation<FileDescribe>(nodeId, sessionId, 'describe', {}, signal)
+}
+
+/** Open one upload. */
+export function beginUpload(
+  nodeId: string,
+  sessionId: string,
+  name: string,
+  size: number,
+  clientUploadId: string,
+  signal?: AbortSignal,
+): Promise<FileBeginUpload> {
+  return fileOperation<FileBeginUpload>(nodeId, sessionId, 'beginUpload', { name, size, clientUploadId }, signal)
+}
+
+/** Append one chunk. */
+export function writeUploadChunk(
+  nodeId: string,
+  sessionId: string,
+  uploadId: string,
+  offset: number,
+  base64: string,
+  signal?: AbortSignal,
+): Promise<FileWriteChunk> {
+  return fileOperation<FileWriteChunk>(nodeId, sessionId, 'writeChunk', { uploadId, offset, base64 }, signal)
+}
+
+/** Commit one upload. */
+export function commitUpload(
+  nodeId: string,
+  sessionId: string,
+  uploadId: string,
+  size: number,
+  sha256: string,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  return fileOperation(nodeId, sessionId, 'commitUpload', { uploadId, size, sha256 }, signal)
+}
+
+/** Abort one uncommitted upload. */
+export function abortUpload(
+  nodeId: string,
+  sessionId: string,
+  uploadId: string,
+  signal?: AbortSignal,
+): Promise<FileAbortUpload> {
+  return fileOperation<FileAbortUpload>(nodeId, sessionId, 'abortUpload', { uploadId }, signal)
+}
+
+/** List one session's artifacts. */
+export function fetchArtifacts(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<FileArtifactList> {
+  return fileOperation<FileArtifactList>(nodeId, sessionId, 'listArtifacts', {}, signal)
+}
+
+/**
+ * Build the browser download URL for one artifact.
+ *
+ * The URL carries only identity: there is no path parameter to misuse.
+ * @param nodeId - owning node.
+ * @param sessionId - owning session.
+ * @param artifactId - artifact identity.
+ * @returns a same-origin URL.
+ */
+export function downloadArtifactUrl(nodeId: string, sessionId: string, artifactId: string): string {
+  const query = new URLSearchParams({ nodeId, sessionId, artifactId })
+  return `${ROUTE_PREFIX}/api/files/download?${query.toString()}`
 }

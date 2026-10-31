@@ -5,6 +5,9 @@
  */
 
 import clsx from 'clsx'
+import { createPortal } from 'react-dom'
+import { WorkspaceNodeChooser } from './WorkspaceNodeChooser.js'
+import { browseNodes } from './browse-scope.js'
 import {
   Button,
   IconFolderCloseRegular,
@@ -118,6 +121,8 @@ export function RemoteSessionItem({
 
 /** View of one remote node, with all identities scoped to that node. */
 export interface RemoteNodeSectionProps {
+  unavailable?: boolean
+  scrollPositions?: Record<string, number>
   node: MasterNode
   expanded: boolean
   busy: boolean
@@ -130,6 +135,7 @@ export interface RemoteNodeSectionProps {
   overflow: readonly string[]
   openSessionMenu: { nodeId: string; sessionId: string } | undefined
   t: RemoteSectionProps['t']
+  compact?: boolean
   onToggleNode: () => void
   onRefresh: () => void
   onWorkspaceExpandedChange: RemoteSectionProps['onWorkspaceExpandedChange']
@@ -141,7 +147,7 @@ export interface RemoteNodeSectionProps {
 
 /** Render registered directories inside one independently collapsible node. */
 export function RemoteNodeSection({
-  node, expanded, busy, loading, error, data, selection, now,
+  node, expanded, busy, loading, error, data, selection, now, compact = false, scrollPositions, unavailable = false,
   workspaceExpansion, overflow, openSessionMenu, t,
   onToggleNode, onRefresh, onWorkspaceExpandedChange, onToggleOverflow,
   onSessionMenuChange, onOpenRemoteSession, onArchiveRemoteSession,
@@ -151,7 +157,7 @@ export function RemoteNodeSection({
   const groups = groupRemoteWorkspaces(data?.workspaces ?? [], data?.sessions ?? [], data?.archivedSessionIds ?? [])
   return (
     <div className={clsx(css.group, expanded && css.expanded)} data-dsh-remote-node={node.nodeId}>
-      <div className={css.header}>
+      {!compact && <div className={css.header}>
         <button type="button" className={clsx(css.groupToggle, css.nodeRow)}
           aria-expanded={expanded}
           aria-label={t('remote.nodeAria', { name, status: offline ? t('remote.nodeOffline') : t('remote.nodeOnline') })}
@@ -162,9 +168,12 @@ export function RemoteNodeSection({
         </button>
         <Button variant="ghost" icon={<IconRefreshOutline14 />} disabled={busy || loading}
           onClick={onRefresh} aria-label={t('remote.refresh')} title={t('remote.refresh')} />
-      </div>
+      </div>}
       {!expanded ? null : (
-        <div className={css.content} role="tree" aria-label={name}>
+        <div className={css.content} role="tree" aria-label={name}
+          ref={element => { if (element && scrollPositions) element.scrollTop = scrollPositions[node.nodeId] ?? 0 }}
+          onScroll={event => { if (scrollPositions) scrollPositions[node.nodeId] = event.currentTarget.scrollTop }}>
+          {unavailable && <div role="alert" className={css.message}>{t('browse.stale')}</div>}
           {offline ? <div className={css.message} role="status">{t('remote.nodeOffline')}</div> : (
             <>
               {loading ? <div className={css.message} role="status">{t('remote.workspacesLoading')}</div> : null}
@@ -206,9 +215,9 @@ export function RemoteNodeSection({
                           <RemoteSessionItem key={session.sessionId} nodeId={node.nodeId} nodeName={name}
                             session={session} selection={selection} now={now}
                             menuOpen={openSessionMenu?.nodeId === node.nodeId && openSessionMenu.sessionId === session.sessionId}
-                            archiveAvailable={data?.archiveError === undefined}
+                            archiveAvailable={!unavailable && data?.archiveError === undefined}
                             onMenuOpenChange={open => { onSessionMenuChange(node.nodeId, session.sessionId, open) }}
-                            onOpenRemoteSession={onOpenRemoteSession} onArchiveRemoteSession={onArchiveRemoteSession} t={t} />
+                            onOpenRemoteSession={(...args) => { if (!unavailable) onOpenRemoteSession(...args) }} onArchiveRemoteSession={(...args) => { if (!unavailable) onArchiveRemoteSession(...args) }} t={t} />
                         ))}
                         {visible.hiddenCount > 0 || more ? (
                           <button type="button" className={WorkspaceBrowserCss.sessionOverflowButton}
@@ -233,7 +242,7 @@ export function RemoteNodeSection({
 export function RemoteSection({
   t, defaultNodeExpanded, nodeExpansion, workspaceExpansion,
   onNodeExpandedChange, onWorkspaceExpandedChange, onOpenRemoteSession,
-  rail = false, onRailNodePick,
+  rail = false, onRailNodePick, browseScope, onBrowseScopeChange, chooserMount, contentHidden = false, onExpandChooser, requestChooser, onChooserOpened,
 }: RemoteSectionProps): ReactElement {
   const selection = useSyncExternalStore(subscribeRemoteSelection, getRemoteSelection, getRemoteSelection)
   const [coordinator, setCoordinator] = useState<MasterCoordinatorFacts | undefined>(undefined)
@@ -242,9 +251,14 @@ export function RemoteSection({
   const [loading, setLoading] = useState<Readonly<Record<string, boolean>>>({})
   const [errors, setErrors] = useState<Readonly<Record<string, string>>>({})
   const [overflow, setOverflow] = useState<readonly string[]>([])
+  const scrollPositions = useRef<Record<string, number>>({})
   const [error, setError] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [openSessionMenu, setOpenSessionMenu] = useState<{ nodeId: string; sessionId: string } | undefined>(undefined)
+  const browsing = useRef(browseScope)
+  browsing.current = browseScope
+  const changeScope = useRef(onBrowseScopeChange)
+  changeScope.current = onBrowseScopeChange
   const cache = useRef(data)
   cache.current = data
   const expansion = useRef({ nodeExpansion, defaultNodeExpanded })
@@ -295,8 +309,6 @@ export function RemoteSection({
       if (rosterRequest.current !== request || controller.signal.aborted) return
       setCoordinator(status.coordinator)
       if (!status.coordinator.reachable) {
-        setNodes([])
-        setData({})
         setErrors({})
         return
       }
@@ -306,16 +318,20 @@ export function RemoteSection({
       setCoordinator(roster.coordinator)
       setNodes(ordered)
       const present = new Set(ordered.map(node => node.nodeId))
+      const selectedScope = browsing.current
+      if (selectedScope?.kind === 'remote' && !present.has(selectedScope.nodeId)) {
+        changeScope.current?.({ kind: 'local' })
+        setError(t('browse.removed'))
+      }
       setData(previous => Object.fromEntries(Object.entries(previous).filter(([id]) => present.has(id))))
       setErrors({})
       const state = expansion.current
       await Promise.all(ordered.filter(node => !nodeIsOffline(node)
-        && (state.nodeExpansion[node.nodeId] ?? state.defaultNodeExpanded))
+        && (browsing.current === undefined ? (state.nodeExpansion[node.nodeId] ?? state.defaultNodeExpanded)
+          : browsing.current.kind === 'remote' && browsing.current.nodeId === node.nodeId))
         .map(node => loadSessions(node.nodeId, true)))
     } catch (cause) {
       if (controller.signal.aborted || rosterRequest.current !== request) return
-      setNodes([])
-      setData({})
       setCoordinator(undefined)
       setError(describe(cause))
     } finally {
@@ -324,7 +340,7 @@ export function RemoteSection({
         rosterController.current = undefined
       }
     }
-  }, [loadSessions])
+  }, [loadSessions, t])
 
   const archiveSession = useCallback(async (nodeId: string, sessionId: string): Promise<void> => {
     try {
@@ -355,10 +371,21 @@ export function RemoteSection({
   // Also hydrate a node expanded from the collapsed sidebar rail.
   useEffect(() => {
     for (const node of nodes) {
-      if (!nodeIsOffline(node) && (nodeExpansion[node.nodeId] ?? defaultNodeExpanded)) void loadSessions(node.nodeId)
+      if (!nodeIsOffline(node) && (browseScope === undefined ? (nodeExpansion[node.nodeId] ?? defaultNodeExpanded)
+        : browseScope.kind === 'remote' && browseScope.nodeId === node.nodeId)) void loadSessions(node.nodeId)
     }
-  }, [nodes, nodeExpansion, defaultNodeExpanded, loadSessions])
+  }, [nodes, nodeExpansion, defaultNodeExpanded, loadSessions, browseScope])
 
+  const chooser = browseScope && onBrowseScopeChange ? <WorkspaceNodeChooser nodes={nodes}
+    scope={browseScope} onChange={onBrowseScopeChange} busy={busy} error={error ?? (coordinator?.reachable === false ? t('remote.coordinatorOffline') : undefined)}
+    t={t} onRefresh={() => { void refresh() }} currentNodeId={selection?.nodeId} rail={rail} onExpand={onExpandChooser} requestOpen={requestChooser} onOpened={onChooserOpened} /> : null
+  const chooserPortal = chooserMount && chooser ? createPortal(chooser, chooserMount) : null
+  if (browseScope?.kind === 'local' || contentHidden || rail && browseScope) {
+    return <>{rail ? chooser : chooserPortal}</>
+  }
+  if (browseScope && nodes.length === 0) {
+    return <>{chooserPortal}<div className={css.message} role="status">{error ?? (coordinator?.reachable === false ? t('remote.coordinatorOffline') : t('remote.loading'))}</div></>
+  }
   if (rail) {
     return (
       <div className={css.rail} aria-label={t('remote.group')}>
@@ -397,10 +424,11 @@ export function RemoteSection({
 
   return (
     <>
-      {nodes.map(node => (
-        <RemoteNodeSection key={node.nodeId} node={node}
-          expanded={nodeExpansion[node.nodeId] ?? defaultNodeExpanded}
-          busy={busy} loading={loading[node.nodeId] === true} error={errors[node.nodeId]} data={data[node.nodeId]}
+      {chooserPortal}
+      {(browseScope ? browseNodes(nodes, browseScope) : nodes).map(node => (
+        <RemoteNodeSection compact={browseScope !== undefined} unavailable={coordinator?.reachable === false || error !== undefined} scrollPositions={scrollPositions.current} key={node.nodeId} node={node}
+          expanded={browseScope !== undefined || (nodeExpansion[node.nodeId] ?? defaultNodeExpanded)}
+          busy={busy} loading={loading[node.nodeId] === true} error={errors[node.nodeId] ?? error ?? (coordinator?.reachable === false ? t('remote.coordinatorOffline') : undefined)} data={data[node.nodeId]}
           selection={selection} now={Date.now()} t={t} workspaceExpansion={workspaceExpansion}
           overflow={overflow} openSessionMenu={openSessionMenu}
           onToggleNode={() => { onNodeExpandedChange(node.nodeId, !(nodeExpansion[node.nodeId] ?? defaultNodeExpanded)) }}
