@@ -21,6 +21,18 @@ export const MARKDOWN_LABELS = {
 } as const
 
 /** Panel copy. */
+export const ACCESS_COPY = {
+  label: '会话权限', loading: '读取权限…', unsupported: '远程宿主或节点不支持权限切换，请升级',
+  full: '完全权限', workspace: '工作区写入', readOnly: '只读', custom: '自定义权限',
+  retry: '刷新权限', allow: '允许一次', reject: '拒绝', waiting: '当前待审批操作',
+  enable: '启用完全权限并继续', confirm: '确认启用', cancel: '取消',
+  confirmTitle: '启用远程会话完全权限', acknowledge: '我了解该会话可以修改远程文件和运行命令',
+  description: '仅改变当前远程会话；其他会话和新会话默认权限保持原样。',
+  changed: '远程权限已变化，请刷新后重新确认。', partial: '权限已切换；',
+  remaining: (count: number) => `仍有 ${count} 项操作未确认成功，请查看当前待审批列表。`,
+  confirmRequests: (count: number) => `同时允许下面列出的 ${count} 项待审批操作继续。`,
+} as const
+
 export const COPY = {
   pickSomething: '从左侧远程工作区选择一个会话。',
   emptyConversation: '这个会话还没有可显示的消息。',

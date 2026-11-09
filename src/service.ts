@@ -1,3 +1,4 @@
+import type { SessionAccess, ApprovalDecision, ApprovalResult } from './session-access-protocol.js'
 /**
  * The `ctx.dshMaster` service: this plugin's own surface, for its routes and for any
  * other plugin that wants the remote roster.
@@ -150,6 +151,27 @@ export class MasterService {
   /** Archive one session on its owning remote node. */
   async archiveSession(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<MasterArchiveValue> {
     return { archivedSessionIds: await this.#client.archiveSession(nodeId, sessionId, signal) }
+  }
+
+  /** Read session-scoped permissions and approvals on the selected node. */
+  fetchSessionAccess(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<SessionAccess> {
+    return this.#client.fetchSessionAccess(nodeId, sessionId, signal, this.promptEnabled)
+  }
+
+  /** Mutate only when remote execution is enabled, including non-HTTP callers. */
+  setSessionAccess(nodeId: string, sessionId: string, preset: string, expectedRevision: string, operationId: string, signal?: AbortSignal): Promise<SessionAccess> {
+    this.#requireAccessWrites()
+    return this.#client.setSessionAccess(nodeId, sessionId, preset, expectedRevision, operationId, signal)
+  }
+
+  /** Settle an existing remote approval once. */
+  decideSessionApproval(nodeId: string, sessionId: string, requestId: string, outcome: ApprovalDecision, operationId: string, signal?: AbortSignal): Promise<ApprovalResult> {
+    this.#requireAccessWrites()
+    return this.#client.decideSessionApproval(nodeId, sessionId, requestId, outcome, operationId, signal)
+  }
+
+  #requireAccessWrites(): void {
+    if (!this.promptEnabled) throw new MasterUpstreamError(toFailure('master/prompt-disabled', 'Remote permission changes are disabled'))
   }
 
   /** Read pending structured questions for one remote session. */

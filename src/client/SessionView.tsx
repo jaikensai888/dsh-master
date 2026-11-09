@@ -1,3 +1,6 @@
+import { RemotePermissionSelect, RemoteAccessConfirmation } from './RemotePermissionSelect.js'
+import { RemoteApprovalPanel } from './RemoteApprovalPanel.js'
+import { useSessionAccess } from './use-session-access.js'
 /**
  * One remote conversation.
  *
@@ -478,6 +481,7 @@ export function RemoteQuestionForm(props: {
  */
 export function SessionView(props: SessionViewProps): ReactElement {
   const { nodeId, sessionId, promptEnabled } = props
+  const access = useSessionAccess(nodeId, sessionId, promptEnabled)
   const [rows, setRows] = useState<readonly ConversationRow[]>([])
   const [turnEvents, setTurnEvents] = useState<readonly TurnEvent[]>([])
   const [unrendered, setUnrendered] = useState(0)
@@ -923,6 +927,9 @@ export function SessionView(props: SessionViewProps): ReactElement {
       />
       {artifactError === undefined ? null : <div className="dsh-master-error">{artifactError}</div>}
 
+      <RemoteAccessConfirmation state={access.state} controller={access.controller} enabled={promptEnabled}
+        nodeId={nodeId} sessionId={sessionId} title={props.title} />
+      <RemoteApprovalPanel state={access.state} controller={access.controller} enabled={promptEnabled} />
       {questionRequests.length > 0
         ? questionRequests.map(request => (
           <RemoteQuestionForm
@@ -983,21 +990,8 @@ export function SessionView(props: SessionViewProps): ReactElement {
                   onRemove={handleRemove}
                   onRetry={handleRetry}
                 />
-                <button
-                  type="button"
-                  className="dsh-master-toolbar-select"
-                  data-control="permission"
-                  aria-label={COPY.permissionUnavailable}
-                  title={COPY.permissionUnavailable}
-                  disabled
-                >
-                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none">
-                    <path d="M8 1.6 13 3.5v3.7c0 3.2-2.1 5.6-5 7.2-2.9-1.6-5-4-5-7.2V3.5L8 1.6Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
-                    <path d="m6.1 7.9 1.25 1.25L10 6.45" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  <span>{COPY.unavailableShort}</span>
-                  <IconChevronDownOutline14 />
-                </button>
+                <RemotePermissionSelect state={access.state} controller={access.controller} enabled={promptEnabled}
+                  nodeId={nodeId} sessionId={sessionId} title={props.title} />
                 <span className="dsh-master-modes">
                   <Pill
                     active={mode === 'queue'}

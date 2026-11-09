@@ -80,12 +80,12 @@
 | 工具卡片 / diff / 计划 / todo / 子代理视图 | ❌ 暂缺 | 目前只渲染文本、工具调用与结果、少量 notice；其余事件计数显示 |
 | token 级流式增量 | ⚠️ 只显示「输出中」 | `assistant-stream` 的 `chunk` 是 provider 形状，**不猜**；等 durable `assistant/message` |
 | `ask_user_question` 结构化提问 | ✅ 已支持 | `dsh-master` 查看远程会话时通过 pending 轮询续租，`dsh-node` 对该 session 优先走远程表单；其他 session 保留本地 answerer 优先；回答仍提交给原始调用；需升级节点插件 |
-| 工具授权审批 | ❌ 未实现 | 与提问交互不同；仍需单独设计节点应答与转发协议 |
+| 会话权限及工具授权审批 | 已接入 nodeSessionAccess | 远程预设切换、允许一次/拒绝及继续原请求；依赖宿主统一审批生命周期接口 |
 | 会话生命周期通知（新建会话自动出现） | ❌ 不通 | `api-session/*` 走 `$events`，需要手动刷新 |
 | 队列 / 插话 / 模型切换 | ⚠️ 只有 queue / steer | `session/control`、`session/selectModel` 尚未接入 |
 | 向上翻页加载更早历史 | ❌ 暂缺 | snapshot 的 `hasMore` 已读到并展示提示，未实现分页 |
 
-**结论**：会话数据面保持同构。`ask_user_question` 已通过 `dsh-node` 的 session-scoped 桥接完成结构化问答；工具授权审批仍是独立缺口，不能与提问混为一谈，后续需单独设计节点应答与转发协议。
+**结论**：会话数据面保持同构。`ask_user_question` 已通过 `dsh-node` 的 session-scoped 桥接完成结构化问答；工具授权审批由独立的 nodeSessionAccess 接口交给宿主统一结算，不与结构化提问混用。
 
 ---
 
@@ -116,7 +116,7 @@
 5. 远程面板会话列表的搜索、按 `updatedAt` 排序与手动刷新。
 
 **P2（需要显式决策）**
-6. 工具授权审批：设计独立的节点应答与转发通道；不要复用 `ask_user_question` 的结构化问答接口。
+6. 会话权限及工具审批的真实部署 GUI 验收；实现与边界见 [设计](superpowers/specs/2026-11-06-remote-session-full-access-design.md)。
 7. 会话生命周期：常驻订阅，让远程新建会话自动出现。
 8. 文件变更 / diff：`workspaceFiles/changes` 流。
 

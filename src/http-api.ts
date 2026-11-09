@@ -341,6 +341,57 @@ export function createMasterRouteHandler(
         return
       }
 
+      if (route === '/api/session/access' || route === '/api/session/access/set' || route === '/api/session/access/decide') {
+        const writing = route !== '/api/session/access'
+        if (method !== (writing ? 'POST' : 'GET')) {
+          response.setHeader('allow', writing ? 'POST' : 'GET')
+          sendFailure(response, 405, failure('master/method-not-allowed', 'Invalid access method'))
+          return
+        }
+        const service = deps.service()
+        if (service === undefined) {
+          sendFailure(response, 503, failure('master/unavailable', 'The master service is not mounted'))
+          return
+        }
+        if (writing && !service.promptEnabled) {
+          sendFailure(response, 403, failure('master/prompt-disabled', 'Remote permission changes are disabled'))
+          return
+        }
+        try {
+          const body = writing ? await readJsonBody(request) : Object.fromEntries(url.searchParams)
+          const field = (key: string): string | undefined => {
+            const value = bodyText(body, key)
+            return value !== undefined && value.length <= 512 ? value : undefined
+          }
+          const nodeId = field('nodeId'), sessionId = field('sessionId')
+          const preset = field('preset'), revision = field('expectedRevision'), operationId = field('operationId'), requestId = field('requestId')
+          const outcome = body['outcome']
+          const setting = route.endsWith('/set')
+          if (nodeId === undefined || sessionId === undefined || (writing && (operationId === undefined || (setting
+            ? preset === undefined || revision === undefined
+            : requestId === undefined || (outcome !== 'allowed-once' && outcome !== 'rejected'))))) {
+            sendFailure(response, 400, failure('master/invalid-arguments', 'Invalid session access arguments'))
+            return
+          }
+          const controller = new AbortController()
+          response.on('close', () => { if (!response.writableEnded) controller.abort() })
+          const value = !writing
+            ? await service.fetchSessionAccess(nodeId, sessionId, controller.signal)
+            : setting
+              ? await service.setSessionAccess(nodeId, sessionId, preset!, revision!, operationId!, controller.signal)
+              : await service.decideSessionApproval(nodeId, sessionId, requestId!, outcome as 'allowed-once' | 'rejected', operationId!, controller.signal)
+          sendJson(response, 200, { ok: true, value })
+        } catch (error) {
+          if (error instanceof Error && error.name.startsWith('master/')) {
+            sendFailure(response, error.name === 'master/too-large' ? 413 : 400, failure(error.name, error.message))
+          } else {
+            const mapped = classify(error)
+            sendFailure(response, mapped.status, mapped.error)
+          }
+        }
+        return
+      }
+
       if (route === '/api/session/questions') {
         if (method !== 'GET' && method !== 'HEAD') {
           response.setHeader('allow', 'GET, HEAD')

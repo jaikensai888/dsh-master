@@ -1,3 +1,4 @@
+import { readSessionAccess, readApprovalResult, type SessionAccess, type ApprovalDecision, type ApprovalResult } from '../session-access-protocol.js'
 /**
  * Browser-side access to `/dsh-master/api/*`.
  *
@@ -417,4 +418,27 @@ export function fetchArtifacts(nodeId: string, sessionId: string, signal?: Abort
 export function downloadArtifactUrl(nodeId: string, sessionId: string, artifactId: string): string {
   const query = new URLSearchParams({ nodeId, sessionId, artifactId })
   return `${ROUTE_PREFIX}/api/files/download?${query.toString()}`
+}
+
+/** Read permissions and active approvals for one remote session. */
+export async function fetchSessionAccess(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<SessionAccess> {
+  const query = new URLSearchParams({ nodeId, sessionId })
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/access?${query}`, init(signal))
+  return readSessionAccess(unwrap(await envelopeOf(response)))
+}
+
+/** Apply a reviewed permission preset. */
+export async function setSessionAccess(nodeId: string, sessionId: string, preset: string, expectedRevision: string, operationId: string, signal?: AbortSignal): Promise<SessionAccess> {
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/access/set`, init(signal, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nodeId, sessionId, preset, expectedRevision, operationId }),
+  }))
+  return readSessionAccess(unwrap(await envelopeOf(response)))
+}
+
+/** Resolve one live approval, never by sending a message to the agent. */
+export async function decideSessionApproval(nodeId: string, sessionId: string, requestId: string, outcome: ApprovalDecision, operationId: string, signal?: AbortSignal): Promise<ApprovalResult> {
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/access/decide`, init(signal, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nodeId, sessionId, requestId, outcome, operationId }),
+  }))
+  return readApprovalResult(unwrap(await envelopeOf(response)))
 }

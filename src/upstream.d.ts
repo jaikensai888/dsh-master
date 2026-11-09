@@ -498,6 +498,20 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   }
 
   export function Menu(props: MenuProps): ReactElement
+  export function RiskConfirmation(props: {
+    open: boolean
+    title: string
+    description: string
+    acknowledgeLabel: string
+    cancelLabel: string
+    closeLabel: string
+    confirmLabel: string
+    acknowledged: boolean
+    disabled?: boolean
+    onAcknowledgedChange: (value: boolean) => void
+    onCancel: () => void
+    onConfirm: () => void
+  }): ReactElement
   export function Modal(props: Record<string, unknown>): ReactElement
   export function Tooltip(props: Record<string, unknown>): ReactElement
   export function HoverCard(props: Record<string, unknown>): ReactElement

@@ -113,6 +113,22 @@ function handlerFor(master: MasterService | undefined): (request: IncomingMessag
   })
 }
 
+describe('session access routes', () => {
+  it('refuses permission and approval writes when prompt access is disabled', async () => {
+    for (const action of ['set', 'decide']) {
+      const response = await call(handlerFor(service()), fakeRequest({ method: 'POST', url: `/dsh-master/api/session/access/${action}`, body: JSON.stringify({ nodeId: 'n', sessionId: 's' }) }))
+      expect(response.status).toBe(403)
+      expect(response.json).toMatchObject({ ok: false, error: { code: 'master/prompt-disabled' } })
+    }
+  })
+  it('reads current access and rejects malformed writes before dispatch', async () => {
+    const response = await call(handlerFor(service({ fetchSessionAccess: () => Promise.resolve({ currentValue: 'workspace-write' }) })), fakeRequest({ url: '/dsh-master/api/session/access?nodeId=n&sessionId=s' }))
+    expect(response.json).toMatchObject({ ok: true, value: { currentValue: 'workspace-write' } })
+    const invalid = await call(handlerFor(service({ promptEnabled: true })), fakeRequest({ method: 'POST', url: '/dsh-master/api/session/access/decide', body: JSON.stringify({ nodeId: 'n', sessionId: 's', requestId: 'r', outcome: 'always', operationId: 'o' }) }))
+    expect(invalid.status).toBe(400)
+  })
+})
+
 describe('the trust fence runs before any route', () => {
   it('refuses a rebound hostname', async () => {
     const response = await call(handlerFor(service()), fakeRequest({

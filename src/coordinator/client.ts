@@ -1,3 +1,4 @@
+import { readSessionAccess, readApprovalResult, type SessionAccess, type ApprovalDecision, type ApprovalResult } from '../session-access-protocol.js'
 /**
  * HTTP client for a `dsh-coordinator`.
  *
@@ -469,6 +470,21 @@ export class CoordinatorClient {
   async archiveSession(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<string[]> {
     const value = await this.#invokeNode(nodeId, 'workspace/archiveSession', { request: { sessionId } }, signal)
     return readArchivedSessionIds(asRecord(value))
+  }
+
+  /** Read the remote session's authoritative permissions and active approvals. */
+  async fetchSessionAccess(nodeId: string, sessionId: string, signal?: AbortSignal, interactive = false): Promise<SessionAccess> {
+    return readSessionAccess(await this.#invokeNode(nodeId, 'nodeSessionAccess/get', { sessionId, interactive }, signal))
+  }
+
+  /** Set one preset using the revision that the user actually reviewed. */
+  async setSessionAccess(nodeId: string, sessionId: string, preset: string, expectedRevision: string, operationId: string, signal?: AbortSignal): Promise<SessionAccess> {
+    return readSessionAccess(await this.#invokeNode(nodeId, 'nodeSessionAccess/set', { sessionId, preset, expectedRevision, operationId }, signal))
+  }
+
+  /** Resolve the original approval without submitting another prompt. */
+  async decideSessionApproval(nodeId: string, sessionId: string, requestId: string, outcome: ApprovalDecision, operationId: string, signal?: AbortSignal): Promise<ApprovalResult> {
+    return readApprovalResult(await this.#invokeNode(nodeId, 'nodeSessionAccess/decide', { sessionId, requestId, outcome, operationId }, signal))
   }
 
   /** List outstanding ask_user_question requests for one remote session. */

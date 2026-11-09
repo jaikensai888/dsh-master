@@ -26,6 +26,10 @@ const TAG_ID = 'dsh-master/styles'
 
 /** The panel stylesheet. Exported so a preview harness can render the real rules. */
 export const PANEL_CSS = `
+.dsh-master-access-panel { padding: 12px 16px; border-top: .5px solid var(--dsw-alias-border-l2); display: grid; gap: 8px; }
+.dsh-master-access-request { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dsh-master-access-request > span { flex: 1; min-width: 160px; overflow-wrap: anywhere; }
+
 .dsh-master-root {
   --dsh-chat-content-width: var(--dsh-chat-user-width, clamp(680px, calc(var(--dsh-conversation-column-width, 0px) * .64), 920px));
   --dsh-composer-side-clearance: 16px;
