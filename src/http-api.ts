@@ -341,8 +341,9 @@ export function createMasterRouteHandler(
         return
       }
 
-      if (route === '/api/session/access' || route === '/api/session/access/set' || route === '/api/session/access/decide') {
-        const writing = route !== '/api/session/access'
+      const forwarding = route === '/api/session/approvals' || route === '/api/session/approval-decision'
+      if (forwarding || route === '/api/session/access' || route === '/api/session/access/set' || route === '/api/session/access/decide') {
+        const writing = route !== '/api/session/access' && route !== '/api/session/approvals'
         if (method !== (writing ? 'POST' : 'GET')) {
           response.setHeader('allow', writing ? 'POST' : 'GET')
           sendFailure(response, 405, failure('master/method-not-allowed', 'Invalid access method'))
@@ -354,7 +355,7 @@ export function createMasterRouteHandler(
           return
         }
         if (writing && !service.promptEnabled) {
-          sendFailure(response, 403, failure('master/prompt-disabled', 'Remote permission changes are disabled'))
+          sendFailure(response, 403, failure('master/prompt-disabled', 'Remote permission and approval writes are disabled'))
           return
         }
         try {
@@ -367,7 +368,7 @@ export function createMasterRouteHandler(
           const preset = field('preset'), revision = field('expectedRevision'), operationId = field('operationId'), requestId = field('requestId')
           const outcome = body['outcome']
           const setting = route.endsWith('/set')
-          if (nodeId === undefined || sessionId === undefined || (writing && (operationId === undefined || (setting
+          if (nodeId === undefined || sessionId === undefined || (writing && ((!forwarding && operationId === undefined) || (setting
             ? preset === undefined || revision === undefined
             : requestId === undefined || (outcome !== 'allowed-once' && outcome !== 'rejected'))))) {
             sendFailure(response, 400, failure('master/invalid-arguments', 'Invalid session access arguments'))
@@ -375,11 +376,19 @@ export function createMasterRouteHandler(
           }
           const controller = new AbortController()
           response.on('close', () => { if (!response.writableEnded) controller.abort() })
-          const value = !writing
-            ? await service.fetchSessionAccess(nodeId, sessionId, controller.signal)
-            : setting
-              ? await service.setSessionAccess(nodeId, sessionId, preset!, revision!, operationId!, controller.signal)
-              : await service.decideSessionApproval(nodeId, sessionId, requestId!, outcome as 'allowed-once' | 'rejected', operationId!, controller.signal)
+          let value: unknown
+          if (!writing) {
+            value = forwarding
+              ? await service.pendingForwardedApprovals(nodeId, sessionId, controller.signal)
+              : await service.fetchSessionAccess(nodeId, sessionId, controller.signal)
+          } else if (setting) {
+            value = await service.setSessionAccess(nodeId, sessionId, preset!, revision!, operationId!, controller.signal)
+          } else {
+            const decision = outcome as 'allowed-once' | 'rejected'
+            value = forwarding
+              ? await service.decideForwardedApproval(nodeId, sessionId, requestId!, decision, controller.signal)
+              : await service.decideSessionApproval(nodeId, sessionId, requestId!, decision, operationId!, controller.signal)
+          }
           sendJson(response, 200, { ok: true, value })
         } catch (error) {
           if (error instanceof Error && error.name.startsWith('master/')) {

@@ -1,10 +1,11 @@
 /** Session-scoped permission mutations, with no automatic replay of approval grants. */
-import { decideSessionApproval, fetchSessionAccess, setSessionAccess } from './api.js'
+import { decideSessionApproval, fetchSessionAccess, setSessionAccess, fetchForwardedApprovals, decideForwardedApproval } from './api.js'
 import type { ApprovalDecision, PendingApproval, PermissionOption, SessionAccess } from '../session-access-protocol.js'
 import { ACCESS_COPY } from './copy.js'
 
 export interface AccessState {
   readonly access?: SessionAccess
+  readonly forwardedApprovals?: readonly PendingApproval[]
   readonly error?: string
   readonly unsupported: boolean
   readonly busy: boolean
@@ -14,6 +15,13 @@ interface Transport {
   read: typeof fetchSessionAccess
   set: typeof setSessionAccess
   decide: typeof decideSessionApproval
+  pending?: typeof fetchForwardedApprovals
+  decideForwarded?: typeof decideForwardedApproval
+}
+
+const isUnsupported = (cause: unknown): boolean => {
+  const code = cause !== null && typeof cause === 'object' && 'code' in cause ? String(cause.code) : ''
+  return /\/(?:unsupported|capability-unavailable|capability-mismatch|invocation-unavailable|method-unavailable|service-unavailable|definition-unavailable|endpoint-not-found)$/.test(code)
 }
 /** Identify full access by its real bundle, including custom-named presets. */
 export function isFullAccess(option: PermissionOption): boolean {
@@ -28,7 +36,8 @@ export class SessionAccessController {
   #generation = 0
   #mutationError = false
   constructor(readonly nodeId: string, readonly sessionId: string, private enabled: boolean,
-    private readonly api: Transport = { read: fetchSessionAccess, set: setSessionAccess, decide: decideSessionApproval }) {}
+    private readonly api: Transport = { read: fetchSessionAccess, set: setSessionAccess, decide: decideSessionApproval,
+      pending: fetchForwardedApprovals, decideForwarded: decideForwardedApproval }) {}
 
   getSnapshot = (): AccessState => this.#state
   subscribe = (listener: () => void): (() => void) => { this.#listeners.add(listener); return () => { this.#listeners.delete(listener) } }
@@ -48,6 +57,10 @@ export class SessionAccessController {
   async refresh(): Promise<void> {
     if (this.#state.busy || this.#abort.signal.aborted) return
     const generation = ++this.#generation
+    if (this.#state.forwardedApprovals !== undefined) {
+      await this.#readForwarded(generation)
+      return
+    }
     try {
       const access = await this.api.read(this.nodeId, this.sessionId, this.#abort.signal)
       if (generation === this.#generation) {
@@ -58,10 +71,28 @@ export class SessionAccessController {
       }
     } catch (error) {
       if (generation !== this.#generation || this.#abort.signal.aborted) return
-      const code = error !== null && typeof error === 'object' && 'code' in error ? String(error.code) : ''
-      const unsupported = /unsupported|capability-unavailable|invocation-unavailable|method-unavailable|service-unavailable|definition-unavailable|endpoint-not-found/.test(code)
+      const unsupported = isUnsupported(error)
+      if (unsupported && this.api.pending !== undefined && this.api.decideForwarded !== undefined) {
+        await this.#readForwarded(generation)
+        return
+      }
       this.#mutationError = false
       this.#publish({ ...this.#state, unsupported, error: unsupported ? ACCESS_COPY.unsupported : String(error instanceof Error ? error.message : error) })
+    }
+  }
+  async #readForwarded(generation: number, preserveError = false): Promise<void> {
+    if (this.api.pending === undefined || this.#abort.signal.aborted) return
+    try {
+      const result = await this.api.pending(this.nodeId, this.sessionId, this.#abort.signal)
+      if (generation !== this.#generation) return
+      const message = preserveError ? this.#state.error : undefined
+      this.#publish({ unsupported: true, busy: this.#state.busy, forwardedApprovals: result.requests,
+        ...(message === undefined ? {} : { error: message }) })
+    } catch (cause) {
+      if (generation !== this.#generation || this.#abort.signal.aborted) return
+      const unavailable = isUnsupported(cause)
+      this.#publish({ unsupported: true, busy: this.#state.busy,
+        ...(!unavailable ? { error: `${ACCESS_COPY.forwardingFailed}${cause instanceof Error ? cause.message : String(cause)}` } : {}) })
     }
   }
   async choose(preset: string): Promise<void> {
@@ -114,16 +145,29 @@ export class SessionAccessController {
   }
   async decide(requestId: string, outcome: ApprovalDecision): Promise<void> {
     if (!this.enabled || this.#state.busy || this.#abort.signal.aborted) return
-    ++this.#generation
+    const forwarded = this.#state.forwardedApprovals
+    const decideForwarded = this.api.decideForwarded
+    if (forwarded !== undefined && (decideForwarded === undefined || !forwarded.some(request => request.requestId === requestId))) return
+    const generation = ++this.#generation
     const { error: _error, ...state } = this.#state
     this.#mutationError = false
     this.#publish({ ...state, busy: true })
     try {
-      await this.api.decide(this.nodeId, this.sessionId, requestId, outcome, crypto.randomUUID(), this.#abort.signal)
+      if (forwarded !== undefined && decideForwarded !== undefined) {
+        await decideForwarded(this.nodeId, this.sessionId, requestId, outcome, this.#abort.signal)
+      } else {
+        await this.api.decide(this.nodeId, this.sessionId, requestId, outcome, crypto.randomUUID(), this.#abort.signal)
+      }
     } catch (error) {
       this.#mutationError = true
       this.#publish({ ...this.#state, error: error instanceof Error ? error.message : String(error) })
-    } finally { await this.#readAfterMutation() }
+    } finally {
+      if (forwarded === undefined) await this.#readAfterMutation()
+      else {
+        await this.#readForwarded(generation, true)
+        this.#publish({ ...this.#state, busy: false })
+      }
+    }
   }
   async #readAfterMutation(): Promise<void> {
     try {

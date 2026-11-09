@@ -26,10 +26,6 @@ const TAG_ID = 'dsh-master/styles'
 
 /** The panel stylesheet. Exported so a preview harness can render the real rules. */
 export const PANEL_CSS = `
-.dsh-master-access-panel { padding: 12px 16px; border-top: .5px solid var(--dsw-alias-border-l2); display: grid; gap: 8px; }
-.dsh-master-access-request { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.dsh-master-access-request > span { flex: 1; min-width: 160px; overflow-wrap: anywhere; }
-
 .dsh-master-root {
   --dsh-chat-content-width: var(--dsh-chat-user-width, clamp(680px, calc(var(--dsh-conversation-column-width, 0px) * .64), 920px));
   --dsh-composer-side-clearance: 16px;
@@ -422,11 +418,99 @@ export const PANEL_CSS = `
   color: var(--dsw-alias-state-error-primary);
 }
 .dsh-master-question-error { margin: 0; }
+.dsh-master-access-panel,
 .dsh-master-composer {
   flex: none;
   width: calc(100% - 32px);
   max-width: calc(var(--dsh-chat-content-width) + 32px);
   box-sizing: border-box;
+}
+.dsh-master-access-panel {
+  display: grid;
+  gap: 10px;
+  max-height: min(44vh, 340px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin: 8px auto 0;
+  padding: 12px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+.dsh-master-access-panel > .dsh-master-error { margin: 0; }
+.dsh-master-access-heading,
+.dsh-master-access-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  line-height: 20px;
+}
+.dsh-master-access-heading {
+  font-size: var(--dsh-content-font-size, 14px);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-master-access-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 7px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-master-access-count,
+.dsh-master-access-meta { color: var(--dsw-alias-label-secondary); font-size: var(--dsh-content-font-size-secondary, 13px); }
+.dsh-master-access-list { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.dsh-master-access-request {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 10px 12px;
+  border: .5px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-base);
+}
+.dsh-master-access-detail { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.dsh-master-access-meta code {
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--ds-font-family-code, monospace);
+}
+.dsh-master-access-detail p {
+  margin: 4px 0 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.dsh-master-access-actions { display: flex; flex: none; gap: 8px; margin-inline-start: auto; }
+.dsh-master-access-actions button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  cursor: pointer;
+}
+.dsh-master-access-actions button:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-master-access-actions button.dsh-master-access-allow {
+  border-color: transparent;
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+.dsh-master-access-actions button.dsh-master-access-allow:hover:not(:disabled) { background: var(--dsw-alias-button-primary-hover); }
+.dsh-master-access-actions button:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
+.dsh-master-access-actions button:disabled { opacity: .48; cursor: not-allowed; }
+.dsh-master-access-panel > .dsh-master-toolbar-select { justify-self: end; }
+.dsh-master-composer {
   margin: 8px auto 20px;
   border: .5px solid var(--dsw-alias-border-l2);
   border-radius: 20px;

@@ -33,7 +33,7 @@ dsh-node（远程机器） ──拨出 WS──► dsh-coordinator ──/api�
 | 输入框「＋」上传本地文件到远程会话 | ✅ 已实现；多文件、进度、取消、失败重试；需升级 `dsh-node` |
 | Agent 交付产物与下载到本机 | ✅ 已实现；`deliver_file` 登记、会话文件卡片、浏览器原生下载、刷新/重启后仍在 |
 | `ask_user_question` 提问交互 | ✅ 远程表单与原始调用结构化应答；需升级 `dsh-node` |
-| 会话权限与工具授权审批 | 支持切换 Full Access、允许一次、拒绝及继续原待审批调用；需配套宿主与节点 |
+| 会话权限与工具授权审批 | 支持远程允许一次、拒绝原待审批调用；切换 Full Access 需要配套宿主 |
 | 会话生命周期通知（远程新建会话自动出现） | ❌ 未通，需手动刷新 |
 | `write` / `edit` 文件修改卡片 | ✅ 已实现；从工具参数与 `meta.diffs` 识别，调用级差异 + 回合汇总（`已编辑 N 个文件`）；打开 / 预览 / 编辑不在本期 |
 | 队列 / 模型切换 / 向上翻页 | ❌ 未实现 |
@@ -170,13 +170,19 @@ node tools/e2e-session-files.mjs
 
 会话工具栏的权限菜单读取远程预设；选择“完全权限”需要勾选确认，生效范围仅为当前节点的当前会话。远程预设中的 `danger-full-access` 配合 `approval: never`，不会修改其他会话或新会话默认值。可随时切回远程提供的其他预设。
 
-已停在审批处的任务可选择“允许一次”“拒绝”，或“启用完全权限并继续”。后者先切换权限，再批准确认框列出的原请求；新增请求不会混入这次批准。权限已切换但部分批准失败时保留实际权限，显示待处理请求；不自动重试具有副作用的工具。
+支持配套权限接口的宿主还可选择“启用完全权限并继续”。该操作先切换权限，再批准确认框列出的原请求。权限已切换但部分批准失败时保留实际权限，显示待处理请求。
 
-需要配套升级远程 DSH 的 `permissionPresets.setForAgent`、`approval.pending/decidePending` 和 dsh-node 的 `nodeSessionAccess` 接口。旧宿主或旧节点显示升级提示。master 的 `allowPrompt: false` 同时禁止权限修改和审批写入，且只读查看不接管本机审批。Full Access 不会自动回答业务提问或计划审核，也不会把额外业务审批自动批准。
+远程切换权限需要宿主的 `permissionPresets.setForAgent`、`approval.pending/decidePending` 和节点的 `nodeSessionAccess` 接口。master 的 `allowPrompt: false` 禁止权限修改和审批写入，且只读查看不接管本机审批。
 
 源码联调使用相邻的 deepseek-harness、dsh-node、dsh-coordinator checkout，按各自锁文件安装开发依赖后运行 `node tools/e2e-session-access.mjs`。该用例使用临时文件、真实宿主权限/审批/文件沙箱、真实节点 WS、Coordinator 和 master HTTP；无需模型密钥，不触及用户 profile。GUI 实际部署仍需另行验证，升级前进程中已存在的旧审批 Promise 不保证能被新机制接管。
 
 如果源码副本位于系统临时目录，运行用例前将 `DSH_ACCESS_E2E_ROOT` 设为系统临时目录之外的可写测试目录。工作区写入策略允许访问系统临时目录，因此需要在其外验证沙箱限制。
+
+## 远程审批转发
+
+在支持原生审批事件的 DSH Desktop 上，升级 dsh-node 和 dsh-master 后，可在打开的远程会话中对仍在等待的工具审批选择“允许一次”或“拒绝”。Desktop 通过原生事件接收决定，并结算原请求。审批规则保持会话当前设置。本机先处理时，远程卡片随待审批列表更新而消失。
+
+使用原版 Desktop `0.2.1-rc.2` 的宿主组件验证过。构建相邻的 dsh-node、dsh-coordinator 和本仓库后，运行 `node tools/e2e-approval-forwarding.mjs "<Desktop 安装目录>/resources/app"` 可复验。用例使用临时 profile 和本地连接。
 
 ## 下一步
 

@@ -1,4 +1,4 @@
-import type { SessionAccess, ApprovalDecision, ApprovalResult } from './session-access-protocol.js'
+import type { SessionAccess, ApprovalDecision, ApprovalResult, ForwardedApprovals, ForwardedApprovalAccepted } from './session-access-protocol.js'
 /**
  * The `ctx.dshMaster` service: this plugin's own surface, for its routes and for any
  * other plugin that wants the remote roster.
@@ -171,7 +171,16 @@ export class MasterService {
   }
 
   #requireAccessWrites(): void {
-    if (!this.promptEnabled) throw new MasterUpstreamError(toFailure('master/prompt-disabled', 'Remote permission changes are disabled'))
+    if (!this.promptEnabled) throw new MasterUpstreamError(toFailure('master/prompt-disabled', 'Remote permission and approval writes are disabled'))
+  }
+
+  pendingForwardedApprovals(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<ForwardedApprovals> {
+    return this.#client.pendingForwardedApprovals(nodeId, sessionId, this.promptEnabled, signal)
+  }
+
+  decideForwardedApproval(nodeId: string, sessionId: string, requestId: string, outcome: ApprovalDecision, signal?: AbortSignal): Promise<ForwardedApprovalAccepted> {
+    this.#requireAccessWrites()
+    return this.#client.decideForwardedApproval(nodeId, sessionId, requestId, outcome, signal)
   }
 
   /** Read pending structured questions for one remote session. */

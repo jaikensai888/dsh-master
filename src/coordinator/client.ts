@@ -1,4 +1,4 @@
-import { readSessionAccess, readApprovalResult, type SessionAccess, type ApprovalDecision, type ApprovalResult } from '../session-access-protocol.js'
+import { readSessionAccess, readApprovalResult, readForwardedApprovals, readForwardedApprovalAccepted, type SessionAccess, type ApprovalDecision, type ApprovalResult, type ForwardedApprovals, type ForwardedApprovalAccepted } from '../session-access-protocol.js'
 /**
  * HTTP client for a `dsh-coordinator`.
  *
@@ -485,6 +485,14 @@ export class CoordinatorClient {
   /** Resolve the original approval without submitting another prompt. */
   async decideSessionApproval(nodeId: string, sessionId: string, requestId: string, outcome: ApprovalDecision, operationId: string, signal?: AbortSignal): Promise<ApprovalResult> {
     return readApprovalResult(await this.#invokeNode(nodeId, 'nodeSessionAccess/decide', { sessionId, requestId, outcome, operationId }, signal))
+  }
+
+  async pendingForwardedApprovals(nodeId: string, sessionId: string, interactive: boolean, signal?: AbortSignal): Promise<ForwardedApprovals> {
+    return readForwardedApprovals(await this.#invokeNode(nodeId, 'nodeApprovals/pending', { sessionId, interactive }, signal))
+  }
+
+  async decideForwardedApproval(nodeId: string, sessionId: string, requestId: string, outcome: ApprovalDecision, signal?: AbortSignal): Promise<ForwardedApprovalAccepted> {
+    return readForwardedApprovalAccepted(await this.#invokeNode(nodeId, 'nodeApprovals/decide', { sessionId, requestId, outcome }, signal))
   }
 
   /** List outstanding ask_user_question requests for one remote session. */

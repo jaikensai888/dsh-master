@@ -1,4 +1,4 @@
-import { readSessionAccess, readApprovalResult, type SessionAccess, type ApprovalDecision, type ApprovalResult } from '../session-access-protocol.js'
+import { readSessionAccess, readApprovalResult, readForwardedApprovals, readForwardedApprovalAccepted, type SessionAccess, type ApprovalDecision, type ApprovalResult, type ForwardedApprovals, type ForwardedApprovalAccepted } from '../session-access-protocol.js'
 /**
  * Browser-side access to `/dsh-master/api/*`.
  *
@@ -441,4 +441,17 @@ export async function decideSessionApproval(nodeId: string, sessionId: string, r
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nodeId, sessionId, requestId, outcome, operationId }),
   }))
   return readApprovalResult(unwrap(await envelopeOf(response)))
+}
+
+export async function fetchForwardedApprovals(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<ForwardedApprovals> {
+  const query = new URLSearchParams({ nodeId, sessionId })
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/approvals?${query}`, init(signal))
+  return readForwardedApprovals(unwrap(await envelopeOf(response)))
+}
+
+export async function decideForwardedApproval(nodeId: string, sessionId: string, requestId: string, outcome: ApprovalDecision, signal?: AbortSignal): Promise<ForwardedApprovalAccepted> {
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/approval-decision`, init(signal, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nodeId, sessionId, requestId, outcome }),
+  }))
+  return readForwardedApprovalAccepted(unwrap(await envelopeOf(response)))
 }

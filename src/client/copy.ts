@@ -22,9 +22,12 @@ export const MARKDOWN_LABELS = {
 
 /** Panel copy. */
 export const ACCESS_COPY = {
-  label: '会话权限', loading: '读取权限…', unsupported: '远程宿主或节点不支持权限切换，请升级',
+  label: '会话权限', loading: '读取权限…', unsupported: '远程权限切换不可用',
+  forwardingFailed: '读取远程审批失败：',
   full: '完全权限', workspace: '工作区写入', readOnly: '只读', custom: '自定义权限',
-  retry: '刷新权限', allow: '允许一次', reject: '拒绝', waiting: '当前待审批操作',
+  retry: '刷新权限', allow: '允许一次', reject: '拒绝', waiting: '工具操作待审批',
+  pendingCount: (count: number) => `${count} 项`,
+  approvalFull: '本次操作请求完全访问权限', approvalWorkspace: '本次操作请求工作区写入权限',
   enable: '启用完全权限并继续', confirm: '确认启用', cancel: '取消',
   confirmTitle: '启用远程会话完全权限', acknowledge: '我了解该会话可以修改远程文件和运行命令',
   description: '仅改变当前远程会话；其他会话和新会话默认权限保持原样。',
