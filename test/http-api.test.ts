@@ -101,6 +101,7 @@ function service(overrides: Partial<Record<keyof MasterService, unknown>> = {}):
     cancelQuestion: () => Promise.resolve({ accepted: true }),
     follow: async function* () { yield { type: 'snapshot' } },
     prompt: () => Promise.resolve(),
+    createSession: (nodeId: string, workspaceId: string) => Promise.resolve({ sessionId: `created-${nodeId}-${workspaceId}` }),
     ...overrides,
   } as unknown as MasterService
 }
@@ -180,6 +181,95 @@ describe('route dispatch', () => {
     const response = await call(handlerFor(service()), fakeRequest({ url: '/dsh-master/api/sessions' }))
     expect(response.status).toBe(400)
     expect(response.json).toMatchObject({ error: { code: 'master/invalid-arguments' } })
+  })
+})
+
+describe('the remote session create route', () => {
+  it('forwards the node and registered workspace, with an optional blank id', async () => {
+    const seen: unknown[][] = []
+    const master = service({
+      createSession: (...args: unknown[]) => {
+        seen.push(args)
+        return Promise.resolve({ sessionId: 'session-9' })
+      },
+    })
+    const response = await call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/create',
+      headers: { host: '127.0.0.1:43120', 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'node-1', workspaceId: 'workspace-1', sessionId: 'blank-1' }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(response.json).toEqual({ ok: true, value: { sessionId: 'session-9' } })
+    expect(seen[0]).toEqual(['node-1', 'workspace-1', 'blank-1'])
+  })
+
+  it('sends an absent session id rather than inventing one', async () => {
+    const seen: unknown[][] = []
+    const master = service({
+      createSession: (...args: unknown[]) => {
+        seen.push(args)
+        return Promise.resolve({ sessionId: 'fresh' })
+      },
+    })
+    await call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/create',
+      headers: { host: '127.0.0.1:43120' },
+      body: JSON.stringify({ nodeId: 'node-1', workspaceId: 'workspace-1' }),
+    }))
+    expect(seen[0]).toEqual(['node-1', 'workspace-1', undefined])
+  })
+
+  it('rejects a missing workspace or an over-long identity without calling the service', async () => {
+    let called = false
+    const master = service({ createSession: () => { called = true; return Promise.resolve({ sessionId: 'x' }) } })
+    const missing = await call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/create',
+      headers: { host: '127.0.0.1:43120' },
+      body: JSON.stringify({ nodeId: 'node-1' }),
+    }))
+    expect(missing.status).toBe(400)
+    expect(missing.json).toMatchObject({ error: { code: 'master/invalid-arguments' } })
+
+    const tooLong = await call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/create',
+      headers: { host: '127.0.0.1:43120' },
+      body: JSON.stringify({ nodeId: 'node-1', workspaceId: 'w'.repeat(201) }),
+    }))
+    expect(tooLong.status).toBe(400)
+
+    const malformed = await call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/create',
+      headers: { host: '127.0.0.1:43120' },
+      body: JSON.stringify({ nodeId: 'node-1', workspaceId: 'workspace-1', sessionId: 42 }),
+    }))
+    expect(malformed.status).toBe(400)
+    expect(malformed.json).toMatchObject({ error: { code: 'master/invalid-arguments' } })
+    expect(called).toBe(false)
+  })
+
+  it('accepts POST only and never runs a prompt', async () => {
+    let prompted = false
+    const master = service({ prompt: () => { prompted = true; return Promise.resolve() } })
+    const wrongMethod = await call(handlerFor(master), fakeRequest({
+      url: '/dsh-master/api/session/create',
+      headers: { host: '127.0.0.1:43120' },
+    }))
+    expect(wrongMethod.status).toBe(405)
+    expect(wrongMethod.headers['allow']).toBe('POST')
+
+    await call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/create',
+      headers: { host: '127.0.0.1:43120' },
+      body: JSON.stringify({ nodeId: 'node-1', workspaceId: 'workspace-1' }),
+    }))
+    expect(prompted).toBe(false)
   })
 })
 

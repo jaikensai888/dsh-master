@@ -39,6 +39,7 @@ import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { createWorkspaceViewStore } from '../stores.js'
+import type { FollowingLocalSnapshot, FollowRecord, FollowSummary } from '../following.js'
 
 /**
  * Owner share of the directory-flow holes: the complete conversation between
@@ -105,6 +106,22 @@ export interface RemoteSectionProps {
   readonly onNodeExpandedChange: (nodeId: string, expanded: boolean) => void
   readonly onWorkspaceExpandedChange: (key: string, expanded: boolean) => void
   readonly onOpenRemoteSession: (nodeId: string, sessionId: string, nodeName: string, sessionTitle: string) => void
+  /** Browser-local follow records; absent when the surface composes no follow list. */
+  readonly following?: readonly FollowRecord[]
+  /** The local half of the follow list, read from the browser's existing subscriptions. */
+  readonly followingLocal?: FollowingLocalSnapshot
+  /** Follow-list filter text; empty means no filter. */
+  readonly followingQuery?: string
+  /** The locally open session, for the follow list's selected row. */
+  readonly currentLocalSessionId?: string | undefined
+  /** Record a followed session (local or remote). */
+  readonly onFollow?: (record: FollowRecord) => void
+  /** Remove one follow marker by key. */
+  readonly onUnfollow?: (key: string) => void
+  /** Persist display summaries a fresh source snapshot superseded. */
+  readonly onSyncFollowingSummaries?: (updates: Readonly<Record<string, FollowSummary>>) => void
+  /** Open a followed local session without leaving the follow view. */
+  readonly onOpenFollowingLocal?: (sessionId: string) => void
   readonly rail?: boolean
   readonly onRailNodePick?: (nodeId: string) => void
 }

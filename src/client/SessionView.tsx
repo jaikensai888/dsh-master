@@ -57,6 +57,12 @@ import {
 import { COPY, MARKDOWN_LABELS } from './copy.js'
 import { observeConversationWidth } from './conversation-width.js'
 import {
+  classifyFileSupportError,
+  probeFileSupport,
+  shouldRefreshFileSupport,
+  type FileSupportState,
+} from './file-support.js'
+import {
   conversationItems,
   hasPendingUserQuestion,
   mergeRows,
@@ -68,7 +74,7 @@ import {
   type TurnEvent,
   type TurnGroup,
 } from './wire.js'
-import type { FileArtifact, FileDescribe } from '../files-protocol.js'
+import type { FileArtifact } from '../files-protocol.js'
 import type { MasterQuestion, MasterQuestionAnswer, MasterPendingQuestionRequest } from '../protocol.js'
 
 /** What the view needs to open one session. */
@@ -86,7 +92,7 @@ export interface SessionViewProps {
 }
 
 /** The node's answer to "can this session carry files?". */
-export type FileSupportState = 'loading' | 'unsupported' | 'error' | FileDescribe
+export type { FileSupportState }
 
 /** How the follow stream is doing, for the header chip. */
 type Phase = 'connecting' | 'live' | 'ended' | 'failed'
@@ -421,9 +427,13 @@ export function RemoteQuestionForm(props: {
             disabled={props.disabled}
             rows={2}
             onChange={event => {
+              // Read the field now: React nulls `currentTarget` once the handler
+              // returns, and the functional updaters below run during the next
+              // render, so reading `event.currentTarget.value` inside them throws.
+              const value = event.currentTarget.value
               setValidationError(undefined)
               setSkipped(previous => ({ ...previous, [question.id]: false }))
-              setCustom(previous => ({ ...previous, [question.id]: event.currentTarget.value }))
+              setCustom(previous => ({ ...previous, [question.id]: value }))
               if (question.multiSelect !== true) {
                 setSelected(previous => ({ ...previous, [question.id]: [] }))
               }
@@ -497,7 +507,8 @@ export function SessionView(props: SessionViewProps): ReactElement {
   const [questionCompatibilityFor, setQuestionCompatibilityFor] = useState<{ nodeId: string; sessionId: string } | undefined>()
   const [questionError, setQuestionError] = useState<string | undefined>()
   const [questionActionId, setQuestionActionId] = useState<string | undefined>()
-  const [fileSupport, setFileSupport] = useState<FileSupportState>(props.fileSupportOverride ?? 'loading')
+  const [fileSupport, setFileSupport] = useState<FileSupportState>(props.fileSupportOverride ?? { status: 'loading' })
+  const [supportRetry, setSupportRetry] = useState(0)
   const [attachments, setAttachments] = useState<readonly LocalAttachment[]>([])
   const [attachmentErrors, setAttachmentErrors] = useState<readonly string[]>([])
   const [artifacts, setArtifacts] = useState<readonly FileArtifact[]>([])
@@ -508,6 +519,9 @@ export function SessionView(props: SessionViewProps): ReactElement {
   const settledQuestions = useRef(new Set<string>())
   const sessionKey = `${nodeId}\u0000${sessionId}`
   const sessionKeyRef = useRef(sessionKey)
+  const fileSupportRef = useRef(fileSupport)
+  fileSupportRef.current = fileSupport
+  const openedOnce = useRef(false)
   const uploadControllers = useRef(new Map<string, AbortController>())
   const uploadQueue = useRef<LocalAttachment[]>([])
   const activeUploads = useRef(0)
@@ -532,6 +546,11 @@ export function SessionView(props: SessionViewProps): ReactElement {
     activeUploads.current = 0
   }, [])
 
+  /** Ask again after a reconnect or an explicit user retry. */
+  const retryFileSupport = useCallback((): void => {
+    setSupportRetry(previous => previous + 1)
+  }, [])
+
   useEffect(() => {
     sessionKeyRef.current = sessionKey
     setAttachments([])
@@ -540,33 +559,27 @@ export function SessionView(props: SessionViewProps): ReactElement {
     setArtifactError(undefined)
     setSendUncertain(false)
     abortAllUploads()
+  }, [sessionKey, abortAllUploads])
 
+  useEffect(() => {
     const override = props.fileSupportOverride
     if (override !== undefined) {
       setFileSupport(override)
-      return () => { abortAllUploads() }
+      return
     }
 
     const controller = new AbortController()
-    setFileSupport('loading')
-    void fetchFileSupport(nodeId, sessionId, controller.signal)
-      .then((describe) => {
-        if (!controller.signal.aborted) setFileSupport(describe)
+    setFileSupport({ status: 'loading' })
+    void probeFileSupport(() => fetchFileSupport(nodeId, sessionId, controller.signal))
+      .then((state) => {
+        if (!controller.signal.aborted) setFileSupport(state)
       })
-      .catch((cause: unknown) => {
-        if (controller.signal.aborted) return
-        const code = cause instanceof ApiError ? cause.code : undefined
-        const unsupported = code === 'coordinator/capability-unavailable'
-          || code === 'node/capability-unavailable'
-          || code === 'coordinator/endpoint-not-found'
-          || code === 'coordinator/capability-mismatch'
-        setFileSupport(unsupported ? 'unsupported' : 'error')
+      .catch(() => {
+        // `probeFileSupport` classifies instead of rejecting; this is only a
+        // defensive guard so a future change cannot leave an unhandled rejection.
       })
-    return () => {
-      controller.abort()
-      abortAllUploads()
-    }
-  }, [nodeId, sessionId, sessionKey, props.fileSupportOverride, abortAllUploads])
+    return () => { controller.abort() }
+  }, [nodeId, sessionId, props.fileSupportOverride, supportRetry])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -580,12 +593,14 @@ export function SessionView(props: SessionViewProps): ReactElement {
         setArtifactError(undefined)
       } catch (cause) {
         if (controller.signal.aborted) return
-        // A session without the capability simply has no artifacts; anything
-        // else is worth showing once, next to the cards.
-        const code = cause instanceof ApiError ? cause.code : undefined
-        if (code !== 'coordinator/capability-unavailable' && code !== 'node/capability-unavailable') {
-          setArtifactError(`${COPY.artifactLoadFailed}：${cause instanceof Error ? cause.message : String(cause)}`)
+        const failure = classifyFileSupportError(cause)
+        // The capability probe owns the one capability notice. A list failure
+        // while that notice is already showing would be the same problem twice.
+        if (fileSupportRef.current.status === 'error') {
+          setArtifactError(undefined)
+          return
         }
+        setArtifactError(`${COPY.artifactLoadFailed}：${failure.code}`)
       }
     }
 
@@ -620,6 +635,7 @@ export function SessionView(props: SessionViewProps): ReactElement {
 
   useEffect(() => {
     const controller = new AbortController()
+    openedOnce.current = false
     setRows([])
     setTurnEvents([])
     setUnrendered(0)
@@ -634,6 +650,10 @@ export function SessionView(props: SessionViewProps): ReactElement {
         case 'open':
           setPhase('live')
           setError(undefined)
+          // The mount probe already covers the first open. A later open means a
+          // reconnect, which is when a restart or upgrade can change the answer.
+          if (shouldRefreshFileSupport(fileSupportRef.current, openedOnce.current)) retryFileSupport()
+          openedOnce.current = true
           return
         case 'data': {
           const snapshot = readSnapshot(record.value)
@@ -675,7 +695,7 @@ export function SessionView(props: SessionViewProps): ReactElement {
     })
 
     return () => { controller.abort() }
-  }, [nodeId, sessionId])
+  }, [nodeId, sessionId, retryFileSupport])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -759,7 +779,7 @@ export function SessionView(props: SessionViewProps): ReactElement {
   const startUploadRef = useRef<(entry: LocalAttachment) => void>(() => undefined)
 
   const startUpload = useCallback((entry: LocalAttachment): void => {
-    if (typeof fileSupport !== 'object') return
+    if (fileSupport.status !== 'supported') return
     if (sessionKeyRef.current !== `${entry.nodeId}\u0000${entry.sessionId}`) return
     if (activeUploads.current >= 2) {
       uploadQueue.current.push(entry)
@@ -770,7 +790,7 @@ export function SessionView(props: SessionViewProps): ReactElement {
     uploadControllers.current.set(entry.localId, controller)
     setAttachments(previous => updateAttachment(previous, entry.localId, { status: 'uploading' }))
     void uploadAttachment(entry.nodeId, entry.sessionId, entry.file, {
-      limits: fileSupport.limits,
+      limits: fileSupport.describe.limits,
       signal: controller.signal,
       onProgress: (received) => {
         if (sessionKeyRef.current !== sessionKey) return
@@ -802,8 +822,8 @@ export function SessionView(props: SessionViewProps): ReactElement {
   startUploadRef.current = startUpload
 
   const handleSelect = useCallback((files: readonly File[]): void => {
-    if (typeof fileSupport !== 'object') return
-    const { accepted, rejected } = selectFiles(files, attachments.length, fileSupport.limits)
+    if (fileSupport.status !== 'supported') return
+    const { accepted, rejected } = selectFiles(files, attachments.length, fileSupport.describe.limits)
     setAttachmentErrors(rejected.map(row => `${row.name}：${row.reason}`))
     if (accepted.length === 0) return
     const entries = accepted.map(file => newLocalAttachment(nodeId, sessionId, file))
@@ -864,19 +884,16 @@ export function SessionView(props: SessionViewProps): ReactElement {
       })
   }, [attachments, draft, mode, nodeId, sending, sessionId, sendUncertain, promptEnabled])
 
-  const attachmentsUsable = typeof fileSupport === 'object'
-  const attachmentLimit = attachmentsUsable
-    ? fileSupport.limits.maxAttachmentsPerMessage
-    : 5
+  const supportDescribe = fileSupport.status === 'supported' ? fileSupport.describe : undefined
+  const attachmentsUsable = supportDescribe !== undefined
+  const attachmentLimit = supportDescribe?.limits.maxAttachmentsPerMessage ?? 5
   const attachmentDisabledReason = !promptEnabled
     ? COPY.attachmentUploadDisabled
-    : fileSupport === 'unsupported'
-      ? COPY.attachmentUnsupported
-      : fileSupport === 'loading'
+    : supportDescribe !== undefined
+      ? attachments.length >= attachmentLimit ? COPY.attachmentLimit : undefined
+      : fileSupport.status === 'loading'
         ? COPY.attachmentUnavailable
-        : fileSupport === 'error'
-          ? COPY.attachmentUnavailable
-          : attachments.length >= attachmentLimit ? COPY.attachmentLimit : undefined
+        : COPY.attachmentUnsupported
   const sendEnabled = promptEnabled
     && !sending
     && (attachments.length === 0 || attachmentsUsable)
@@ -922,10 +939,12 @@ export function SessionView(props: SessionViewProps): ReactElement {
         artifacts={artifacts}
         nodeId={nodeId}
         sessionId={sessionId}
-        deliveryTool={typeof fileSupport === 'object' ? fileSupport.deliveryTool
-          : fileSupport === 'unsupported' ? 'unavailable' : undefined}
+        support={fileSupport}
+        onRetrySupport={retryFileSupport}
       />
-      {artifactError === undefined ? null : <div className="dsh-master-error">{artifactError}</div>}
+      {artifactError === undefined || fileSupport.status === 'error'
+        ? null
+        : <div className="dsh-master-error">{artifactError}</div>}
 
       <RemoteAccessConfirmation state={access.state} controller={access.controller} enabled={promptEnabled}
         nodeId={nodeId} sessionId={sessionId} title={props.title} />
@@ -951,12 +970,6 @@ export function SessionView(props: SessionViewProps): ReactElement {
               >
                 {COPY.confirmPromptRetry}
               </button>
-            ) : null}
-            {fileSupport === 'unsupported' ? (
-              <div className="dsh-master-hint" role="status">{COPY.attachmentUnsupported}</div>
-            ) : null}
-            {fileSupport === 'error' ? (
-              <div className="dsh-master-hint" role="status">{COPY.attachmentCheckFailed}</div>
             ) : null}
             {attachmentErrors.length === 0 ? null : (
               <div className="dsh-master-attachment-errors" role="alert">

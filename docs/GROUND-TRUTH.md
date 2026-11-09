@@ -208,6 +208,8 @@ dsh-master（本机 DSH 插件，operator token，管理面消费方）
 - 节点业务错误以 **HTTP 200 + `{ok:false, error:{code,…}}`** 返回；只有 `coordinator/*` 才映射真实状态码 `[文档]`。
 - `/api/session/follow` 的 data.value 就是节点发来的 `SessionFollowFrame` 原文，coordinator **不解释任何字段** `[文档]`。
 - **审批 / 提问 / 会话生命周期通知都没有透传**，`session/control` 也没有专用包装（只能走通用 `/api/stream`）`[文档]`。
+- `session/create` 的绑定语义（2026-11-03 核对会话控制器源码）：`workspaceId` 与 `cwd` 互斥；给 `workspaceId` 时节点用注册表校验并 `attachSession`；返回 `{sessionId, agentPreset?}`。**不传 `sessionId` 一定新建**；传入的 blank 仅在未归档、属于该 workspace、cwd 一致且未开始 turn 时复用。`[源码：dsh-api-session-controller]`
+- `/dsh-master/api/session/create` 是本插件的薄包装：只接受 `nodeId` + `workspaceId` + 可选 `sessionId`，**不接受 `cwd` / `agentPreset`**；只创建/复用空白会话，不执行 prompt，因此不受 `allowPrompt` 约束。`[源码]`
 
 ---
 
@@ -223,6 +225,8 @@ dsh-master（本机 DSH 插件，operator token，管理面消费方）
 8. **`ctx.slots.register` 必须以服务方法形式调用**，不要解构出来赋值给变量 —— Cordis 服务代理在调用时把 `this.ctx` 绑到调用者上下文，解构会冻结到服务自身，静默破坏按插件的卸载级联。
 9. **`approval` 与 `user question` 在无头节点上会 fail closed。** 节点没有应答者时审批以 `unavailable` **拒绝**，不是挂起。补齐它需要节点侧插件注册应答者。
 10. **不要在挂载时做网络请求。** 协调器是另一个进程，插件挂载不能依赖它在线；`/dsh-master/api/status` 才是报告不可达的地方。
+11. **宿主加载的是 `lib/`，不是 `src/`；改完源码必须 `pnpm run build`（或常开 `pnpm dev`）。** 2026-11-09 就是这样翻车的：`lib/client.js` 停在 11:41 的中间产物，里面的 `SessionTree` / `FlatList` 已经调用 `followedSessionIds.has(...)`，但调用处还没传这个 prop → `TypeError: Cannot read properties of undefined (reading 'has')` → 宿主把整个 `sidebar.workspaces` 插槽判为崩溃并**清空**，表现是左侧栏工作区整块消失、源码和缓存看起来都正常。
+12. **侧栏空白先看渲染器日志。** slot 崩溃写在 `%APPDATA%\DSH Desktop\logs\dsh-<日期>.error.log`，形如 `slot entry crashed in '<slot>': TypeError: …`；这一行直接给出槽名与异常，比查插件日志快得多（注意它与 §7 的「插件日志不在那里」不冲突：这是 renderer console 的转发）。
 
 ---
 
@@ -231,6 +235,7 @@ dsh-master（本机 DSH 插件，operator token，管理面消费方）
 - `ctx.reflect.accessor` 是否存在、能否绕过 `provide` 的占用检查 —— **未证实**（即便存在也按同一 isolate key 取键）。
 - host 侧 `sessionQuery` 替换方案能否让 `session/prompt` 对远程 id 生效 —— **未证实**。`ClientSessions` 的 transport 写死在构造参数上，`sessionController` 的远程由生成的 Typert 绑定提供，只认本地 session 注册表。这是本项目**没有**选那条路的直接原因，不是对它可行性的断言。
 - ~~本项目的代码没有在运行中的 DSH 实例上验证过。~~ **2026-09-24 已在运行中的 desktop 实例上验证**（见 §7）。
+- 远程工作区目录“＋”新建/复用会话：路由、coordinator 调用、空白会话例外和 UI 已有自动化测试，但**尚未在真实协调器/节点上走通**；实施时协调器未运行。`[未验证]`
 - `dsh-master` 的 client 半侧已在真实浏览器里渲染过（用户确认「看到远程工作区及其节点树」）。当前面板只注册 `main[key=dsh-master]`；独立 `sidebar.panellist` 图标已按用户确认移除，远程会话点击仍可打开面板。
 
 ---

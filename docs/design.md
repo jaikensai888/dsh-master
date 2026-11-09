@@ -47,6 +47,7 @@
 | 节点列表与在线状态 | `GET /dsh-master/api/nodes` | `GET /api/nodes`（`ready` / `offline` / `revoked`） |
 | 某节点的目录与会话 | `GET /dsh-master/api/sessions?nodeId=` | `session/list` + `workspace/follow` 首个 baseline（随后取消流） |
 | 打开一个会话（历史 + 实时） | `GET /dsh-master/api/session/follow?nodeId=&sessionId=`（NDJSON） | `POST /api/session/follow` → `session/follow` |
+| 新建/复用远程空白会话 | `POST /dsh-master/api/session/create`（`nodeId` + `workspaceId` + 可选 `sessionId`） | `POST /api/session/create` → `session/create` |
 | 发消息 | `POST /dsh-master/api/session/prompt`（**默认关闭**） | `POST /api/session/prompt` → `session/prompt` |
 
 **转发原则：`data.value` 原样透传，不做严格 schema 校验。** 节点上的 DSH 版本不一定是我们的版本；把版本偏差变成「会话一片空白」是最糟的失败模式。`src/client/wire.ts` 负责尽力解释，解释不了的事件**计数并显示**，不静默丢弃。
@@ -57,13 +58,17 @@
 
 2026-10-23 用户确认：本地工作区在上，每个远程节点独立成为一个平级工作区组，节点下显示远端已经登记的工作区目录，目录下显示会话。`sidebar.workspaces` 是 single slot，官方 `ui-workspace` 占位且不导出可复用组件，因此继续使用现有 fork。
 
-**决策：每个节点独立折叠，并允许多个节点同时展开。** 工作区名称、路径和会话归属来自远端 `workspace/follow` baseline，保留空目录及远端目录顺序；会话按 `sessionIds` 匹配，不用 `cwd` 分组。未归属的可见会话放入节点内的「未分组」。每个目录独立应用 5 条会话 overflow；空白和归档会话继续隐藏。
+**决策：每个节点独立折叠，并允许多个节点同时展开。** 工作区名称、路径和会话归属来自远端 `workspace/follow` baseline，保留空目录及远端目录顺序；会话按 `sessionIds` 匹配，不用 `cwd` 分组。未归属的可见会话放入节点内的「未分组」。每个目录独立应用 5 条会话 overflow；空白会话仅当前选中时例外显示，归档会话继续隐藏。
+
+2026-11-03 新增：每个远程工作区目录行右侧显示与本地一致的「＋」。点击时先在该 node + workspace 下查找未归档空白会话，把 id 作为 `sessionId` 传给节点复用；没有则由节点铸造新会话。成功后乐观插入一行「新会话」、切到该节点并打开远程面板，后台强制刷新该节点。空白行不占 5 条 overflow 名额，切走后下次渲染即隐藏。创建只做 workspace 绑定与 attach，不发送 prompt，因此不新增权限开关。
 
 节点和目录的展开状态分别保存于 `remoteNodeExpansion`、`remoteWorkspaceExpansion`；目录键为 `JSON.stringify([nodeId, workspaceId])`，未分组用 `null`，不会与其他节点或本地状态冲突。旧 v5 缓存保留原排序和折叠偏好，旧 `remoteExpanded` 作为尚无独立节点设置时的默认值。
 
 刷新会重新读取节点及全部已展开在线节点，过期请求会取消或忽略。本地列表和各节点内容独立滚动，外层侧栏也提供滚动路径，避免多节点标题被裁切。旧节点缺少工作区协议时显示提示并回退未分组；仅目录解析失败时仍保留有效的归档状态。数据变化仍需手动刷新。远程树使用现有 primitives、设计 token 和行尺寸，远程视图继续通过注入 renderer 接入。
 
 远程会话不能交给官方对话页渲染，所以点击本地会话仍走本地会话页，点击远程会话则调用 `layout.selectPanel('dsh-master')` 并由 `RemotePanel` 打开。用户已确认移除独立的 `sidebar.panellist`「远程」入口。
+
+2026-11-09 新增：「工作区」下拉在「本地」旁增加「关注」，本地分组、平铺和远程正式会话的行菜单增加「关注 / 取消关注」。关注列表占用同一侧栏位置，按关注时间倒序列出标题、机器和工作区，并用现有搜索入口筛选这三列；打开条目只切换右侧会话，左侧保持在「关注」并高亮该行，取消关注只删浏览器记录。记录存于侧栏视图 store 的 `following` 字段（沿用 `dsh.workspace.view.v5`，旧快照补齐为空数组）；本机用 `sessionId` 标识，远程用 Coordinator 来源 + `nodeId` + `sessionId`，不同节点或来源即使会话 id 相同也各自独立。进入「关注」或手动刷新时重新核验来源，只请求有关注记录且可路由的节点（同节点合并为一次、并发上限 4），核验与刷新期间远程条目不可打开；离线、来源变化、加载失败、归档和暂未找到都保留记录与上次摘要，并允许取消关注。标题区同时改为范围下拉：同一个控件显示当前范围（本地工作区 / 节点名 / 关注）并打开选择弹层。
 
 ---
 
@@ -76,6 +81,7 @@
 | 消息数据模型 | ✅ 完全一致 | 前端消费的本来就是同一套 `SessionFollowFrame` / `SessionEventMap` |
 | 历史 + 实时 + 发消息 | ✅ 打通 | 走 coordinator 已有的转发面 |
 | 列表 / 分组 / 搜索 / 拖拽 / fork / 归档 | ⚠️ 自建，功能更少 | 官方工作区浏览器不可复用 |
+| 远程新建会话 | ✅ 已接入 `session/create` | 只允许节点已登记的工作区；已有空白会话优先复用；空白行仅当前选中时显示 |
 | 对话渲染 | ⚠️ 自建，覆盖主要事件；视觉已用官方原子组件与 `--dsw-*` token 对齐 | 官方对话组件不导出；`ui-primitives` 的 `MarkdownText` / `Button` / `StateDot` / `Pill` / 图标是唯一可复用的官方视觉层 |
 | 工具卡片 / diff / 计划 / todo / 子代理视图 | ❌ 暂缺 | 目前只渲染文本、工具调用与结果、少量 notice；其余事件计数显示 |
 | token 级流式增量 | ⚠️ 只显示「输出中」 | `assistant-stream` 的 `chunk` 是 provider 形状，**不猜**；等 durable `assistant/message` |
@@ -96,6 +102,7 @@
 | 凭据 | 新 token 经 DSH credentials 写入并在每次请求时解析；旧配置 `apiToken` 作为兼容回退。token **只**作为 `Authorization` 头发送，不进任何响应或日志；设置 schema 对旧字段做 secret 脱敏 |
 | 路由暴露 | `/dsh-master/api/*` 不在浏览器 cookie 之后（DSH 插件前缀就是这样），因此每个请求先过**信任围栏**：Host 必须回环或部署声明的 `trustedHosts`；带 `Origin` 必须同 hostname；`sec-fetch-site: cross-site` 一律拒绝 |
 | 副作用 | 发 prompt 会在远程机器上真实跑一个 agent 回合（可改文件、执行工具），**默认关闭**，必须由部署方显式 `allowPrompt: true`。关闭时在读请求体**之前**拒绝 |
+| 远程新建 | 只接受节点已登记的工作区 `workspaceId`，不接受浏览器提供的 `cwd` / `agentPreset`；节点校验归属并完成 attach。创建空白会话不执行 Agent 回合，因此不受 `allowPrompt` 约束 |
 | 请求体 | 上限 256 KiB，超限 413 |
 | 不做的 | 不建入站端口、不 spawn 进程、不写远程文件系统、不做多租户 |
 
@@ -106,10 +113,11 @@
 **P0（本次已落地）**
 - host half：协调器客户端、`ctx.dshMaster`、`/dsh-master/api/*` 只读路由 + 受控 prompt、信任围栏、脱敏日志。
 - client half：保留本地工作区浏览器，增加可折叠本地组并与远程组平级；远程会话联动至 `dsh-master` 面板、只读会话视图 + composer（默认禁用）。
+- 远程目录「＋」：`POST /dsh-master/api/session/create`、coordinator 客户端、空白会话复用与乐观行、远程行内按钮与焦点/触摸样式。
 - 工程：构建、类型检查、自动化测试、bundle 不变式守卫、工作区样式生成器校验。
 
 **P1（下一步，按价值排序）**
-1. 在当前桌面 UI 刷新后，确认新增远程组外观、节点展开、会话 overflow 与面板跳转；用户已确认本地工作区可运行，本次远程组尚待截图复验。
+1. 在当前桌面 UI 重启后，确认远程目录「＋」新建/复用会话、远程组外观、节点展开、会话 overflow 与面板跳转；自动化测试已通过，真实节点尚待复验。
 2. 面板选中态持久化（刷新后恢复上次的面板与会话）。
 3. 会话视图补齐：向上翻页、工具卡片折叠、更完整的事件渲染。
 4. 队列 / 插话 / 取消按钮（`session/cancel`、`session/updateQueue`，经通用 `/api/invoke`）。

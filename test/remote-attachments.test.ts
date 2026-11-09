@@ -389,13 +389,15 @@ describe('attachment picker markup', () => {
 })
 
 describe('session view support states', () => {
+  const SUPPORTED = { status: 'supported', describe: DESCRIBE } as const
+
   it('enables the plus control when the node supports files', () => {
     const html = renderToStaticMarkup(createElement(SessionView, {
       nodeId: NODE,
       sessionId: SESSION,
       title: 'Remote',
       promptEnabled: true,
-      fileSupportOverride: DESCRIBE,
+      fileSupportOverride: SUPPORTED,
     }))
     expect(html).toContain('本次会话的交付文件')
     expect(html).toContain('请生成并交付一个可下载的文件')
@@ -403,18 +405,41 @@ describe('session view support states', () => {
     expect(html).toContain('添加附件')
   })
 
-  it('disables only the attachment entry on an old node and keeps text entry', () => {
+  it('keeps text entry and reports one honest notice when the protocol is missing', () => {
     const html = renderToStaticMarkup(createElement(SessionView, {
       nodeId: NODE,
       sessionId: SESSION,
       title: 'Remote',
       promptEnabled: true,
-      fileSupportOverride: 'unsupported',
+      fileSupportOverride: {
+        status: 'error',
+        reason: 'protocol-unsupported',
+        code: 'coordinator/capability-unavailable',
+        message: 'the node does not advertise sessionFiles',
+        retryable: true,
+      },
     }))
-    expect(html).toContain('尚未启用文件交付工具')
+    expect(html).toContain('未提供远程文件接口')
+    expect(html).toContain('普通文本对话不受影响')
+    expect(html).toContain('重新检查')
     expect(html).toMatch(/<button\b(?=[^>]*data-control="attachment")(?=[^>]*disabled="")/u)
-    expect(html).toContain('请升级 dsh-node')
     expect(html).toMatch(/<textarea\b(?![^>]*disabled="")/u)
+    expect(html).not.toContain('版本较旧')
+    expect(html).not.toContain('尚未启用文件交付工具')
+    expect([...html.matchAll(/未提供远程文件接口/gu)]).toHaveLength(1)
+  })
+
+  it('keeps attachment upload available when only the delivery tool is unregistered', () => {
+    const html = renderToStaticMarkup(createElement(SessionView, {
+      nodeId: NODE,
+      sessionId: SESSION,
+      title: 'Remote',
+      promptEnabled: true,
+      fileSupportOverride: { status: 'supported', describe: { ...DESCRIBE, deliveryTool: 'unavailable' } },
+    }))
+    expect(html).toContain('未注册 deliver_file 工具')
+    expect(html).toMatch(/<button\b(?=[^>]*data-control="attachment")(?![^>]*disabled="")/u)
+    expect(html).not.toContain('版本较旧')
   })
 
   it('keeps the attachment entry disabled while prompts are disabled', () => {
@@ -423,7 +448,7 @@ describe('session view support states', () => {
       sessionId: SESSION,
       title: 'Remote',
       promptEnabled: false,
-      fileSupportOverride: DESCRIBE,
+      fileSupportOverride: SUPPORTED,
     }))
     expect(html).toMatch(/<button\b(?=[^>]*data-control="attachment")(?=[^>]*disabled="")/u)
   })

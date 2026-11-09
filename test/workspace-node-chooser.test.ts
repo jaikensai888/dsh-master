@@ -17,6 +17,7 @@ describe('workspace browse scope', () => {
   })
   it('shows one node and never aliases a remote ID with local', () => {
     expect(browseNodes(nodes, { kind: 'local' })).toEqual([])
+    expect(browseNodes(nodes, { kind: 'following' })).toEqual([])
     expect(browseNodes(nodes, { kind: 'remote', nodeId: 'same' })).toEqual([nodes[0]])
     expect(browseNodes(nodes, { kind: 'remote', nodeId: 'missing' })).toEqual([])
   })

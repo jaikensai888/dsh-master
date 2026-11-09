@@ -7,7 +7,12 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MasterNode } from '../protocol.js'
 import type { WorkspaceBrowseScope } from './stores.js'
-import { nodeChoices, browseNavigationKey } from './browse-scope.js'
+import {
+  browseNavigationKey,
+  browseScopeName,
+  nodeChoices,
+  nodeDisplayName,
+} from './browse-scope.js'
 import { RemoteSectionCss as css } from './styles.generated.js'
 
 interface Props {
@@ -46,8 +51,7 @@ export function WorkspaceNodeChooser({ nodes, scope, onChange, busy, error, t, o
   const popup = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const [position, setPosition] = useState({ top: 0, left: 0, maxHeight: 360 })
-  const name = scope.kind === 'local' ? t('browse.local')
-    : nodes.find(n => n.nodeId === scope.nodeId)?.nodeName ?? scope.nodeId
+  const name = browseScopeName(nodes, scope, t('browse.localWorkspace'), t('browse.following'))
   const status = (n: MasterNode) => t(n.revoked ? 'browse.revoked' : n.state === 'ready' ? 'browse.online' : n.state === 'offline' ? 'browse.offline' : 'browse.connecting')
   const close = () => { setOpen(false); trigger.current?.focus() }
   useEffect(() => {
@@ -70,9 +74,12 @@ export function WorkspaceNodeChooser({ nodes, scope, onChange, busy, error, t, o
   }, [open])
   const choose = (next: WorkspaceBrowseScope) => { onChange(next); close() }
   return <>
-    <button ref={trigger} type="button" className={css.chooserTrigger} aria-label={t('browse.choose')}
-      aria-haspopup="dialog" aria-expanded={open} title={`${t('browse.choose')} · ${name}`}
+    <button ref={trigger} type="button"
+      className={rail ? css.chooserTrigger : `${css.chooserTrigger} ${css.chooserTitleTrigger}`}
+      aria-label={t('browse.titleAria', { name })}
+      aria-haspopup="dialog" aria-expanded={open} title={`${name} · ${t('browse.choose')}`}
       onClick={() => { if (rail) { onExpand?.(); return }; setQuery(''); setOpen(!open) }}>
+      {rail ? null : <span className={css.chooserTitleText}>{name}</span>}
       <IconTriangleRightFillRegular className={css.chooserArrow} />
     </button>
     {open && createPortal(<div ref={popup} className={css.chooserPopup} role="dialog" aria-label={t('browse.choose')}
@@ -94,12 +101,16 @@ export function WorkspaceNodeChooser({ nodes, scope, onChange, busy, error, t, o
           <span className={css.chooserText}>{t('browse.local')}</span>
           <span className={css.chooserTick}>{scope.kind === 'local' && <IconCheckOutlineRegular size={14} />}</span>
         </button>}
+        {(t('browse.following').toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()) || query.trim() === '') && <button type="button" data-browse-option="" className={`${css.chooserOption} ${css.chooserFollowing}`} data-selected={scope.kind === 'following'} aria-pressed={scope.kind === 'following'} onClick={() => { choose({ kind: 'following' }) }}>
+          <span className={css.chooserText}>{t('browse.following')}</span>
+          <span className={css.chooserTick}>{scope.kind === 'following' && <IconCheckOutlineRegular size={14} />}</span>
+        </button>}
         {nodeChoices(nodes, query).map(n => <button key={n.nodeId} type="button" data-browse-option="" className={`${css.chooserOption} ${css.chooserRemote}`}
           data-selected={scope.kind === 'remote' && scope.nodeId === n.nodeId}
           aria-pressed={scope.kind === 'remote' && scope.nodeId === n.nodeId}
-          title={`${n.nodeName ?? n.nodeId} · ${n.nodeId} · ${status(n)}`} onClick={() => { choose({ kind: 'remote', nodeId: n.nodeId }) }}>
+          title={`${nodeDisplayName(n)} · ${n.nodeId} · ${status(n)}`} onClick={() => { choose({ kind: 'remote', nodeId: n.nodeId }) }}>
           <span className={css.chooserText}>
-            <span className={css.chooserName}>{n.nodeName ?? n.nodeId}</span>
+            <span className={css.chooserName}>{nodeDisplayName(n)}</span>
             <span className={css.chooserMeta}><span>{status(n)}</span><span aria-hidden="true">·</span><span className={css.chooserId}>{n.nodeId}</span></span>
           </span>
           {currentNodeId === n.nodeId && <span className={css.chooserTag}>{t('browse.currentSession')}</span>}

@@ -23,6 +23,7 @@ import { readSessionAccess, readApprovalResult, readForwardedApprovals, readForw
 
 import type {
   MasterCoordinatorFacts,
+  MasterCreateSessionValue,
   MasterError,
   MasterNode,
   MasterPendingQuestionsValue,
@@ -470,6 +471,50 @@ export class CoordinatorClient {
   async archiveSession(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<string[]> {
     const value = await this.#invokeNode(nodeId, 'workspace/archiveSession', { request: { sessionId } }, signal)
     return readArchivedSessionIds(asRecord(value))
+  }
+
+  /**
+   * Create or reuse a blank session inside one registered remote workspace.
+   *
+   * The node validates `workspaceId` against its own registry and performs the
+   * workspace attach; the browser never supplies a `cwd`. Passing `sessionId`
+   * asks the node to reuse that blank session when it is still reusable — the
+   * node mints a new identity otherwise and returns it here.
+   *
+   * @param nodeId - target node.
+   * @param workspaceId - a workspace registered on that node.
+   * @param sessionId - optional existing blank session to reuse.
+   * @param signal - caller cancellation.
+   * @returns the created or reused identity.
+   */
+  async createSession(
+    nodeId: string,
+    workspaceId: string,
+    sessionId?: string,
+    signal?: AbortSignal,
+  ): Promise<MasterCreateSessionValue> {
+    const value = await this.#call('/api/session/create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        nodeId,
+        workspaceId,
+        ...(sessionId === undefined ? {} : { sessionId }),
+      }),
+    }, signal)
+    const row = asRecord(value)
+    const created = row === undefined ? undefined : str(row, 'sessionId')
+    if (created === undefined || created.trim() === '') {
+      throw new MasterUpstreamError(toMasterError(
+        'master/coordinator-unreadable',
+        'session/create did not return a sessionId',
+      ))
+    }
+    const agentPreset = row === undefined ? undefined : str(row, 'agentPreset')
+    return {
+      sessionId: created,
+      ...(agentPreset === undefined || agentPreset === '' ? {} : { agentPreset }),
+    }
   }
 
   /** Read the remote session's authoritative permissions and active approvals. */

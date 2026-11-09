@@ -33,7 +33,8 @@ import type { WorkspaceBrowserProps } from '../contract/slots.js'
 import type { SessionNode, SessionOrderBy } from '../tree.js'
 import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from '../tree.js'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.js'
-import { FLAT_SESSION_ORDER_KEY, type WorkspaceBrowseScope } from '../stores.js'
+import { FLAT_SESSION_ORDER_KEY, followKey, type WorkspaceBrowseScope } from '../stores.js'
+import type { FollowingLocalSnapshot } from '../following.js'
 import { WorkspacePickFlow } from '../WorkspacePicker.js'
 import { runSessionAction } from '../navigation.js'
 import { WorkspaceBrowserCss as css } from '../styles.generated.js'
@@ -271,6 +272,10 @@ type SessionTreeProps = Pick<
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** Archive a session (row menu action; the row disappears on the state echo). */
   onSessionArchive: (sessionId: SessionNode['id']) => void
+  /** Session ids carrying a browser-local follow marker. */
+  followedSessionIds: ReadonlySet<string>
+  /** Add or remove one session's browser-local follow marker. */
+  onFollowToggle: (sessionId: SessionNode['id']) => void
   /** Session order behavior: fixed after edits, or additionally promoted by user activity. */
   orderBy: SessionOrderBy
 }
@@ -278,7 +283,7 @@ type SessionTreeProps = Pick<
 /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
 function SessionTree({
   useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds,
-  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
+  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, followedSessionIds, onFollowToggle,
   insertWorkspaceBefore, insertSessionBefore, orderBy,
   groupExpansion, setGroupExpanded,
   sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t,
@@ -575,6 +580,8 @@ function SessionTree({
                     onRename={onSessionRename}
                     onFork={forkSession}
                     onArchive={onSessionArchive}
+                    followed={followedSessionIds.has(node.id)}
+                    onFollowToggle={onFollowToggle}
                     drag={dragProps}
                     t={t}
                   />
@@ -604,7 +611,7 @@ function SessionTree({
 /** The flat "In one list" body: every session is one draggable top-level row. */
 function FlatList({
   useSessions, useSessionPendingInteraction, open, forkSession, onSessionRename, onSessionArchive,
-  archivedSessionIds,
+  archivedSessionIds, followedSessionIds, onFollowToggle,
   orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
 }: Pick<
   SessionTreeProps,
@@ -615,6 +622,8 @@ function FlatList({
   | 'onSessionRename'
   | 'onSessionArchive'
   | 'archivedSessionIds'
+  | 'followedSessionIds'
+  | 'onFollowToggle'
   | 'orderBy'
   | 'sessionOrderByAccount'
   | 'sessionUpdatedAtByAccount'
@@ -694,6 +703,8 @@ function FlatList({
               onRename={onSessionRename}
               onFork={forkSession}
               onArchive={onSessionArchive}
+              followed={followedSessionIds.has(node.id)}
+              onFollowToggle={onFollowToggle}
               flat
               drag={{
                 start: () => {
@@ -852,6 +863,9 @@ export function WorkspaceBrowser({
   const workspaces = useWorkspaces(state => state.items)
   const workspacePhase = useWorkspaces(state => state.phase)
   const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds)
+  const following = useStore(s => s.following)
+  const sessionById = useSessions(s => s.byId)
+  const sessionPhase = useSessions(s => s.phase)
   // Live occupancy of this surface's directory-flow hole (the same source the
   // flow reads): a composition without a picking affordance can add nothing.
   const directoryFlowAvailable = useDirectoryFlow(occupied => occupied)
@@ -859,6 +873,22 @@ export function WorkspaceBrowser({
   const orderBy = useStore(s => s.orderBy)
   const groupExpansion = useStore(s => s.groupExpansion)
   const browseScope = useStore(s => s.browseScope ?? { kind: 'local' } as WorkspaceBrowseScope)
+  const scopeKind = browseScope.kind
+  /** Local session ids carrying a follow marker, for the source row menu. */
+  const followedSessionIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const record of following) {
+      if (record.target.source === 'local') ids.add(record.target.sessionId)
+    }
+    return ids
+  }, [following])
+  /** The local half of the follow list: the subscriptions this browser already holds. */
+  const followingLocal = useMemo<FollowingLocalSnapshot>(() => ({
+    phase: sessionPhase,
+    byId: sessionById,
+    workspaces,
+    archivedSessionIds,
+  }), [sessionPhase, sessionById, workspaces, archivedSessionIds])
   const [chooserMount, setChooserMount] = useState<HTMLElement | null>(null)
   const [requestChooser, setRequestChooser] = useState(false)
   const currentRemoteSelection = useSyncExternalStore(subscribeRemoteSelection, getRemoteSelection, getRemoteSelection)
@@ -866,10 +896,36 @@ export function WorkspaceBrowser({
   const currentScope: WorkspaceBrowseScope | undefined = currentRemoteSelection
     ? { kind: 'remote', nodeId: currentRemoteSelection.nodeId }
     : currentLocalSession ? { kind: 'local' } : undefined
-  const differentScope = currentScope !== undefined && (currentScope.kind !== browseScope.kind
-    || currentScope.kind === 'remote' && browseScope.kind === 'remote' && currentScope.nodeId !== browseScope.nodeId)
+  // Following is a browsing position, not a session owner: opening a session from
+  // it leaves the sidebar where it is, so the "session elsewhere" prompt is wrong.
+  const differentScope = browseScope.kind !== 'following'
+    && currentScope !== undefined && (currentScope.kind !== browseScope.kind
+      || currentScope.kind === 'remote' && browseScope.kind === 'remote' && currentScope.nodeId !== browseScope.nodeId)
   const changeBrowseScope = (scope: WorkspaceBrowseScope) => { actions.setBrowseScope(scope) }
-  const openLocal = (id: SessionId) => { actions.setBrowseScope({ kind: 'local' }); open(id) }
+  const openLocal = (id: SessionId) => {
+    if (browseScope.kind !== 'following') actions.setBrowseScope({ kind: 'local' })
+    open(id)
+  }
+  /** Add or remove a local session's follow marker; only a known, real session is recorded. */
+  const toggleLocalFollow = (sessionId: string) => {
+    const key = followKey({ source: 'local', sessionId })
+    if (following.some(record => followKey(record.target) === key)) {
+      actions.unfollowSession(key)
+      return
+    }
+    const summary = sessionById[sessionId]
+    if (summary === undefined) return
+    const workspace = workspaces.find(entry => entry.sessionIds.includes(sessionId))
+    actions.followSession({
+      target: { source: 'local', sessionId },
+      followedAt: Date.now(),
+      title: summary.displayTitle,
+      machine: t('browse.local'),
+      workspace: workspace?.title ?? t('group.ungrouped'),
+    })
+  }
+  /** A followed local session opens through the same path as any local row, without a scope change. */
+  const openFollowingLocal = (sessionId: string) => { open(sessionId) }
   const defaultRemoteNodeExpanded = useStore(s => s.remoteExpanded ?? true)
   const remoteNodeExpansion = useStore(s => s.remoteNodeExpansion)
   const remoteWorkspaceExpansion = useStore(s => s.remoteWorkspaceExpansion)
@@ -914,6 +970,18 @@ export function WorkspaceBrowser({
   const [query, setQuery] = useState('')
   const [searchExpanded, setSearchExpanded] = useState(false)
   const normalizedQuery = sanitizeSearchQuery(query).trim()
+  // Search is scoped: entering or leaving Following starts from a clean query. The
+  // superseded content search is cancelled by its own effect cleanup.
+  const previousScopeKind = useRef(scopeKind)
+  useEffect(() => {
+    const previous = previousScopeKind.current
+    if (previous === scopeKind) return
+    previousScopeKind.current = scopeKind
+    if (scopeKind === 'following' || previous === 'following') {
+      setQuery('')
+      setSearchExpanded(false)
+    }
+  }, [scopeKind])
   const [remoteSearch, setRemoteSearch] = useState<RemoteSearchState>({
     query: '',
     status: 'idle',
@@ -964,7 +1032,9 @@ export function WorkspaceBrowser({
   }, [normalizedQuery, wide, searchExpanded, searchOnExpand])
 
   useEffect(() => {
-    if (normalizedQuery === '') {
+    // The follow view filters its own rows; a local content search there would mix
+    // unrelated sessions into the follow list.
+    if (normalizedQuery === '' || scopeKind === 'following') {
       setRemoteSearch({ query: '', status: 'idle', items: [], hasMore: false })
       return
     }
@@ -998,7 +1068,7 @@ export function WorkspaceBrowser({
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [normalizedQuery, searchSessions])
+  }, [normalizedQuery, scopeKind, searchSessions])
 
   // Rename dialog (browser-owned so it outlives row unmounts during collapse).
   const [renameTarget, setRenameTarget] = useState<{ workspaceId: WorkspaceId; currentTitle: string } | null>(null)
@@ -1113,12 +1183,13 @@ export function WorkspaceBrowser({
     })
   }
 
-  const localSectionLabel = t('section.workspaces')
   const remoteSectionProps = {
     browseScope,
     onBrowseScopeChange: changeBrowseScope,
     chooserMount,
-    contentHidden: normalizedQuery !== '',
+    // In Following the query filters this sidebar's rows instead of a content search,
+    // so the remote owner must keep rendering its list.
+    contentHidden: normalizedQuery !== '' && scopeKind !== 'following',
     onExpandChooser: () => { setRequestChooser(true); expandSidebar() },
     requestChooser,
     onChooserOpened: () => { setRequestChooser(false) },
@@ -1130,9 +1201,17 @@ export function WorkspaceBrowser({
     onNodeExpandedChange: actions.setRemoteNodeExpanded,
     onWorkspaceExpandedChange: actions.setRemoteWorkspaceExpanded,
     onOpenRemoteSession: (nodeId: string, sessionId: string, nodeName: string, sessionTitle: string) => {
-      actions.setBrowseScope({ kind: 'remote', nodeId })
+      if (scopeKind !== 'following') actions.setBrowseScope({ kind: 'remote', nodeId })
       openRemoteSession(nodeId, sessionId, nodeName, sessionTitle)
     },
+    following,
+    followingLocal,
+    followingQuery: normalizedQuery,
+    currentLocalSessionId: currentLocalSession,
+    onFollow: actions.followSession,
+    onUnfollow: actions.unfollowSession,
+    onSyncFollowingSummaries: actions.syncFollowSummaries,
+    onOpenFollowingLocal: openFollowingLocal,
   }
   // Keep one remote data owner mounted across scope changes and rail transitions.
   const remoteSection = renderRemoteSection(remoteSectionProps)
@@ -1148,11 +1227,13 @@ export function WorkspaceBrowser({
         <div className={css.sectionHeader}>
 
         {wide && (
-          <span data-dsh-workspace-title="" className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
-            {localSectionLabel}
-          </span>
+          <span
+            data-dsh-workspace-title=""
+            data-dsh-node-chooser=""
+            className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}
+            ref={setChooserMount}
+          />
         )}
-        {wide && <span data-dsh-node-chooser="" hidden={searchExpanded} ref={setChooserMount} />}
         {wide && (
           <div className={clsx(css.searchSlot, searchExpanded && css.searchSlotExpanded)}>
             <div
@@ -1284,69 +1365,79 @@ export function WorkspaceBrowser({
           <button type="button" onClick={() => { if (currentScope) changeBrowseScope(currentScope) }}>{t('browse.return')}</button>
         </div>}
         {wide && (
-          <div className={css.listArea} data-dsh-local-list="" hidden={browseScope.kind !== 'local' && normalizedQuery === ''}>
-          {normalizedQuery !== ''
-          ? (
-            <SearchResults
-              useSessions={useSessions}
-              useSessionPendingInteraction={useSessionPendingInteraction}
-              open={openLocal}
-              workspaces={workspaces}
-              archivedSessionIds={archivedSessionIds}
-              query={normalizedQuery}
-              remote={remoteSearch}
-              resultLimit={searchResultLimit}
-              t={t}
-            />
-          )
-          : groupBy === 'flat'
+          <div
+            className={css.listArea}
+            data-dsh-local-list=""
+            hidden={scopeKind === 'following' || (scopeKind !== 'local' && normalizedQuery === '')}
+          >
+          {scopeKind === 'following'
+          ? null
+          : normalizedQuery !== ''
             ? (
-              <FlatList
-                useSessions={useSessions} useSessionPendingInteraction={useSessionPendingInteraction}
-                open={openLocal} forkSession={forkSession}
-                onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
+              <SearchResults
+                useSessions={useSessions}
+                useSessionPendingInteraction={useSessionPendingInteraction}
+                open={openLocal}
+                workspaces={workspaces}
                 archivedSessionIds={archivedSessionIds}
-                orderBy={orderBy}
-                sessionOrderByAccount={sessionOrderByAccount}
-                sessionUpdatedAtByAccount={sessionUpdatedAtByAccount}
-                syncSessionOrderAccount={actions.syncSessionOrderAccount}
-                setSessionOrder={actions.setSessionOrder}
+                query={normalizedQuery}
+                remote={remoteSearch}
+                resultLimit={searchResultLimit}
                 t={t}
               />
             )
-            : (
-              <SessionTree
-                useSessions={useSessions}
-                useSessionPendingInteraction={useSessionPendingInteraction}
-                onSessionRename={onSessionRename}
-                onSessionArchive={onSessionArchive}
-                forkSession={forkSession}
-                workspaces={workspaces}
-                groupExpansion={groupExpansion}
-                setGroupExpanded={actions.setGroupExpanded}
-                sessionOrderByAccount={sessionOrderByAccount}
-                sessionUpdatedAtByAccount={sessionUpdatedAtByAccount}
-                syncSessionOrderAccount={actions.syncSessionOrderAccount}
-                setSessionOrder={actions.setSessionOrder}
-                archivedSessionIds={archivedSessionIds}
-                startSession={requestStartSession}
-                open={openLocal}
-                insertWorkspaceBefore={insertWorkspaceBefore}
-                insertSessionBefore={insertSessionBefore}
-                orderBy={orderBy}
-                home={home}
-                t={t}
-                onRenameRequest={(workspaceId, currentTitle) => {
-                  setRenameTarget({ workspaceId, currentTitle })
-                  setRenameDraft(currentTitle)
-                  setRenameError(null)
-                }}
-                onDeleteRequest={(workspaceId, title) => {
-                  setDeleteTarget({ workspaceId, title })
-                  setDeleteError(null)
-                }}
-              />
-            )}
+            : groupBy === 'flat'
+              ? (
+                <FlatList
+                  useSessions={useSessions} useSessionPendingInteraction={useSessionPendingInteraction}
+                  open={openLocal} forkSession={forkSession}
+                  onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
+                  archivedSessionIds={archivedSessionIds}
+                  followedSessionIds={followedSessionIds}
+                  onFollowToggle={toggleLocalFollow}
+                  orderBy={orderBy}
+                  sessionOrderByAccount={sessionOrderByAccount}
+                  sessionUpdatedAtByAccount={sessionUpdatedAtByAccount}
+                  syncSessionOrderAccount={actions.syncSessionOrderAccount}
+                  setSessionOrder={actions.setSessionOrder}
+                  t={t}
+                />
+              )
+              : (
+                <SessionTree
+                  useSessions={useSessions}
+                  useSessionPendingInteraction={useSessionPendingInteraction}
+                  onSessionRename={onSessionRename}
+                  onSessionArchive={onSessionArchive}
+                  followedSessionIds={followedSessionIds}
+                  onFollowToggle={toggleLocalFollow}
+                  forkSession={forkSession}
+                  workspaces={workspaces}
+                  groupExpansion={groupExpansion}
+                  setGroupExpanded={actions.setGroupExpanded}
+                  sessionOrderByAccount={sessionOrderByAccount}
+                  sessionUpdatedAtByAccount={sessionUpdatedAtByAccount}
+                  syncSessionOrderAccount={actions.syncSessionOrderAccount}
+                  setSessionOrder={actions.setSessionOrder}
+                  archivedSessionIds={archivedSessionIds}
+                  startSession={requestStartSession}
+                  open={openLocal}
+                  insertWorkspaceBefore={insertWorkspaceBefore}
+                  insertSessionBefore={insertSessionBefore}
+                  orderBy={orderBy}
+                  home={home}
+                  t={t}
+                  onRenameRequest={(workspaceId, currentTitle) => {
+                    setRenameTarget({ workspaceId, currentTitle })
+                    setRenameDraft(currentTitle)
+                    setRenameError(null)
+                  }}
+                  onDeleteRequest={(workspaceId, title) => {
+                    setDeleteTarget({ workspaceId, title })
+                    setDeleteError(null)
+                  }}
+                />
+              )}
           </div>
         )}
       {remoteSection}

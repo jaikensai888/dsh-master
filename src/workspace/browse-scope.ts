@@ -7,7 +7,38 @@ export function browseNavigationKey(event: Pick<KeyboardEvent, 'key' | 'isCompos
 }
 
 export function browseNodes(nodes: readonly MasterNode[], scope: WorkspaceBrowseScope): MasterNode[] {
-  return scope.kind === 'local' ? [] : nodes.filter(node => node.nodeId === scope.nodeId)
+  return scope.kind === 'remote' ? nodes.filter(node => node.nodeId === scope.nodeId) : []
+}
+
+/**
+ * The label a node is presented under.
+ *
+ * An empty or whitespace-only display name must not become a blank title, and a
+ * node id is the one identity that is always present.
+ */
+export function nodeDisplayName(node: Pick<MasterNode, 'nodeId' | 'nodeName'>): string {
+  const name = node.nodeName?.trim()
+  return name === undefined || name === '' ? node.nodeId : name
+}
+
+/**
+ * The sidebar title for a browse scope.
+ *
+ * The title follows `browseScope`, never the current conversation's node. A
+ * remote scope keeps its persisted node id while the roster is loading, has
+ * failed, or no longer contains that node, rather than pretending to be local;
+ * when the roster does contain it, the title tracks the latest name by node id.
+ */
+export function browseScopeName(
+  nodes: readonly MasterNode[],
+  scope: WorkspaceBrowseScope,
+  localLabel: string,
+  followingLabel: string,
+): string {
+  if (scope.kind === 'local') return localLabel
+  if (scope.kind === 'following') return followingLabel
+  const node = nodes.find(candidate => candidate.nodeId === scope.nodeId)
+  return node === undefined ? scope.nodeId : nodeDisplayName(node)
 }
 
 /**
@@ -19,5 +50,5 @@ export function browseNodes(nodes: readonly MasterNode[], scope: WorkspaceBrowse
 export function nodeChoices(nodes: readonly MasterNode[], query: string): MasterNode[] {
   const term = query.trim().toLocaleLowerCase()
   return nodes.filter(node => node.state === 'ready' && node.revoked !== true
-    && `${node.nodeName ?? ''} ${node.nodeId}`.toLocaleLowerCase().includes(term))
+    && `${nodeDisplayName(node)} ${node.nodeId}`.toLocaleLowerCase().includes(term))
 }

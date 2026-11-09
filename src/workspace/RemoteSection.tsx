@@ -7,11 +7,12 @@
 import clsx from 'clsx'
 import { createPortal } from 'react-dom'
 import { WorkspaceNodeChooser } from './WorkspaceNodeChooser.js'
-import { browseNodes } from './browse-scope.js'
+import { browseNodes, nodeDisplayName } from './browse-scope.js'
 import {
   Button,
   IconFolderCloseRegular,
   IconFolderOpenRegular,
+  IconPlusOutlineRegular as IconPlusOutline16,
   IconTriangleRightFillRegular,
   IconArchiveOutlineRegular as IconArchiveOutline20,
   IconEllipsisOutlineRegular as IconEllipsisOutline16,
@@ -22,19 +23,112 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactElement } from 'react'
-import type { MasterCoordinatorFacts, MasterNode, MasterSession, MasterSessionsValue } from '../protocol.js'
-import { ApiError, archiveRemoteSession, fetchNodes, fetchSessions, fetchStatus } from '../client/api.js'
+import type {
+  MasterCoordinatorFacts,
+  MasterNode,
+  MasterSession,
+  MasterSessionsValue,
+  MasterWorkspace,
+} from '../protocol.js'
+import {
+  ApiError,
+  archiveRemoteSession,
+  createRemoteSession,
+  fetchNodes,
+  fetchSessions,
+  fetchStatus,
+} from '../client/api.js'
 import { timeAgo } from '../client/copy.js'
 import { getRemoteSelection, setRemoteSelection, subscribeRemoteSelection } from '../client/selection.js'
 import type { RemoteSessionSelection } from '../client/selection.js'
 import type { RemoteSectionProps } from './contract/slots.js'
-import { groupRemoteWorkspaces, nodeIsOffline, orderRemoteNodes, visibleRemoteSessions } from './remote-model.js'
+import {
+  groupRemoteWorkspaces,
+  nodeIsOffline,
+  orderRemoteNodes,
+  reusableBlankSession,
+  visibleRemoteSessions,
+} from './remote-model.js'
+import {
+  FOLLOWING_NODE_CONCURRENCY,
+  filterFollowingRows,
+  followingNodes,
+  followingRows,
+  followingSelectionKey,
+  followingSummaryUpdates,
+  mapWithConcurrency,
+  sessionFollowToken,
+} from './following.js'
+import type { FollowingLocalSnapshot, FollowingRemoteSnapshot, FollowingRow } from './following.js'
+import { FollowingList } from './FollowingList.js'
+import { followKey, type FollowRecord } from './following.js'
+import { FollowPin } from './follow-pin.js'
 import { RowsCss, RemoteSectionCss as css, WorkspaceBrowserCss } from './styles.generated.js'
 
 /** Describe one failed call without losing the host's stable error code. */
 function describe(cause: unknown): string {
   if (cause instanceof ApiError) return `${cause.code}: ${cause.message}`
   return cause instanceof Error ? cause.message : String(cause)
+}
+
+/** Whether the node/coordinator reported that this endpoint does not exist there. */
+function isCapabilityFailure(cause: unknown): boolean {
+  return cause instanceof ApiError
+    && (cause.code === 'node/capability-unavailable' || cause.code === 'coordinator/capability-mismatch')
+}
+
+/** Remove one key from a read-only record without mutating it. */
+function omitKey<T>(record: Readonly<Record<string, T>>, key: string): Record<string, T> {
+  const next = { ...record }
+  delete next[key]
+  return next
+}
+
+/** Shared empty follow set for a section that was composed without follow wiring. */
+const EMPTY_FOLLOWED: ReadonlySet<string> = new Set()
+
+/** Local subscription state before the browser supplies it. */
+const EMPTY_LOCAL_SNAPSHOT: FollowingLocalSnapshot = {
+  phase: undefined,
+  byId: {},
+  workspaces: [],
+  archivedSessionIds: [],
+}
+
+/**
+ * Insert a just-created blank session before the node's next list refresh.
+ *
+ * The node has already attached it to the workspace, so this only bridges the
+ * window until `loadSessions` returns the authoritative rows.
+ */
+export function insertOptimisticBlank(
+  data: Readonly<Record<string, MasterSessionsValue>>,
+  nodeId: string,
+  workspace: MasterWorkspace,
+  sessionId: string,
+): Readonly<Record<string, MasterSessionsValue>> {
+  const current = data[nodeId]
+  if (current === undefined) return data
+  if (current.sessions.some(session => session.sessionId === sessionId)) return data
+  const created: MasterSession = {
+    sessionId,
+    title: '',
+    updatedAt: Date.now(),
+    running: false,
+    blank: true,
+    cwd: workspace.path,
+  }
+  return {
+    ...data,
+    [nodeId]: {
+      ...current,
+      sessions: [created, ...current.sessions],
+      workspaces: current.workspaces.map(entry => entry.workspaceId === workspace.workspaceId
+        && !entry.sessionIds.includes(sessionId)
+        ? { ...entry, sessionIds: [...entry.sessionIds, sessionId] }
+        : entry),
+    },
+  }
 }
 
 /** Map coordinator state to the shipped status-dot vocabulary. */
@@ -56,6 +150,8 @@ export function RemoteSessionItem({
   now,
   menuOpen,
   archiveAvailable,
+  followed = false,
+  onToggleFollow,
   onMenuOpenChange,
   onOpenRemoteSession,
   onArchiveRemoteSession,
@@ -68,15 +164,32 @@ export function RemoteSessionItem({
   now: number
   menuOpen: boolean
   archiveAvailable: boolean
+  /** This session has a browser-local follow marker under the current source. */
+  followed?: boolean | undefined
+  /** Add or remove the follow marker; absent means the action is not offered. */
+  onToggleFollow?: (() => void) | undefined
   onMenuOpenChange: (open: boolean) => void
   onOpenRemoteSession: (nodeId: string, sessionId: string, nodeName: string, sessionTitle: string) => void
   onArchiveRemoteSession: (nodeId: string, sessionId: string) => void
   t: (key: string, params?: Record<string, unknown>) => string
 }): ReactElement {
   const selected = selection?.nodeId === nodeId && selection.sessionId === session.sessionId
+  const title = session.blank ? t('session.new') : session.title
   const menuItems = [
-    { id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> },
+    // Following is independent of the archive capability: a node that cannot
+    // archive can still be followed.
+    ...(onToggleFollow === undefined
+      ? []
+      : [{
+        id: followed ? 'unfollow' : 'follow',
+        label: t(followed ? 'menu.unfollow' : 'menu.follow'),
+        icon: <FollowPin filled={followed} />,
+      }]),
+    ...(archiveAvailable
+      ? [{ id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> }]
+      : []),
   ]
+  const showMenu = session.blank !== true && menuItems.length > 0
 
   return (
     <div
@@ -84,13 +197,13 @@ export function RemoteSessionItem({
       className={clsx(RowsCss.sessionRow, css.sessionRow, selected && RowsCss.selected, menuOpen && RowsCss.menuOpen)}
       aria-selected={selected}
       title={session.sessionId}
-      onClick={() => { onOpenRemoteSession(nodeId, session.sessionId, nodeName, session.title) }}
+      onClick={() => { onOpenRemoteSession(nodeId, session.sessionId, nodeName, title) }}
     >
-      <span className={css.sessionTitle}>{session.title}</span>
-      {session.running
+      <span className={css.sessionTitle}>{title}</span>
+      {session.blank ? null : session.running
         ? <StateDot state="ongoing" />
         : <span className={css.sessionAge}>{timeAgo(session.updatedAt, now)}</span>}
-      {!archiveAvailable ? null : (
+      {showMenu ? (
         <span className={RowsCss.rowActions}>
           <Menu
             open={menuOpen}
@@ -99,6 +212,7 @@ export function RemoteSessionItem({
             onSelect={(id) => {
               onMenuOpenChange(false)
               if (id === 'archive') onArchiveRemoteSession(nodeId, session.sessionId)
+              if (id === 'follow' || id === 'unfollow') onToggleFollow?.()
             }}
             portal
             closeOnPointerLeave
@@ -114,7 +228,7 @@ export function RemoteSessionItem({
             )}
           />
         </span>
-      )}
+      ) : null}
     </div>
   )
 }
@@ -136,6 +250,21 @@ export interface RemoteNodeSectionProps {
   openSessionMenu: { nodeId: string; sessionId: string } | undefined
   t: RemoteSectionProps['t']
   compact?: boolean
+  /** Per-workspace create calls currently in flight, keyed by node + workspace. */
+  creating?: Readonly<Record<string, boolean>>
+  /** Per-workspace create failures, keyed the same way. */
+  createErrors?: Readonly<Record<string, string>>
+  /** The node rejected `session/create` as an unsupported capability. */
+  createUnsupported?: boolean
+  /** Tokens of followed sessions under the current Coordinator source. */
+  followedSessions?: ReadonlySet<string>
+  /** Add or remove one session's follow marker; absent on surfaces without follow wiring. */
+  onToggleFollow?: ((
+    node: MasterNode,
+    session: MasterSession,
+    workspace: MasterWorkspace | undefined,
+    followed: boolean,
+  ) => void) | undefined
   onToggleNode: () => void
   onRefresh: () => void
   onWorkspaceExpandedChange: RemoteSectionProps['onWorkspaceExpandedChange']
@@ -143,18 +272,26 @@ export interface RemoteNodeSectionProps {
   onSessionMenuChange: (nodeId: string, sessionId: string, open: boolean) => void
   onOpenRemoteSession: RemoteSectionProps['onOpenRemoteSession']
   onArchiveRemoteSession: (nodeId: string, sessionId: string) => void
+  onCreateRemoteSession: (workspace: MasterWorkspace) => void
 }
 
 /** Render registered directories inside one independently collapsible node. */
 export function RemoteNodeSection({
   node, expanded, busy, loading, error, data, selection, now, compact = false, scrollPositions, unavailable = false,
-  workspaceExpansion, overflow, openSessionMenu, t,
+  workspaceExpansion, overflow, openSessionMenu, t, creating = {}, createErrors = {}, createUnsupported = false,
+  followedSessions = EMPTY_FOLLOWED, onToggleFollow,
   onToggleNode, onRefresh, onWorkspaceExpandedChange, onToggleOverflow,
-  onSessionMenuChange, onOpenRemoteSession, onArchiveRemoteSession,
+  onSessionMenuChange, onOpenRemoteSession, onArchiveRemoteSession, onCreateRemoteSession,
 }: RemoteNodeSectionProps): ReactElement {
   const offline = nodeIsOffline(node)
-  const name = node.nodeName ?? node.nodeId
-  const groups = groupRemoteWorkspaces(data?.workspaces ?? [], data?.sessions ?? [], data?.archivedSessionIds ?? [])
+  const name = nodeDisplayName(node)
+  const currentSessionId = selection?.nodeId === node.nodeId ? selection.sessionId : undefined
+  const groups = groupRemoteWorkspaces(
+    data?.workspaces ?? [],
+    data?.sessions ?? [],
+    data?.archivedSessionIds ?? [],
+    currentSessionId,
+  )
   return (
     <div className={clsx(css.group, expanded && css.expanded)} data-dsh-remote-node={node.nodeId}>
       {!compact && <div className={css.header}>
@@ -186,20 +323,43 @@ export function RemoteNodeSection({
               {data?.archiveError === undefined || data.workspaceError !== undefined ? null : (
                 <div className={css.message} role="status">{t('remote.archiveUnavailable')} · {data.archiveError.message}</div>
               )}
+              {createUnsupported ? (
+                <div className={css.message} role="status">{t('remote.createSessionUnsupported')}</div>
+              ) : null}
               {data !== undefined && groups.length === 0 ? <div className={css.message}>{t('remote.noWorkspaces')}</div> : null}
               {groups.map(group => {
                 const workspace = group.workspace
                 const key = JSON.stringify([node.nodeId, workspace?.workspaceId ?? null])
                 const directoryExpanded = workspaceExpansion[key] ?? true
                 const more = overflow.includes(key)
-                const visible = visibleRemoteSessions(group.sessions, more)
+                const visible = visibleRemoteSessions(
+                  group.sessions,
+                  more,
+                  data?.archivedSessionIds ?? [],
+                  currentSessionId,
+                )
                 const title = workspace?.title ?? t('group.ungrouped')
+                const createBusy = creating[key] === true
+                const createDisabled = createBusy || unavailable || offline || createUnsupported
+                  || node.state !== 'ready'
+                const createTitle = createBusy
+                  ? t('remote.creatingSession')
+                  : createUnsupported
+                    ? t('remote.createSessionUnsupported')
+                    : unavailable || node.state !== 'ready'
+                      ? t('remote.createSessionUnavailable')
+                      : undefined
                 return (
-                  <div key={key} className={WorkspaceBrowserCss.groupSection} role="treeitem"
-                    aria-expanded={directoryExpanded} aria-label={title}>
-                    <button type="button" className={clsx(RowsCss.projectRow, css.workspaceRow)}
-                      title={workspace?.path} aria-expanded={directoryExpanded}
-                      onClick={() => { onWorkspaceExpandedChange(key, !directoryExpanded) }}>
+                  <div key={key} className={WorkspaceBrowserCss.groupSection} role="none">
+                    <div className={clsx(RowsCss.projectRow, css.workspaceRow)} role="treeitem"
+                      aria-expanded={directoryExpanded} aria-label={title} title={workspace?.path}
+                      tabIndex={0}
+                      onClick={() => { onWorkspaceExpandedChange(key, !directoryExpanded) }}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return
+                        event.preventDefault()
+                        onWorkspaceExpandedChange(key, !directoryExpanded)
+                      }}>
                       <span className={clsx(RowsCss.slot, RowsCss.folder)} aria-hidden="true">
                         {directoryExpanded ? <IconFolderOpenRegular /> : <IconFolderCloseRegular />}
                       </span>
@@ -207,7 +367,28 @@ export function RemoteNodeSection({
                         <IconTriangleRightFillRegular className={clsx(RowsCss.arrow, directoryExpanded && RowsCss.arrowOpen)} />
                       </span>
                       <span className={css.nodeTitle}>{title}</span>
-                    </button>
+                      {workspace === undefined ? null : (
+                        <span className={RowsCss.rowActions} data-dsh-workspace-actions>
+                          <button
+                            type="button"
+                            className={RowsCss.iconButton}
+                            aria-label={t('actions.newSession.aria', { name: title })}
+                            aria-busy={createBusy ? true : undefined}
+                            disabled={createDisabled}
+                            title={createTitle}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onCreateRemoteSession(workspace)
+                            }}
+                          >
+                            <IconPlusOutline16 />
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                    {createErrors[key] === undefined ? null : (
+                      <div className={css.createError} role="alert">{createErrors[key]}</div>
+                    )}
                     {!directoryExpanded ? null : (
                       <div role="group">
                         {visible.sessions.length === 0 ? <div className={css.message}>{t('remote.noSessions')}</div> : null}
@@ -216,6 +397,17 @@ export function RemoteNodeSection({
                             session={session} selection={selection} now={now}
                             menuOpen={openSessionMenu?.nodeId === node.nodeId && openSessionMenu.sessionId === session.sessionId}
                             archiveAvailable={!unavailable && data?.archiveError === undefined}
+                            followed={followedSessions.has(sessionFollowToken(node.nodeId, session.sessionId))}
+                            onToggleFollow={unavailable || onToggleFollow === undefined
+                              ? undefined
+                              : () => {
+                                onToggleFollow(
+                                  node,
+                                  session,
+                                  workspace,
+                                  followedSessions.has(sessionFollowToken(node.nodeId, session.sessionId)),
+                                )
+                              }}
                             onMenuOpenChange={open => { onSessionMenuChange(node.nodeId, session.sessionId, open) }}
                             onOpenRemoteSession={(...args) => { if (!unavailable) onOpenRemoteSession(...args) }} onArchiveRemoteSession={(...args) => { if (!unavailable) onArchiveRemoteSession(...args) }} t={t} />
                         ))}
@@ -243,6 +435,8 @@ export function RemoteSection({
   t, defaultNodeExpanded, nodeExpansion, workspaceExpansion,
   onNodeExpandedChange, onWorkspaceExpandedChange, onOpenRemoteSession,
   rail = false, onRailNodePick, browseScope, onBrowseScopeChange, chooserMount, contentHidden = false, onExpandChooser, requestChooser, onChooserOpened,
+  following = [], followingLocal, followingQuery = '', currentLocalSessionId,
+  onFollow, onUnfollow, onSyncFollowingSummaries, onOpenFollowingLocal,
 }: RemoteSectionProps): ReactElement {
   const selection = useSyncExternalStore(subscribeRemoteSelection, getRemoteSelection, getRemoteSelection)
   const [coordinator, setCoordinator] = useState<MasterCoordinatorFacts | undefined>(undefined)
@@ -255,6 +449,9 @@ export function RemoteSection({
   const [error, setError] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [openSessionMenu, setOpenSessionMenu] = useState<{ nodeId: string; sessionId: string } | undefined>(undefined)
+  const [creating, setCreating] = useState<Readonly<Record<string, boolean>>>({})
+  const [createErrors, setCreateErrors] = useState<Readonly<Record<string, string>>>({})
+  const [createUnsupported, setCreateUnsupported] = useState<Readonly<Record<string, boolean>>>({})
   const browsing = useRef(browseScope)
   browsing.current = browseScope
   const changeScope = useRef(onBrowseScopeChange)
@@ -266,6 +463,31 @@ export function RemoteSection({
   const rosterRequest = useRef(0)
   const rosterController = useRef<AbortController | undefined>(undefined)
   const sessionControllers = useRef(new Map<string, AbortController>())
+  /** Blank sessions created here, until the node's next list includes them. */
+  const createdBlanks = useRef(new Map<string, { nodeId: string; sessionId: string }>())
+  /** Synchronous per-workspace guard: state alone can lag a double click. */
+  const inflightCreates = useRef(new Set<string>())
+  /** The follow records this render saw; refresh reads them without re-creating its callback. */
+  const followingRef = useRef(following)
+  followingRef.current = following
+  /** The last verified Coordinator origin, so a source switch can drop cached rows. */
+  const coordinatorUrl = useRef<string | undefined>(undefined)
+  /** True while entering or manually refreshing the follow view blocks remote opens. */
+  const [followingVerifying, setFollowingVerifying] = useState(false)
+  /**
+   * True from the render that observes the follow scope until the verification it
+   * starts settles. The effect runs one commit after that render, so without this the
+   * first painted frame of the list could open a remote row from a previous source's
+   * cached data. A surface mounted directly into a persisted follow scope starts
+   * pending: nothing has been verified for this mount yet.
+   */
+  const entryPending = useRef(browseScope?.kind === 'following')
+  const previousScopeKind = useRef(browseScope?.kind)
+  if (previousScopeKind.current !== browseScope?.kind) {
+    previousScopeKind.current = browseScope?.kind
+    entryPending.current = browseScope?.kind === 'following'
+  }
+  if (browseScope?.kind !== 'following') entryPending.current = false
 
   const loadSessions = useCallback(async (nodeId: string, force = false): Promise<void> => {
     if (!force && (Object.hasOwn(cache.current, nodeId) || sessionControllers.current.has(nodeId))) return
@@ -283,7 +505,17 @@ export function RemoteSection({
     })
     try {
       const result = await fetchSessions(nodeId, controller.signal)
-      if (current()) setData(previous => ({ ...previous, [nodeId]: result }))
+      if (current()) {
+        setData(previous => ({ ...previous, [nodeId]: result }))
+        // The authoritative list now carries any blank created from this panel,
+        // so the short-lived hint is no longer needed.
+        for (const [key, created] of createdBlanks.current) {
+          if (created.nodeId !== nodeId) continue
+          if (result.sessions.some(session => session.sessionId === created.sessionId)) {
+            createdBlanks.current.delete(key)
+          }
+        }
+      }
     } catch (cause) {
       if (current()) setErrors(previous => ({ ...previous, [nodeId]: describe(cause) }))
     } finally {
@@ -303,10 +535,20 @@ export function RemoteSection({
     const controller = new AbortController()
     rosterController.current = controller
     setBusy(true)
+    // Entering the follow view verifies the Coordinator source before any remote
+    // row may open; the same gate applies to a manual refresh from that view.
+    if (browsing.current?.kind === 'following') setFollowingVerifying(true)
     setError(undefined)
+    setCreateErrors({})
+    setCreateUnsupported({})
     try {
       const status = await fetchStatus(controller.signal)
       if (rosterRequest.current !== request || controller.signal.aborted) return
+      // A different Coordinator may expose the same node/session ids. Cached lists
+      // from the previous source must not be rendered under the new one.
+      const sourceChanged = coordinatorUrl.current !== undefined
+        && coordinatorUrl.current !== status.coordinator.url
+      coordinatorUrl.current = status.coordinator.url
       setCoordinator(status.coordinator)
       if (!status.coordinator.reachable) {
         setErrors({})
@@ -323,13 +565,20 @@ export function RemoteSection({
         changeScope.current?.({ kind: 'local' })
         setError(t('browse.removed'))
       }
-      setData(previous => Object.fromEntries(Object.entries(previous).filter(([id]) => present.has(id))))
+      setData((previous) => {
+        const filtered = Object.fromEntries(Object.entries(previous).filter(([id]) => present.has(id)))
+        return sourceChanged ? {} : filtered
+      })
       setErrors({})
       const state = expansion.current
-      await Promise.all(ordered.filter(node => !nodeIsOffline(node)
-        && (browsing.current === undefined ? (state.nodeExpansion[node.nodeId] ?? state.defaultNodeExpanded)
-          : browsing.current.kind === 'remote' && browsing.current.nodeId === node.nodeId))
-        .map(node => loadSessions(node.nodeId, true)))
+      // Following queries only the nodes it actually carries, once per node even
+      // when several followed sessions live there.
+      const targets = browsing.current?.kind === 'following'
+        ? followingNodes(followingRef.current, roster.coordinator.url, ordered)
+        : ordered.filter(node => !nodeIsOffline(node)
+          && (browsing.current === undefined ? (state.nodeExpansion[node.nodeId] ?? state.defaultNodeExpanded)
+            : browsing.current.kind === 'remote' && browsing.current.nodeId === node.nodeId))
+      await mapWithConcurrency(targets, FOLLOWING_NODE_CONCURRENCY, node => loadSessions(node.nodeId, true))
     } catch (cause) {
       if (controller.signal.aborted || rosterRequest.current !== request) return
       setCoordinator(undefined)
@@ -337,6 +586,8 @@ export function RemoteSection({
     } finally {
       if (rosterRequest.current === request && !controller.signal.aborted) {
         setBusy(false)
+        setFollowingVerifying(false)
+        entryPending.current = false
         rosterController.current = undefined
       }
     }
@@ -360,6 +611,49 @@ export function RemoteSection({
     }
   }, [selection, loadSessions])
 
+  const createSession = useCallback(async (
+    node: MasterNode,
+    workspace: MasterWorkspace,
+    sessions: MasterSessionsValue | undefined,
+  ): Promise<void> => {
+    const nodeId = node.nodeId
+    const nodeName = nodeDisplayName(node)
+    const key = JSON.stringify([nodeId, workspace.workspaceId])
+    if (inflightCreates.current.has(key) || nodeIsOffline(node) || node.state !== 'ready') return
+
+    // Prefer a known blank so the node reuses it instead of minting another.
+    // The node still validates reusability and may return a different identity.
+    const reusable = reusableBlankSession(
+      sessions?.sessions ?? [],
+      sessions?.archivedSessionIds ?? [],
+      workspace,
+    ) ?? createdBlanks.current.get(key)?.sessionId
+
+    inflightCreates.current.add(key)
+    setCreating(previous => ({ ...previous, [key]: true }))
+    setCreateErrors(previous => omitKey(previous, key))
+    try {
+      const created = await createRemoteSession(nodeId, workspace.workspaceId, reusable)
+      createdBlanks.current.set(key, { nodeId, sessionId: created.sessionId })
+      setData(previous => insertOptimisticBlank(previous, nodeId, workspace, created.sessionId))
+      onWorkspaceExpandedChange(key, true)
+      onOpenRemoteSession(nodeId, created.sessionId, nodeName, t('session.new'))
+      void loadSessions(nodeId, true)
+    } catch (cause) {
+      if (cause instanceof Error && cause.name === 'AbortError') return
+      setCreateErrors(previous => ({
+        ...previous,
+        [key]: `${t('remote.createSessionFailed')} · ${describe(cause)}`,
+      }))
+      if (isCapabilityFailure(cause)) {
+        setCreateUnsupported(previous => ({ ...previous, [nodeId]: true }))
+      }
+    } finally {
+      inflightCreates.current.delete(key)
+      setCreating(previous => omitKey(previous, key))
+    }
+  }, [loadSessions, onOpenRemoteSession, onWorkspaceExpandedChange, t])
+
   useEffect(() => {
     void refresh()
     return () => {
@@ -368,18 +662,128 @@ export function RemoteSection({
     }
   }, [refresh])
 
-  // Also hydrate a node expanded from the collapsed sidebar rail.
+  // Entering Following re-verifies the Coordinator source. A surface mounted
+  // directly into that scope is already covered by the mount effect above.
+  const lastScopeKind = useRef(browseScope?.kind)
   useEffect(() => {
+    const previous = lastScopeKind.current
+    lastScopeKind.current = browseScope?.kind
+    if (browseScope?.kind === 'following' && previous !== 'following') void refresh()
+  }, [browseScope?.kind, refresh])
+
+  // Also hydrate a node expanded from the collapsed sidebar rail, and the follow
+  // view's own target nodes (each node at most once per render).
+  useEffect(() => {
+    if (browseScope?.kind === 'following') {
+      for (const node of followingNodes(following, coordinator?.url, nodes)) void loadSessions(node.nodeId)
+      return
+    }
     for (const node of nodes) {
       if (!nodeIsOffline(node) && (browseScope === undefined ? (nodeExpansion[node.nodeId] ?? defaultNodeExpanded)
         : browseScope.kind === 'remote' && browseScope.nodeId === node.nodeId)) void loadSessions(node.nodeId)
     }
-  }, [nodes, nodeExpansion, defaultNodeExpanded, loadSessions, browseScope])
+  }, [nodes, nodeExpansion, defaultNodeExpanded, loadSessions, browseScope, following, coordinator?.url])
+
+  const followingRemoteSnapshot: FollowingRemoteSnapshot = {
+    coordinator,
+    nodes,
+    data,
+    loading,
+    errors,
+    // A verify/refresh blocks remote opens even when cached summaries are present.
+    // `entryPending` covers the frame before the entry effect starts that verify.
+    verifying: followingVerifying || entryPending.current || busy,
+    verificationFailed: coordinator === undefined && error !== undefined,
+  }
+  const compiledFollowing = followingRows(
+    following,
+    followingLocal ?? EMPTY_LOCAL_SNAPSHOT,
+    followingRemoteSnapshot,
+    {
+      localMachine: t('browse.local'),
+      ungrouped: t('group.ungrouped'),
+      newSession: t('session.new'),
+    },
+  )
+  const visibleFollowing = filterFollowingRows(compiledFollowing, followingQuery)
+  useEffect(() => {
+    if (browseScope?.kind !== 'following' || onSyncFollowingSummaries === undefined) return
+    const updates = followingSummaryUpdates(following, compiledFollowing)
+    if (Object.keys(updates).length > 0) onSyncFollowingSummaries(updates)
+  }, [browseScope?.kind, compiledFollowing, following, onSyncFollowingSummaries])
+
+  const followingSelectedKey = followingSelectionKey(currentLocalSessionId, selection, coordinator?.url)
+  /** Tokens of followed sessions under the current source, for the source-row menu. */
+  const followedSessions = new Set<string>()
+  for (const record of following) {
+    if (record.target.source !== 'remote' || record.target.coordinatorUrl !== coordinator?.url) continue
+    followedSessions.add(sessionFollowToken(record.target.nodeId, record.target.sessionId))
+  }
+  const toggleRemoteFollow = (
+    node: MasterNode,
+    session: MasterSession,
+    workspace: MasterWorkspace | undefined,
+    followed: boolean,
+  ): void => {
+    const url = coordinator?.url
+    if (url === undefined) return
+    if (followed) {
+      onUnfollow?.(followKey({
+        source: 'remote',
+        coordinatorUrl: url,
+        nodeId: node.nodeId,
+        sessionId: session.sessionId,
+      }))
+      return
+    }
+    onFollow?.({
+      target: { source: 'remote', coordinatorUrl: url, nodeId: node.nodeId, sessionId: session.sessionId },
+      followedAt: Date.now(),
+      title: session.blank ? t('session.new') : session.title,
+      machine: nodeDisplayName(node),
+      workspace: workspace?.title ?? t('group.ungrouped'),
+    })
+  }
+  const followWiring = onFollow === undefined || coordinator?.url === undefined ? undefined : toggleRemoteFollow
+  const openFollowingRow = (row: FollowingRow): void => {
+    const target = row.target
+    if (target.source === 'local') {
+      onOpenFollowingLocal?.(target.sessionId)
+      return
+    }
+    const node = nodes.find(entry => entry.nodeId === target.nodeId)
+    onOpenRemoteSession(
+      target.nodeId,
+      target.sessionId,
+      node === undefined ? row.machine : nodeDisplayName(node),
+      row.title,
+    )
+  }
 
   const chooser = browseScope && onBrowseScopeChange ? <WorkspaceNodeChooser nodes={nodes}
     scope={browseScope} onChange={onBrowseScopeChange} busy={busy} error={error ?? (coordinator?.reachable === false ? t('remote.coordinatorOffline') : undefined)}
     t={t} onRefresh={() => { void refresh() }} currentNodeId={selection?.nodeId} rail={rail} onExpand={onExpandChooser} requestOpen={requestChooser} onOpened={onChooserOpened} /> : null
   const chooserPortal = chooserMount && chooser ? createPortal(chooser, chooserMount) : null
+  if (browseScope?.kind === 'following') {
+    if (rail) return <>{chooser}</>
+    return (
+      <>
+        {chooserPortal}
+        <FollowingList
+          rows={visibleFollowing}
+          total={following.length}
+          query={followingQuery}
+          selectedKey={followingSelectedKey}
+          busy={busy}
+          error={error ?? (coordinator?.reachable === false ? t('remote.coordinatorOffline') : undefined)}
+          t={t}
+          onOpen={openFollowingRow}
+          onUnfollow={key => { onUnfollow?.(key) }}
+          onRefresh={() => { void refresh() }}
+        />
+      </>
+    )
+  }
   if (browseScope?.kind === 'local' || contentHidden || rail && browseScope) {
     return <>{rail ? chooser : chooserPortal}</>
   }
@@ -394,10 +798,10 @@ export function RemoteSection({
         {nodes.map(node => (
           <button type="button" key={node.nodeId} className={css.railNode} disabled={nodeIsOffline(node)}
             aria-label={t('remote.nodeAria', {
-              name: node.nodeName ?? node.nodeId,
+              name: nodeDisplayName(node),
               status: nodeIsOffline(node) ? t('remote.nodeOffline') : t('remote.nodeOnline'),
             })}
-            title={node.nodeName ?? node.nodeId} onClick={() => { onRailNodePick?.(node.nodeId) }}>
+            title={nodeDisplayName(node)} onClick={() => { onRailNodePick?.(node.nodeId) }}>
             <IconGlobeOutline14 />
             <span className={css.railDot}><NodeStatus node={node} /></span>
           </button>
@@ -439,7 +843,12 @@ export function RemoteSection({
               : current?.nodeId === nodeId && current.sessionId === sessionId ? undefined : current)
           }}
           onOpenRemoteSession={onOpenRemoteSession}
-          onArchiveRemoteSession={(nodeId, sessionId) => { void archiveSession(nodeId, sessionId) }} />
+          onArchiveRemoteSession={(nodeId, sessionId) => { void archiveSession(nodeId, sessionId) }}
+          followedSessions={followedSessions}
+          onToggleFollow={followWiring}
+          creating={creating} createErrors={createErrors}
+          createUnsupported={createUnsupported[node.nodeId] === true}
+          onCreateRemoteSession={workspace => { void createSession(node, workspace, data[node.nodeId]) }} />
       ))}
     </>
   )

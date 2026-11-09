@@ -97,6 +97,59 @@ describe('CoordinatorClient.listSessions', () => {
   })
 })
 
+describe('CoordinatorClient.createSession', () => {
+  it('asks the coordinator to create inside the registered workspace and reuses a blank id', async () => {
+    const { client, calls } = clientWith(() => envelope({
+      ok: true,
+      value: { sessionId: 'session-9', agentPreset: 'standard' },
+    }))
+
+    await expect(client.createSession('node-1', 'workspace-1', 'session-9')).resolves.toEqual({
+      sessionId: 'session-9',
+      agentPreset: 'standard',
+    })
+    expect(calls[0]?.url).toBe('http://127.0.0.1:39472/api/session/create')
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+      nodeId: 'node-1',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-9',
+    })
+  })
+
+  it('omits sessionId when there is no blank to reuse', async () => {
+    const { client, calls } = clientWith(() => envelope({ ok: true, value: { sessionId: 'new' } }))
+    await client.createSession('node-1', 'workspace-1')
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+      nodeId: 'node-1',
+      workspaceId: 'workspace-1',
+    })
+  })
+
+  it('rejects a response without a usable session id', async () => {
+    const { client } = clientWith(() => envelope({ ok: true, value: { agentPreset: 'standard' } }))
+    await expect(client.createSession('node-1', 'workspace-1')).rejects.toMatchObject({
+      code: 'master/coordinator-unreadable',
+    })
+  })
+
+  it('preserves the node refusal that makes the workspace unusable', async () => {
+    const { client } = clientWith(() => envelope({
+      ok: false,
+      error: { code: 'workspace/not-found', message: 'workspace "w1" not found' },
+    }))
+    await expect(client.createSession('node-1', 'w1')).rejects.toMatchObject({ code: 'workspace/not-found' })
+  })
+
+  it('rejects blank identities before calling the coordinator', async () => {
+    const { client, calls } = clientWith(() => envelope({ ok: true, value: { sessionId: 'never' } }))
+    const master = new MasterService(client, false)
+    await expect(master.createSession('', 'w1')).rejects.toMatchObject({ code: 'master/invalid-arguments' })
+    await expect(master.createSession('node-1', ' ')).rejects.toMatchObject({ code: 'master/invalid-arguments' })
+    await expect(master.createSession('node-1', 'w1', '')).rejects.toMatchObject({ code: 'master/invalid-arguments' })
+    expect(calls).toHaveLength(0)
+  })
+})
+
 describe('CoordinatorClient remote workspace actions', () => {
   it('archives a session through the workspace Remote with its named request', async () => {
     const { client, calls } = clientWith(() => envelope({

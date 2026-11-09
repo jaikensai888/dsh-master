@@ -23,6 +23,7 @@ vi.mock('@deepseek-ai/dsh-client-store', () => ({
 }))
 
 import { createWorkspaceViewStore } from '../src/workspace/stores.js'
+import { followKey, type FollowRecord } from '../src/workspace/following.js'
 
 describe('workspace view persistence compatibility', () => {
   it('migrates browse scope independently of session and directory preferences', () => {
@@ -77,5 +78,100 @@ describe('workspace view persistence compatibility', () => {
     }
     const store = createWorkspaceViewStore().create()
     expect(store.getSnapshot()).toMatchObject(persistence.value)
+  })
+})
+
+const localFollow: FollowRecord = {
+  target: { source: 'local', sessionId: 's1' },
+  followedAt: 100,
+  title: 'Local task',
+  machine: '本地',
+  workspace: 'repo',
+}
+
+describe('following persistence', () => {
+  it('migrates an official v5 snapshot without a following field', () => {
+    persistence.value = {
+      groupBy: 'workspace', orderBy: 'manual', groupExpansion: { project: true },
+      sessionOrderByAccount: { project: ['a'] }, archivedFilter: 'all',
+    }
+    const store = createWorkspaceViewStore().create()
+    expect(store.getSnapshot().following).toEqual([])
+    expect(store.getSnapshot()).toMatchObject({ groupBy: 'workspace', orderBy: 'manual' })
+    persistence.value = { ...store.getSnapshot() }
+    expect(createWorkspaceViewStore().create().getSnapshot().following).toEqual([])
+  })
+
+  it('restores persisted follow records and the following scope', () => {
+    persistence.value = { browseScope: { kind: 'following' }, following: [localFollow] }
+    const store = createWorkspaceViewStore().create()
+    expect(store.getSnapshot().browseScope).toEqual({ kind: 'following' })
+    expect(store.getSnapshot().following).toEqual([localFollow])
+  })
+
+  it('keeps one record per identity and lets a re-follow get a new time', () => {
+    const store = createWorkspaceViewStore().create()
+    store.actions.followSession(localFollow)
+    store.actions.followSession({ ...localFollow, followedAt: 200, title: 'Renamed' })
+    expect(store.getSnapshot().following).toEqual([localFollow])
+
+    const key = followKey(localFollow.target)
+    store.actions.unfollowSession(key)
+    expect(store.getSnapshot().following).toEqual([])
+    store.actions.followSession({ ...localFollow, followedAt: 300 })
+    expect(store.getSnapshot().following).toEqual([{ ...localFollow, followedAt: 300 }])
+  })
+
+  it('separates the same session id on another node and another Coordinator source', () => {
+    const store = createWorkspaceViewStore().create()
+    const remote = (coordinatorUrl: string, nodeId: string): FollowRecord => ({
+      target: { source: 'remote', coordinatorUrl, nodeId, sessionId: 'same' },
+      followedAt: 1,
+      title: 'Remote',
+      machine: nodeId,
+      workspace: 'remote repo',
+    })
+    store.actions.followSession(remote('http://a', 'node-1'))
+    store.actions.followSession(remote('http://a', 'node-2'))
+    store.actions.followSession(remote('http://b', 'node-1'))
+    store.actions.followSession(localFollow)
+    expect(store.getSnapshot().following).toHaveLength(4)
+  })
+
+  it('keeps follow records when workspace accounts are pruned', () => {
+    persistence.value = { following: [localFollow] }
+    const store = createWorkspaceViewStore().create()
+    store.actions.retainAccountKeys([])
+    expect(store.getSnapshot().following).toEqual([localFollow])
+  })
+
+  it('updates only the summaries a fresh source provided, never the identity', () => {
+    persistence.value = { following: [localFollow] }
+    const store = createWorkspaceViewStore().create()
+    store.actions.syncFollowSummaries({
+      [followKey(localFollow.target)]: { title: 'Renamed upstream', machine: '本地', workspace: 'other' },
+    })
+    expect(store.getSnapshot().following[0]).toEqual({
+      ...localFollow, title: 'Renamed upstream', workspace: 'other',
+    })
+    store.actions.syncFollowSummaries({ [followKey(localFollow.target)]: { title: 'Renamed upstream', machine: '本地', workspace: 'other' } })
+    expect(store.getSnapshot().following).toHaveLength(1)
+  })
+
+  it('drops malformed and duplicate entries from a persisted snapshot', () => {
+    persistence.value = {
+      following: [
+        localFollow,
+        { ...localFollow, followedAt: 999 },
+        { target: { source: 'remote' }, followedAt: 1 },
+        { target: { source: 'local', sessionId: 'bad' }, followedAt: 'soon' },
+        null,
+      ],
+    }
+    const store = createWorkspaceViewStore().create()
+    expect(store.getSnapshot().following).toEqual([
+      localFollow,
+      { target: { source: 'local', sessionId: 'bad' }, followedAt: 0, title: '', machine: '', workspace: '' },
+    ])
   })
 })

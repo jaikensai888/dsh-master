@@ -28,10 +28,37 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
 import { ArtifactCard, ArtifactList, mergeArtifacts } from '../src/client/ArtifactCard.js'
 import { downloadArtifactUrl } from '../src/client/api.js'
 import { formatBytes, formatDateTime } from '../src/client/copy.js'
-import type { FileArtifact } from '../src/files-protocol.js'
+import type { FileSupportState } from '../src/client/file-support.js'
+import type { FileArtifact, FileDescribe, FileLimits } from '../src/files-protocol.js'
 
 const NODE = 'node-1'
 const SESSION = 'session-11111111-1111-4111-8111-111111111111'
+
+const LIMITS: FileLimits = {
+  maxFileBytes: 20 * 1024 * 1024,
+  maxAttachmentsPerMessage: 5,
+  maxActiveUploads: 2,
+  storageLimitBytes: 1024 * 1024 * 1024,
+  chunkBytes: 256 * 1024,
+  retentionMs: 7 * 24 * 60 * 60 * 1000,
+  incompleteUploadTtlMs: 60 * 60 * 1000,
+}
+
+function support(deliveryTool: FileDescribe['deliveryTool'] = 'available'): FileSupportState {
+  return { status: 'supported', describe: { protocolVersion: 1, limits: LIMITS, deliveryTool } }
+}
+
+function failure(reason: 'protocol-unsupported' | 'network' | 'permission'): FileSupportState {
+  return {
+    status: 'error',
+    reason,
+    code: reason === 'protocol-unsupported'
+      ? 'coordinator/capability-unavailable'
+      : reason === 'network' ? 'coordinator/node-offline' : 'coordinator/auth-rejected',
+    message: 'upstream diagnostic',
+    retryable: reason !== 'permission',
+  }
+}
 
 function artifact(patch: Partial<FileArtifact> = {}): FileArtifact {
   return {
@@ -108,11 +135,12 @@ describe('ArtifactCard', () => {
     expect(html).toContain('文件已失效')
   })
 
-  it('renders nothing when there are no artifacts', () => {
+  it('renders nothing before the capability probe settles', () => {
     expect(renderToStaticMarkup(createElement(ArtifactList, {
       artifacts: [],
       nodeId: NODE,
       sessionId: SESSION,
+      support: { status: 'loading' },
     }))).toBe('')
   })
 
@@ -121,6 +149,7 @@ describe('ArtifactCard', () => {
       artifacts: [artifact({ artifactId: 'a' }), artifact({ artifactId: 'b', name: '第二个.zip' })],
       nodeId: NODE,
       sessionId: SESSION,
+      support: support(),
     }))
     expect(html).toContain('data-artifact-id="a"')
     expect(html).toContain('data-artifact-id="b"')
@@ -129,19 +158,51 @@ describe('ArtifactCard', () => {
 
   it('shows the delivery entry and instructions before the first artifact exists', () => {
     const html = renderToStaticMarkup(createElement(ArtifactList, {
-      artifacts: [], nodeId: NODE, sessionId: SESSION, deliveryTool: 'available',
+      artifacts: [], nodeId: NODE, sessionId: SESSION, support: support(),
     }))
     expect(html).toContain('本次会话的交付文件')
     expect(html).toContain('请生成并交付一个可下载的文件')
     expect(html).not.toContain('<a ')
   })
 
-  it('explains unavailable delivery instead of hiding the section', () => {
+  it('distinguishes an unregistered tool from a missing protocol', () => {
     const html = renderToStaticMarkup(createElement(ArtifactList, {
-      artifacts: [], nodeId: NODE, sessionId: SESSION, deliveryTool: 'unavailable',
+      artifacts: [],
+      nodeId: NODE,
+      sessionId: SESSION,
+      support: support('unavailable'),
+      onRetrySupport: () => undefined,
     }))
-    expect(html).toContain('尚未启用文件交付工具')
-    expect(html).not.toContain('<a ')
+    expect(html).toContain('未注册 deliver_file 工具')
+    expect(html).not.toContain('未提供远程文件接口')
+    expect(html).toContain('重新检查')
+  })
+
+  it('shows one capability notice with a retry and an expandable diagnostic', () => {
+    const html = renderToStaticMarkup(createElement(ArtifactList, {
+      artifacts: [], nodeId: NODE, sessionId: SESSION, support: failure('protocol-unsupported'),
+    }))
+    expect(html).toContain('未提供远程文件接口')
+    expect(html).toContain('普通文本对话不受影响')
+    expect(html).toContain('重新检查')
+    expect(html).toContain('诊断信息')
+    expect(html).toContain('coordinator/capability-unavailable')
+    expect([...html.matchAll(/未提供远程文件接口/gu)]).toHaveLength(1)
+    expect(html).not.toContain('版本较旧')
+  })
+
+  it('offers retry for a network failure but not for a permission failure', () => {
+    const network = renderToStaticMarkup(createElement(ArtifactList, {
+      artifacts: [], nodeId: NODE, sessionId: SESSION, support: failure('network'),
+    }))
+    expect(network).toContain('无法连接远程节点')
+    expect(network).toContain('重新检查')
+
+    const permission = renderToStaticMarkup(createElement(ArtifactList, {
+      artifacts: [], nodeId: NODE, sessionId: SESSION, support: failure('permission'),
+    }))
+    expect(permission).toContain('无权使用远程文件能力')
+    expect(permission).not.toContain('重新检查')
   })
 })
 

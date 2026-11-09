@@ -105,6 +105,21 @@ export interface MasterArchiveValue {
   readonly archivedSessionIds: readonly string[]
 }
 
+/** `POST /dsh-master/api/session/create`. */
+export interface MasterCreateSessionRequest {
+  readonly nodeId: string
+  /** A directory registered on the target node; the node validates it. */
+  readonly workspaceId: string
+  /** An existing blank session to reuse; absent means the node mints a new one. */
+  readonly sessionId?: string
+}
+
+/** The identity the target node created or reused. */
+export interface MasterCreateSessionValue {
+  readonly sessionId: string
+  readonly agentPreset?: string
+}
+
 /** `GET /dsh-master/api/nodes`. */
 export interface MasterNodesValue {
   readonly coordinator: MasterCoordinatorFacts

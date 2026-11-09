@@ -20,7 +20,29 @@
   cursor: pointer;
 }
 .chooserTrigger:hover { background: var(--dsw-alias-interactive-bg-hover); }
-.chooserArrow { width: 10px; height: 10px; transform: rotate(90deg); }
+/* Wide sidebar: the title and the arrow are one control, so the text needs to
+   take the available share up to the header's 45% title budget and ellipsize
+   instead of pushing the search or the trailing actions. */
+.chooserTitleTrigger {
+  box-sizing: border-box;
+  justify-content: flex-start;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px 2px 5px 4px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+}
+.chooserTitleText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chooserArrow { flex: none; width: 10px; height: 10px; transform: rotate(90deg); }
 .chooserTrigger[aria-expanded="true"] .chooserArrow { transform: rotate(-90deg); }
 .chooserPopup {
   position: fixed;
@@ -91,6 +113,7 @@
   outline-offset: -2px;
 }
 .chooserLocal { margin-bottom: 3px; }
+.chooserFollowing { margin-bottom: 3px; }
 .chooserRemote { min-height: 66px; }
 .chooserText {
   display: flex;
@@ -291,6 +314,24 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* The create button is revealed by the shared rowActions hover rule; keyboard
+   focus and touch devices need an explicit path to it. */
+.workspaceRow:focus-visible {
+  outline: 2px solid #91a9df;
+  outline-offset: -2px;
+}
+
+.workspaceRow:focus-visible [data-dsh-workspace-actions],
+.workspaceRow:focus-within [data-dsh-workspace-actions] {
+  display: inline-flex;
+}
+
+@media (hover: none) {
+  .workspaceRow [data-dsh-workspace-actions] {
+    display: inline-flex;
+  }
+}
+
 .nodeRow:disabled {
   cursor: default;
   color: var(--dsw-alias-label-dimmed);
@@ -363,6 +404,13 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.createError {
+  padding: 0 12px 6px 28px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
 .rail {
   display: flex;
   flex-direction: column;
@@ -394,4 +442,136 @@
   position: absolute;
   right: 5px;
   bottom: 5px;
+}
+
+/* The follow list replaces the node tree in the same browsing position. */
+.following {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: 4px;
+}
+
+.followingHeader {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.followingList {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+/* A followed row carries a second line (machine · workspace) and borrows the
+   local/remote session rows' hover and selected states, so it reproduces that
+   row's box itself: one flex line with a marker slot and the two-line body. */
+.followingRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: auto;
+  min-height: 44px;
+  border-radius: 8px;
+  padding: 4px 8px 4px 4px;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.followingRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.followingUnavailable {
+  cursor: default;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.followingUnavailable:hover {
+  background: transparent;
+}
+
+/* Trailing row menu. `RowsCss`'s reveal rules only target the local and remote
+   session rows, so a followed row carries its own copy of the reveal path:
+   hover, an open menu, keyboard focus, and touch devices. */
+.followingActions {
+  flex: none;
+  display: none;
+  align-items: center;
+  gap: 12px;
+}
+
+.followingRow:hover .followingActions,
+.followingRowOpen .followingActions,
+.followingRow:focus-within .followingActions {
+  display: inline-flex;
+}
+
+@media (hover: none) {
+  .followingActions { display: inline-flex; }
+}
+
+.followingPin {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.followingMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.followingTitle {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.followingUnavailable .followingTitle {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.followingMeta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.followingMachine,
+.followingWorkspace {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.followingStatus {
+  flex: none;
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-active);
+  color: var(--dsw-alias-label-secondary);
 }

@@ -164,6 +164,51 @@ describe('the compiled workspace stylesheet', () => {
     expect(localLabelRule?.[1]).toMatch(/line-height:\s*20px/u)
   })
 
+  it('keeps a long browsing title to its header share and ellipsizes it', () => {
+    const triggerRule = WORKSPACE_CSS.match(
+      new RegExp(`\\.${RemoteSectionCss.chooserTitleTrigger}\\s*\\{([^}]*)\\}`, 'u'),
+    )?.[1]
+    const textRule = WORKSPACE_CSS.match(
+      new RegExp(`\\.${RemoteSectionCss.chooserTitleText}\\s*\\{([^}]*)\\}`, 'u'),
+    )?.[1]
+    const labelRule = WORKSPACE_CSS.match(
+      new RegExp(`\\.${WorkspaceBrowserCss.sectionLabel}\\s*\\{([^}]*)\\}`, 'u'),
+    )?.[1]
+
+    expect(declaration(labelRule, 'max-width')).toBe('45%')
+    expect(declaration(triggerRule, 'min-width')).toBe('0')
+    expect(declaration(textRule, 'overflow')).toBe('hidden')
+    expect(declaration(textRule, 'text-overflow')).toBe('ellipsis')
+    expect(declaration(textRule, 'white-space')).toBe('nowrap')
+  })
+
+  it('lays the follow row out as one flex line and reveals its row menu', () => {
+    // **The regression this exists for.** The follow row borrows the session rows'
+    // hover/selected states, but its own module owns the box: without `display:flex`
+    // the marker and the two-line body stack, and without its own reveal rules the
+    // trailing "…" stays `display:none` because `RowsCss`'s rules only target
+    // `.projectRow`/`.sessionRow`. Cancel-follow would then be unreachable.
+    const rowRule = WORKSPACE_CSS.match(
+      new RegExp(`\\.${RemoteSectionCss.followingRow}\\s*\\{([^}]*)\\}`, 'u'),
+    )?.[1]
+    const actionsRule = WORKSPACE_CSS.match(
+      new RegExp(`\\.${RemoteSectionCss.followingActions}\\s*\\{([^}]*)\\}`, 'u'),
+    )?.[1]
+
+    expect(declaration(rowRule, 'display')).toBe('flex')
+    expect(declaration(rowRule, 'align-items')).toBe('center')
+    expect(declaration(actionsRule, 'display')).toBe('none')
+    expect(WORKSPACE_CSS).toContain(
+      `.${RemoteSectionCss.followingRow}:hover .${RemoteSectionCss.followingActions}`,
+    )
+    expect(WORKSPACE_CSS).toContain(
+      `.${RemoteSectionCss.followingRowOpen} .${RemoteSectionCss.followingActions}`,
+    )
+    expect(WORKSPACE_CSS).toContain(
+      `.${RemoteSectionCss.followingRow}:focus-within .${RemoteSectionCss.followingActions}`,
+    )
+  })
+
   it('aligns the remote disclosure slot, arrow, and title anchor with the local heading', () => {
     const disclosureSlot = (RemoteSectionCss as Readonly<Record<string, string>>)['disclosureSlot']
     expect(disclosureSlot).toBeDefined()

@@ -25,6 +25,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
     IconChevronRightOutlineRegular: icon('chevron-right'),
     IconFolderCloseRegular: icon('folder-closed'),
     IconFolderOpenRegular: icon('folder-open'),
+    IconPlusOutlineRegular: icon('plus'),
     IconTriangleRightFillRegular: icon('triangle'),
     IconArchiveOutlineRegular: icon('archive'),
     IconEllipsisOutlineRegular: icon('ellipsis'),
@@ -35,7 +36,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
   }
 })
 
-import { RemoteSection, RemoteNodeSection, RemoteSessionItem, type RemoteNodeSectionProps } from '../src/workspace/RemoteSection.js'
+import { RemoteSection, RemoteNodeSection, RemoteSessionItem, insertOptimisticBlank, type RemoteNodeSectionProps } from '../src/workspace/RemoteSection.js'
 import type { RemoteSectionProps } from '../src/workspace/contract/slots.js'
 
 interface RemoteSessionItemProps {
@@ -46,6 +47,8 @@ interface RemoteSessionItemProps {
   now: number
   menuOpen: boolean
   archiveAvailable: boolean
+  followed?: boolean
+  onToggleFollow?: () => void
   onMenuOpenChange: (open: boolean) => void
   onOpenRemoteSession: (nodeId: string, sessionId: string, nodeName: string, sessionTitle: string) => void
   onArchiveRemoteSession: (nodeId: string, sessionId: string) => void
@@ -80,6 +83,7 @@ describe('the remote workspace sidebar', () => {
       data: { nodeId: 'a', sessions: [{sessionId:'s',title:'stale session',running:false,blank:false,updatedAt:0}], workspaces: [], archivedSessionIds: [] },
       t: (key: string) => key, onToggleNode: () => {}, onRefresh: () => {}, onWorkspaceExpandedChange: () => {},
       onToggleOverflow: () => {}, onSessionMenuChange: () => {}, onOpenRemoteSession: opened, onArchiveRemoteSession: () => {},
+      onCreateRemoteSession: () => {},
     }
     const element = RemoteNodeSection(props)
     expect(renderToStaticMarkup(element)).toContain('browse.stale')
@@ -100,6 +104,37 @@ describe('the remote workspace sidebar', () => {
       browseScope: { kind: 'local' }, onBrowseScopeChange: () => {},
     }))
     expect(markup).toBe('')
+  })
+  it('replaces the node tree with the follow list and keeps unverified remote rows closed', () => {
+    const props: RemoteSectionProps = {
+      t: key => key,
+      defaultNodeExpanded: true,
+      nodeExpansion: {},
+      workspaceExpansion: {},
+      onNodeExpandedChange: () => {},
+      onWorkspaceExpandedChange: () => {},
+      onOpenRemoteSession: () => {},
+      browseScope: { kind: 'following' },
+      onBrowseScopeChange: () => {},
+      following: [{
+        target: { source: 'remote', coordinatorUrl: 'http://a', nodeId: 'node-a', sessionId: 'r1' },
+        followedAt: 1,
+        title: 'Remote task',
+        machine: 'office',
+        workspace: 'repo',
+      }],
+      followingLocal: { phase: 'ready', byId: {}, workspaces: [], archivedSessionIds: [] },
+      followingQuery: '',
+    }
+    const markup = renderToStaticMarkup(createElement(RemoteSection, props))
+
+    // The single remote owner fills the browsing position; the record itself supplies
+    // the row before any source has been verified for this mount.
+    expect(markup).toContain('data-dsh-following')
+    expect(markup).toContain('Remote task')
+    expect(markup).toContain('office')
+    expect(markup).toContain('following.loading')
+    expect(markup).toContain('aria-disabled="true"')
   })
   it('offers refresh before the node roster loads', () => {
     const props: RemoteSectionProps = {
@@ -193,6 +228,86 @@ describe('the remote workspace sidebar', () => {
     expect(archived).toEqual([['node-7', 'session-archive-me']])
   })
 
+  it('offers follow independently of archive availability and reports the toggle', async () => {
+    const module = await import('../src/workspace/RemoteSection.js') as unknown as {
+      RemoteSessionItem?: (props: RemoteSessionItemProps) => ReactElement
+    }
+    expect(module.RemoteSessionItem).toBeDefined()
+    if (module.RemoteSessionItem === undefined) return
+
+    const toggled: string[] = []
+    const menu = findMenu(module.RemoteSessionItem({
+      nodeId: 'node-1',
+      nodeName: 'desktop',
+      session: { sessionId: 'session-1', title: '会话', updatedAt: 0, running: false, blank: false },
+      selection: undefined,
+      now: 0,
+      menuOpen: false,
+      archiveAvailable: false,
+      followed: false,
+      onToggleFollow: () => { toggled.push('toggle') },
+      onMenuOpenChange: () => {},
+      onOpenRemoteSession: () => {},
+      onArchiveRemoteSession: () => {},
+      t: key => key,
+    }))
+
+    expect(menu?.props.items?.map(({ id, label }) => ({ id, label }))).toEqual([
+      { id: 'follow', label: 'menu.follow' },
+    ])
+    menu?.props.onSelect?.('follow')
+    expect(toggled).toEqual(['toggle'])
+  })
+
+  it('labels a followed remote session as unfollow in the row menu', async () => {
+    const module = await import('../src/workspace/RemoteSection.js') as unknown as {
+      RemoteSessionItem?: (props: RemoteSessionItemProps) => ReactElement
+    }
+    if (module.RemoteSessionItem === undefined) return
+
+    const menu = findMenu(module.RemoteSessionItem({
+      nodeId: 'node-1',
+      nodeName: 'desktop',
+      session: { sessionId: 'session-1', title: '会话', updatedAt: 0, running: false, blank: false },
+      selection: undefined,
+      now: 0,
+      menuOpen: false,
+      archiveAvailable: true,
+      followed: true,
+      onToggleFollow: () => {},
+      onMenuOpenChange: () => {},
+      onOpenRemoteSession: () => {},
+      onArchiveRemoteSession: () => {},
+      t: key => key,
+    }))
+
+    expect(menu?.props.items?.map(entry => entry.id)).toEqual(['unfollow', 'archive'])
+  })
+
+  it('keeps the blank New Session row free of follow and archive verbs', async () => {
+    const module = await import('../src/workspace/RemoteSection.js') as unknown as {
+      RemoteSessionItem?: (props: RemoteSessionItemProps) => ReactElement
+    }
+    if (module.RemoteSessionItem === undefined) return
+
+    const item = module.RemoteSessionItem({
+      nodeId: 'node-1',
+      nodeName: 'desktop',
+      session: { sessionId: 'blank', title: '', updatedAt: 0, running: false, blank: true },
+      selection: undefined,
+      now: 0,
+      menuOpen: false,
+      archiveAvailable: true,
+      onToggleFollow: () => {},
+      onMenuOpenChange: () => {},
+      onOpenRemoteSession: () => {},
+      onArchiveRemoteSession: () => {},
+      t: key => key,
+    })
+
+    expect(findMenu(item)).toBeUndefined()
+  })
+
   it('opens the local-style row menu without opening the conversation', async () => {
     const module = await import('../src/workspace/RemoteSection.js') as unknown as {
       RemoteSessionItem?: (props: RemoteSessionItemProps) => ReactElement
@@ -253,6 +368,7 @@ function nodeProps(): RemoteNodeSectionProps {
     onToggleNode: () => {}, onRefresh: () => {}, onToggleOverflow: () => {},
     onWorkspaceExpandedChange: () => {}, onSessionMenuChange: () => {},
     onOpenRemoteSession: () => {}, onArchiveRemoteSession: () => {},
+    onCreateRemoteSession: () => {},
     t: key => key,
   }
 }
@@ -306,4 +422,119 @@ describe('per-node remote workspace hierarchy', () => {
     expect(markup).toContain('Assigned')
     expect(markup).toContain('Unassigned')
   })
+
+  it('offers a create button on registered directories but not on Ungrouped', () => {
+    const markup = renderToStaticMarkup(createElement(RemoteNodeSection, nodeProps()))
+    const actions = markup.split('data-dsh-workspace-actions').length - 1
+    expect(actions).toBe(2)
+    expect(markup).toContain('aria-label="actions.newSession.aria"')
+    // The directory row itself takes focus, which reveals the inner button.
+    expect(markup).toContain('tabindex="0"')
+  })
+
+  it('disables the create button on a node that is not ready or does not support creation', () => {
+    const connecting = renderToStaticMarkup(createElement(RemoteNodeSection, {
+      ...nodeProps(), node: { nodeId: 'node-a', state: 'connecting' },
+    }))
+    expect(connecting).toContain('disabled=""')
+
+    const unsupported = renderToStaticMarkup(createElement(RemoteNodeSection, {
+      ...nodeProps(), createUnsupported: true,
+    }))
+    expect(unsupported).toContain('remote.createSessionUnsupported')
+    expect(unsupported).toContain('disabled=""')
+  })
+
+  it('invokes the create callback without collapsing the directory', () => {
+    const created: unknown[] = []
+    let stopped = false
+    const props = nodeProps()
+    props.onCreateRemoteSession = workspace => { created.push(workspace) }
+    const button = findCreateButton(RemoteNodeSection(props))
+    expect(button).toBeDefined()
+    button?.props.onClick({ stopPropagation: () => { stopped = true } })
+    expect(stopped).toBe(true)
+    expect(created).toEqual([props.data?.workspaces[0]])
+  })
+
+  it('shows a per-directory create failure even while the directory is collapsed', () => {
+    const props = nodeProps()
+    props.workspaceExpansion = { '["node-a","empty"]': false }
+    props.createErrors = { '["node-a","empty"]': 'remote.createSessionFailed · workspace/not-found: gone' }
+    const markup = renderToStaticMarkup(createElement(RemoteNodeSection, props))
+    expect(markup).toContain('workspace/not-found: gone')
+  })
+
+  it('renders the selected blank session as New Session without row verbs', () => {
+    const props = nodeProps()
+    props.data = {
+      ...props.data!,
+      sessions: [
+        ...props.data!.sessions,
+        { sessionId: 'blank', title: '', cwd: '/repo', updatedAt: 0, running: false, blank: true },
+      ],
+      workspaces: props.data!.workspaces.map(workspace => workspace.workspaceId === 'same'
+        ? { ...workspace, sessionIds: [...workspace.sessionIds, 'blank'] }
+        : workspace),
+    }
+    props.selection = { nodeId: 'node-a', sessionId: 'blank' }
+    const markup = renderToStaticMarkup(createElement(RemoteNodeSection, props))
+    expect(markup).toContain('>session.new<')
+    expect(markup).not.toContain('>blank<')
+  })
 })
+
+describe('optimistic blank insertion', () => {
+  const workspace = { workspaceId: 'w1', title: 'repo', path: '/repo', sessionIds: ['s1'] }
+
+  it('adds the created blank before the next list refresh and registers its membership', () => {
+    const data = {
+      'node-a': {
+        nodeId: 'node-a',
+        sessions: [{ sessionId: 's1', title: 'one', updatedAt: 1, running: false, blank: false }],
+        workspaces: [workspace],
+        archivedSessionIds: [],
+      },
+    }
+    const next = insertOptimisticBlank(data, 'node-a', workspace, 'blank-1')
+    expect(next['node-a']?.sessions[0]).toMatchObject({
+      sessionId: 'blank-1', title: '', blank: true, cwd: '/repo',
+    })
+    expect(next['node-a']?.workspaces[0]?.sessionIds).toEqual(['s1', 'blank-1'])
+    expect(data['node-a']?.sessions).toHaveLength(1)
+  })
+
+  it('is a no-op when the list already carries the identity', () => {
+    const data = {
+      'node-a': {
+        nodeId: 'node-a',
+        sessions: [{ sessionId: 'blank-1', title: '', updatedAt: 1, running: false, blank: true }],
+        workspaces: [workspace],
+        archivedSessionIds: [],
+      },
+    }
+    expect(insertOptimisticBlank(data, 'node-a', workspace, 'blank-1')).toBe(data)
+  })
+})
+
+/** Find the inner create button in a rendered node section element tree. */function findCreateButton(element: ReactNode): ReactElement<{
+  onClick: (event: { stopPropagation(): void }) => void
+}> | undefined {
+  if (Array.isArray(element)) {
+    for (const child of element) {
+      const found = findCreateButton(child)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+  if (!isValidElement(element)) return undefined
+  const props = element.props as {
+    'aria-label'?: string
+    onClick?: (event: { stopPropagation(): void }) => void
+    children?: ReactNode
+  }
+  if (element.type === 'button' && props['aria-label'] === 'actions.newSession.aria') {
+    return element as ReturnType<typeof findCreateButton>
+  }
+  return findCreateButton(props.children)
+}

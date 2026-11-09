@@ -15,6 +15,7 @@ import {
   ROUTE_PREFIX,
   type MasterEnvelope,
   type MasterArchiveValue,
+  type MasterCreateSessionValue,
   type MasterNodesValue,
   type MasterPendingQuestionsValue,
   type MasterQuestionAccepted,
@@ -162,6 +163,36 @@ export async function archiveRemoteSession(
     body: JSON.stringify({ nodeId, sessionId }),
   }))
   return unwrap(await envelopeOf(response) as MasterEnvelope<MasterArchiveValue>)
+}
+
+/**
+ * Create or reuse a blank session in one remote workspace.
+ *
+ * Only a node-registered `workspaceId` is sent; the browser never supplies a
+ * remote path. Passing `sessionId` asks the node to reuse that blank session.
+ *
+ * @param nodeId - target node.
+ * @param workspaceId - a workspace registered on that node.
+ * @param sessionId - optional existing blank session to reuse.
+ * @param signal - caller cancellation.
+ * @returns the created or reused identity.
+ */
+export async function createRemoteSession(
+  nodeId: string,
+  workspaceId: string,
+  sessionId?: string,
+  signal?: AbortSignal,
+): Promise<MasterCreateSessionValue> {
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/create`, init(signal, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({
+      nodeId,
+      workspaceId,
+      ...(sessionId === undefined ? {} : { sessionId }),
+    }),
+  }))
+  return unwrap(await envelopeOf(response) as MasterEnvelope<MasterCreateSessionValue>)
 }
 
 /** Read questions currently waiting for the selected remote session. */

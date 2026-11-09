@@ -1,6 +1,44 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { archiveRemoteSession, followSession } from '../src/client/api.js'
+import { archiveRemoteSession, createRemoteSession, followSession } from '../src/client/api.js'
 import type { MasterStreamRecord } from '../src/protocol.js'
+
+describe('remote session create browser API', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('posts the node, workspace and optional blank id', async () => {
+    const fetchSpy = vi.fn<typeof fetch>()
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      value: { sessionId: 'session-9' },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(createRemoteSession('node-1', 'workspace-1', 'blank-1')).resolves.toEqual({
+      sessionId: 'session-9',
+    })
+    const [url, init] = fetchSpy.mock.calls[0] ?? []
+    expect(String(url)).toBe('/dsh-master/api/session/create')
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(String(init?.body))).toEqual({
+      nodeId: 'node-1',
+      workspaceId: 'workspace-1',
+      sessionId: 'blank-1',
+    })
+  })
+
+  it('omits the blank id when none is reused', async () => {
+    const fetchSpy = vi.fn<typeof fetch>()
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      value: { sessionId: 'fresh' },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await createRemoteSession('node-1', 'workspace-1')
+    const init = fetchSpy.mock.calls[0]?.[1]
+    expect(JSON.parse(String(init?.body))).toEqual({ nodeId: 'node-1', workspaceId: 'workspace-1' })
+  })
+})
 
 describe('remote archive browser API', () => {
   afterEach(() => { vi.unstubAllGlobals() })

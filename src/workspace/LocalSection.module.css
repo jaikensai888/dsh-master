@@ -5,8 +5,10 @@
 }
 
 [data-dsh-workspace-title] { flex: none; }
-[data-dsh-node-chooser] { display: inline-flex; margin-right: auto; }
-[data-dsh-node-chooser][hidden] { display: none; }
+[data-dsh-node-chooser] {
+  display: inline-flex;
+  min-width: 0;
+}
 [data-dsh-local-list][hidden] { display: none; }
 [data-dsh-browse-context] {
   flex: none;

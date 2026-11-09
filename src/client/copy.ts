@@ -52,7 +52,7 @@ export const COPY = {
   queue: '排队',
   steer: '插话',
   sendHint: '⌘/Ctrl + Enter 发送',
-  attachmentUnavailable: '附件（暂不支持远程会话）',
+  attachmentUnavailable: '附件（正在检查文件能力）',
   attachmentAdd: '添加附件',
   attachmentLimit: '已达到每条消息的附件上限',
   attachmentList: '已选择的附件',
@@ -63,8 +63,7 @@ export const COPY = {
   attachmentRemove: '移除',
   attachmentCancel: '取消',
   attachmentRetry: '重试',
-  attachmentUnsupported: '此远程节点版本较旧，不支持文件附件。请升级 dsh-node 后刷新页面。',
-  attachmentCheckFailed: '无法读取节点文件能力，附件暂不可用。',
+  attachmentUnsupported: '附件不可用（原因见交付文件区域）',
   attachmentRejected: '以下文件未加入',
   attachmentNeedReady: '请等待所有附件上传完成后再发送',
   attachmentUploadDisabled: '发送已被关闭，无法上传附件',
@@ -72,13 +71,15 @@ export const COPY = {
   confirmPromptRetry: '已检查会话，允许重新发送',
   artifactSection: '本次会话的交付文件',
   artifactEmpty: '尚无交付文件。发送「请生成并交付一个可下载的文件」即可开始。',
-  artifactDeliveryUnavailable: '此节点尚未启用文件交付工具，请升级或检查 dsh-node 后重试。',
+  artifactDeliveryUnavailable: '文件接口可用，但本节点未注册 deliver_file 工具。生成的文件无法登记为可下载产物。',
   artifactDownload: '保存到本地',
   artifactUnavailable: '不可下载',
   artifactExpired: '已过期',
   artifactMissing: '文件已失效',
   artifactExpires: '到期',
   artifactLoadFailed: '读取交付文件失败',
+  fileSupportRetry: '重新检查',
+  fileSupportDiagnostics: '诊断信息',
   fileChangeWrite: '写入',
   fileChangeEdit: '编辑',
   fileChangeReplace: '替换',
@@ -112,6 +113,40 @@ export const COPY = {
   interrupted: '（已中断）',
   approvalWaiting: '等待授权',
   approvalDecided: '授权结果',
+} as const
+
+/**
+ * Copy for each evidenced file-capability failure.
+ *
+ * The title states only what the code proves. None of these says "the node is old":
+ * a missing namespace can also mean the plugin is not loaded, and a missing
+ * endpoint can mean the node and this plugin disagree on the file revision.
+ */
+export const FILE_SUPPORT_TEXT = {
+  'protocol-unsupported': {
+    title: '此节点未提供远程文件接口',
+    detail: '附件与交付文件不可用；普通文本对话不受影响。无法仅凭此判断节点版本，可能是文件插件未加载。重连或更新节点后可重新检查。',
+  },
+  'endpoint-missing': {
+    title: '节点未注册所需的文件接口',
+    detail: '附件与交付文件不可用；普通文本对话不受影响。可能是文件插件不完整或版本不一致。重连或更新节点后可重新检查。',
+  },
+  'capability-mismatch': {
+    title: '节点与主控的文件协议不一致',
+    detail: '为避免误读节点数据，附件与交付文件暂不可用；普通文本对话不受影响。',
+  },
+  network: {
+    title: '无法连接远程节点，无法确认文件能力',
+    detail: '附件与交付文件暂不可用；普通文本对话不受影响。网络恢复后可重新检查。',
+  },
+  permission: {
+    title: '无权使用远程文件能力',
+    detail: '当前凭据或页面来源被拒绝；附件与交付文件不可用，普通文本对话不受影响。',
+  },
+  unknown: {
+    title: '无法确认远程文件能力',
+    detail: '附件与交付文件暂不可用；普通文本对话不受影响。可重新检查，详细原因见诊断信息。',
+  },
 } as const
 
 /**

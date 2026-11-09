@@ -35,6 +35,9 @@ import type { MasterService } from './service.js'
 /** Largest prompt body accepted, in bytes. A prompt is text; anything larger is a mistake. */
 export const MAX_PROMPT_BODY_BYTES = 256 * 1024
 
+/** Longest node, workspace, or session identity accepted by the create route. */
+export const MAX_SESSION_ID_LENGTH = 200
+
 /** Everything the route handler reads from its host. */
 export interface MasterRouteDeps {
   /** The service the routes call. Read through a getter so a remount is picked up. */
@@ -487,6 +490,66 @@ export function createMasterRouteHandler(
           return
         }
         await streamFollow(request, response, deps, url)
+        return
+      }
+
+      if (route === '/api/session/create') {
+        if (method !== 'POST') {
+          response.setHeader('allow', 'POST')
+          sendFailure(response, 405, failure('master/method-not-allowed', `${method} is not allowed here`))
+          return
+        }
+        const service = deps.service()
+        if (service === undefined) {
+          sendFailure(response, 503, failure('master/unavailable', 'the master service is not mounted'))
+          return
+        }
+        let body: Record<string, unknown>
+        try {
+          body = await readJsonBody(request)
+        } catch (error) {
+          const code = error instanceof Error && error.name.startsWith('master/')
+            ? error.name
+            : 'master/invalid-arguments'
+          const message = error instanceof Error ? error.message : 'unreadable request body'
+          sendFailure(response, code === 'master/too-large' ? 413 : 400, failure(code, message))
+          return
+        }
+        const nodeId = bodyText(body, 'nodeId')
+        const workspaceId = bodyText(body, 'workspaceId')
+        const sessionId = bodyText(body, 'sessionId')
+        if (nodeId === undefined || workspaceId === undefined) {
+          sendFailure(response, 400, failure(
+            'master/invalid-arguments',
+            'nodeId and workspaceId are required non-empty strings',
+          ))
+          return
+        }
+        // A malformed optional identity must fail rather than silently create a new
+        // session when the caller meant to reuse one.
+        if (body['sessionId'] !== undefined && sessionId === undefined) {
+          sendFailure(response, 400, failure(
+            'master/invalid-arguments',
+            'sessionId must be a non-empty string when present',
+          ))
+          return
+        }
+        const tooLong = [nodeId, workspaceId, sessionId ?? '']
+          .some(value => value.length > MAX_SESSION_ID_LENGTH)
+        if (tooLong) {
+          sendFailure(response, 400, failure(
+            'master/invalid-arguments',
+            `session identities must not exceed ${String(MAX_SESSION_ID_LENGTH)} characters`,
+          ))
+          return
+        }
+        try {
+          const value = await service.createSession(nodeId, workspaceId, sessionId)
+          sendJson(response, 200, { ok: true, value })
+        } catch (error) {
+          const mapped = classify(error)
+          sendFailure(response, mapped.status, mapped.error)
+        }
         return
       }
 

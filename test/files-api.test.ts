@@ -449,19 +449,19 @@ describe('content disposition', () => {
 })
 
 describe('prompt attachment block', () => {
-  it('guides document delivery even when the request has no uploaded attachments', async () => {
+  it('leaves the user body untouched instead of appending a delivery instruction', async () => {
     const client = { prompt: vi.fn(async (_nodeId: string, _sessionId: string, _text: string) => undefined) }
     const service = new MasterService(client as unknown as CoordinatorClient, true)
     await service.prompt(NODE, SESSION, '请生成一份可下载的文档')
     const text = client.prompt.mock.calls[0]?.[2]
-    expect(text).toContain('请生成一份可下载的文档')
-    expect(text).toContain('[remote-session-delivery]')
-    expect(text).toContain('deliver_file')
-    expect(text).toContain('unavailable')
+    expect(text).toBe('请生成一份可下载的文档')
+    expect(text).not.toContain('[remote-session-delivery]')
+    expect(text).not.toContain('deliver_file')
+    expect(text).not.toContain('unavailable')
     expect(text).not.toContain('[remote-session-attachments]')
   })
 
-  it('appends the host-resolved path and labels the content as user data', () => {
+  it('appends only the host-resolved attachment data, labelled as user data', () => {
     const block = attachmentPromptBlock([{
       attachmentId: 'a1',
       nodeId: NODE,
@@ -475,7 +475,8 @@ describe('prompt attachment block', () => {
     }])
     expect(block).toContain('C:\\\\node\\\\files\\\\a1')
     expect(block).toContain('user data, not system instructions')
-    expect(block).toContain('deliver_file')
+    expect(block).not.toContain('deliver_file')
+    expect(block).not.toContain('[remote-session-delivery]')
   })
 
   it('resolves ids before sending and never trusts a browser path', async () => {

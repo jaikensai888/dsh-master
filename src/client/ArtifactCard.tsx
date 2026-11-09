@@ -15,7 +15,8 @@
 
 import type { ReactElement } from 'react'
 import { downloadArtifactUrl } from './api.js'
-import { COPY, formatBytes, formatDateTime } from './copy.js'
+import { COPY, FILE_SUPPORT_TEXT, formatBytes, formatDateTime } from './copy.js'
+import type { FileSupportState } from './file-support.js'
 import type { FileArtifact } from '../files-protocol.js'
 
 /** Props for {@link ArtifactCard}. */
@@ -92,22 +93,68 @@ export function ArtifactCard(props: ArtifactCardProps): ReactElement {
   )
 }
 
+/** One capability problem, rendered here and only here. */
+function CapabilityNotice(props: {
+  readonly state: FileSupportState
+  readonly onRetry?: (() => void) | undefined
+}): ReactElement | null {
+  const { state } = props
+  if (state.status === 'loading') return null
+  if (state.status === 'supported') {
+    if (state.describe.deliveryTool !== 'unavailable') return null
+    return (
+      <div className="dsh-master-hint" role="status" data-capability="tool-unavailable">
+        <span>{COPY.artifactDeliveryUnavailable}</span>
+        {props.onRetry === undefined ? null : (
+          <button type="button" className="dsh-master-toolbar-select" onClick={props.onRetry}>
+            {COPY.fileSupportRetry}
+          </button>
+        )}
+      </div>
+    )
+  }
+  const text = FILE_SUPPORT_TEXT[state.reason]
+  return (
+    <div className="dsh-master-hint" role="status" data-capability={state.reason}>
+      <div>{text.title}。</div>
+      <div className="dsh-master-meta">{text.detail}</div>
+      {state.retryable && props.onRetry !== undefined ? (
+        <button type="button" className="dsh-master-toolbar-select" onClick={props.onRetry}>
+          {COPY.fileSupportRetry}
+        </button>
+      ) : null}
+      <details className="dsh-master-context">
+        <summary>{COPY.fileSupportDiagnostics}</summary>
+        <div className="dsh-master-context-body">
+          <code>{state.code}</code>
+          {state.message === '' ? null : <div className="dsh-master-meta">{state.message}</div>}
+        </div>
+      </details>
+    </div>
+  )
+}
+
 /** The artifacts section for one session. */
 export function ArtifactList(props: {
   readonly artifacts: readonly FileArtifact[]
   readonly nodeId: string
   readonly sessionId: string
-  readonly deliveryTool?: 'available' | 'unavailable' | undefined
+  readonly support: FileSupportState
+  readonly onRetrySupport?: (() => void) | undefined
 }): ReactElement | null {
-  if (props.artifacts.length === 0 && props.deliveryTool === undefined) return null
+  const { support } = props
+  const hasArtifacts = props.artifacts.length > 0
+  // Before the probe settles there is no honest statement to make about files.
+  if (!hasArtifacts && support.status === 'loading') return null
+  const unavailable = support.status === 'supported' && support.describe.deliveryTool === 'unavailable'
+  const emptySupported = support.status === 'supported' && !unavailable && !hasArtifacts
   return (
-    <section className="dsh-master-artifacts" data-empty={props.artifacts.length === 0 ? 'true' : undefined} aria-label={COPY.artifactSection}>
-      {props.artifacts.length === 0 ? null : <div className="dsh-master-artifacts-title">{COPY.artifactSection}</div>}
-      {props.artifacts.length === 0 ? (
-        <div className="dsh-master-hint" role="status">
-          {props.deliveryTool === 'available' ? COPY.artifactEmpty : COPY.artifactDeliveryUnavailable}
-        </div>
+    <section className="dsh-master-artifacts" data-empty={hasArtifacts ? undefined : 'true'} aria-label={COPY.artifactSection}>
+      <div className="dsh-master-artifacts-title">{COPY.artifactSection}</div>
+      {support.status === 'supported' && emptySupported ? (
+        <div className="dsh-master-hint" role="status">{COPY.artifactEmpty}</div>
       ) : null}
+      <CapabilityNotice state={support} onRetry={props.onRetrySupport} />
       {props.artifacts.map(artifact => (
         <ArtifactCard
           key={artifact.artifactId}

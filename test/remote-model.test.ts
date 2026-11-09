@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { MasterNode, MasterSession } from '../src/protocol.js'
-import { groupRemoteWorkspaces, nodeIsOffline, orderRemoteNodes, visibleRemoteSessions } from '../src/workspace/remote-model.js'
+import type { MasterNode, MasterSession, MasterWorkspace } from '../src/protocol.js'
+import {
+  groupRemoteWorkspaces,
+  nodeIsOffline,
+  orderRemoteNodes,
+  reusableBlankSession,
+  visibleRemoteSessions,
+} from '../src/workspace/remote-model.js'
 
 const node = (nodeId: string, state: string, revoked = false): MasterNode => ({ nodeId, state, revoked })
 
@@ -80,5 +86,41 @@ describe('remote workspace row model', () => {
       sessions: [session('s2'), session('s3'), session('s4'), session('s5'), session('s6')],
       hiddenCount: 0,
     })
+  })
+
+  it('keeps the selected blank visible without charging it against the five-row limit', () => {
+    const rows = [
+      session('s1'), session('s2'), session('blank', true), session('s3'),
+      session('s4'), session('s5'), session('s6'),
+    ]
+
+    expect(visibleRemoteSessions(rows, false, [], 'blank')).toEqual({
+      sessions: [session('s1'), session('s2'), session('blank', true), session('s3'), session('s4'), session('s5')],
+      hiddenCount: 1,
+    })
+    // A different blank stays hidden; only the selected provisional row is special.
+    expect(visibleRemoteSessions(rows, false, [], 'other')).toEqual({
+      sessions: [session('s1'), session('s2'), session('s3'), session('s4'), session('s5')],
+      hiddenCount: 1,
+    })
+  })
+
+  it('keeps an empty registered workspace with its selected blank session', () => {
+    const workspace: MasterWorkspace = { workspaceId: 'w1', title: 'repo', path: '/repo', sessionIds: ['blank'] }
+    const groups = groupRemoteWorkspaces([workspace], [session('blank', true)], [], 'blank')
+    expect(groups).toEqual([{ workspace, sessions: [session('blank', true)] }])
+  })
+
+  it('reuses only an unarchived blank that belongs to the same workspace', () => {
+    const workspace: MasterWorkspace = { workspaceId: 'w1', title: 'repo', path: '/repo', sessionIds: ['b1', 'b2', 'b3'] }
+    const rows: MasterSession[] = [
+      { ...session('b1', true), cwd: '/repo' },
+      { ...session('b2', true), cwd: '/other' },
+      session('b3', true),
+    ]
+
+    expect(reusableBlankSession(rows, [], workspace)).toBe('b1')
+    expect(reusableBlankSession(rows, ['b1'], workspace)).toBe('b3')
+    expect(reusableBlankSession(rows, ['b1', 'b3'], { ...workspace, sessionIds: ['b2'] })).toBeUndefined()
   })
 })

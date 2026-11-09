@@ -61,6 +61,26 @@ describe('readSnapshot', () => {
     expect(view?.unrendered).toBe(0)
   })
 
+  it('preserves text a user typed that happens to contain the old delivery marker', () => {
+    const text = '[remote-session-delivery]\nFor a document the user should download, call deliver_file.'
+    const view = readSnapshot(snapshot([
+      entry(1, 'user/message', {
+        source: { kind: 'user' },
+        content: [{ type: 'text', text }],
+      }),
+    ]))
+    expect(view?.rows).toEqual([{ key: 'user/message:1', kind: 'user', text }])
+  })
+
+  it('replays a historical leaked instruction verbatim instead of guessing and trimming it', () => {
+    const text = '请生成一份文档\n\n[remote-session-delivery]\n'
+      + 'For a document or file the user should download, finish writing it, then call deliver_file with its absolute path.'
+    const view = readSnapshot(snapshot([
+      entry(1, 'user/message', { content: [{ type: 'text', text }] }),
+    ]))
+    expect(view?.rows).toEqual([{ key: 'user/message:1', kind: 'user', text }])
+  })
+
   it('counts events it cannot render rather than dropping them silently', () => {
     const view = readSnapshot(snapshot([
       entry(1, 'turn/start', { turn: 1 }),

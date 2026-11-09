@@ -12,7 +12,7 @@
  * except workspace Rename/Delete and session Rename/Fork/Archive; the session
  * and workspace hover cards are suppressed while a menu is open.
  */
-import { useState } from 'react'
+import { useState, type ReactElement } from 'react'
 import clsx from 'clsx'
 import {
   HoverCard, IconAlarmClockOutlineRegular as IconAlarmClockOutline16, IconArchiveOutlineRegular as IconArchiveOutline20, IconBranchOutlineRegular as IconBranchOutline16,
@@ -24,6 +24,7 @@ import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import { abbreviateHomePath } from '../workspace-path.js'
 import type { WorkspaceBrowserProps } from '../contract/slots.js'
 import type { GroupNode, SearchResultNode, SessionNode } from '../tree.js'
+import { FollowPin } from '../follow-pin.js'
 import { RowsCss as css } from '../styles.generated.js'
 
 /** The standard locale seat, prop-passed from the browser root. */
@@ -32,6 +33,74 @@ type RowTranslate = WorkspaceBrowserProps['t']
 /** Row display title: blank rows show the localized New Session label. */
 function displayTitle(node: SessionNode, t: RowTranslate): string {
   return node.blank ? t('session.new') : node.title
+}
+
+/** Row-menu action ids the local session row understands. */
+export type SessionRowMenuAction = 'rename' | 'fork' | 'archive' | 'follow' | 'unfollow'
+
+/** One local session row-menu entry. */
+export interface SessionRowMenuEntry {
+  readonly id: SessionRowMenuAction
+  readonly label: string
+  readonly icon: ReactElement
+}
+
+/**
+ * Build the local session row menu.
+ *
+ * Following is appended only when the browser offers it, so a composition without
+ * follow wiring keeps the upstream menu unchanged.
+ *
+ * @param t - the browser root's locale seat.
+ * @param followed - this session carries a follow marker.
+ * @param followOffered - the browser wired the follow action.
+ * @returns the menu entries in row order.
+ */
+export function sessionRowMenuItems(
+  t: RowTranslate,
+  followed: boolean,
+  followOffered: boolean,
+): SessionRowMenuEntry[] {
+  return [
+    { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
+    { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
+    // 20-native glyph in the menu's 16px icon slot (Menu.module.css .itemIcon).
+    { id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> },
+    ...(followOffered
+      ? [{
+        id: (followed ? 'unfollow' : 'follow') as SessionRowMenuAction,
+        label: t(followed ? 'menu.unfollow' : 'menu.follow'),
+        icon: <FollowPin filled={followed} />,
+      }]
+      : []),
+  ]
+}
+
+/**
+ * Dispatch one local session row-menu action.
+ *
+ * Kept out of the JSX so the action ids and their targets are testable without a DOM.
+ *
+ * @param id - the selected menu id.
+ * @param sessionId - the row's session.
+ * @param currentTitle - the row's stored title (rename draft seed).
+ * @param actions - the row's action callbacks.
+ */
+export function runSessionRowMenuAction(
+  id: string,
+  sessionId: SessionNode['id'],
+  currentTitle: string,
+  actions: {
+    readonly onRename: (id: SessionNode['id'], currentTitle: string) => void
+    readonly onFork: (id: SessionNode['id']) => void
+    readonly onArchive: (id: SessionNode['id']) => void
+    readonly onFollowToggle?: ((id: SessionNode['id']) => void) | undefined
+  },
+): void {
+  if (id === 'rename') actions.onRename(sessionId, currentTitle)
+  if (id === 'fork') actions.onFork(sessionId)
+  if (id === 'archive') actions.onArchive(sessionId)
+  if (id === 'follow' || id === 'unfollow') actions.onFollowToggle?.(sessionId)
 }
 
 /** Localized compact relative time ("刚刚"/"5分钟" in zh, "now"/"5min" in en). */
@@ -382,7 +451,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  * @param props.t - the browser root's locale seat.
  * @returns the session row.
  */
-export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, flat = false, t }: {
+export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, flat = false, followed = false, onFollowToggle, t }: {
   node: SessionNode
   currentId: string | undefined
   now: number
@@ -397,6 +466,10 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   drag?: RowDragProps | undefined
   /** The row is rendered without a parent Workspace header. */
   flat?: boolean | undefined
+  /** This session has a browser-local follow marker. */
+  followed?: boolean | undefined
+  /** Add or remove this session's follow marker; absent means the action is not offered. */
+  onFollowToggle?: ((id: SessionNode['id']) => void) | undefined
   t: RowTranslate
 }) {
   const row = node
@@ -409,12 +482,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   // Archive hides the row through the registry-global archive set and never
   // touches the session log, so it is not styled as destructive and needs no
   // confirmation dialog.
-  const sessionMenuItems = [
-    { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
-    { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
-    // 20-native glyph in the menu's 16px icon slot (Menu.module.css .itemIcon).
-    { id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> },
-  ]
+  const sessionMenuItems = sessionRowMenuItems(t, followed, onFollowToggle !== undefined)
   // Figma session cell: pad 8, status slot 16, then a 4px title gap.
   const ownRow = (
     <div
@@ -474,9 +542,9 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
             items={sessionMenuItems}
             onSelect={(id) => {
               setMenuOpen(false)
-              if (id === 'rename') onRename(node.id, row.title)
-              if (id === 'fork') onFork(node.id)
-              if (id === 'archive') onArchive(node.id)
+              runSessionRowMenuAction(id, node.id, row.title, {
+                onRename, onFork, onArchive, onFollowToggle,
+              })
             }}
             portal
             closeOnPointerLeave
