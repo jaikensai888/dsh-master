@@ -47,6 +47,7 @@ export const PANEL_CSS = `
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  container: dsh-master-session / inline-size;
 }
 .dsh-master-empty {
   flex: 1 1 auto;
@@ -91,16 +92,19 @@ export const PANEL_CSS = `
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 44px;
+  min-height: 48px;
   flex: none;
-  padding: 0 12px;
+  padding: 0 24px;
   border-bottom: .5px solid var(--dsw-alias-border-l2);
 }
-.dsh-master-head .dsh-master-label {
+.dsh-master-head h1 {
+  margin: 0;
   flex: 0 1 auto;
   font-size: var(--dsh-content-font-size, 14px);
   font-weight: 600;
 }
+.dsh-master-location { flex: 1 2 0; }
+.dsh-master-connection { margin-left: auto; white-space: nowrap; }
 .dsh-master-log {
   flex: 1 1 auto;
   overflow: auto;
@@ -114,8 +118,37 @@ export const PANEL_CSS = `
   max-width: var(--dsh-chat-content-width);
   margin: 0 auto;
 }
+.dsh-master-log:focus-visible {
+  outline: 1px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
+.dsh-master-jump-slot {
+  position: relative;
+  flex: none;
+  height: 0;
+}
+.dsh-master-jump {
+  position: absolute;
+  z-index: 1;
+  bottom: 12px;
+  right: max(24px, calc((100% - var(--dsh-chat-content-width)) / 2));
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: .5px solid var(--dsw-alias-border-l2);
+  border-radius: 50%;
+  background: var(--dsw-alias-button-floating-fill, var(--dsw-alias-bg-layer-2));
+  color: var(--dsw-alias-label-primary);
+  box-shadow: var(--dsw-elevation-panel);
+  cursor: pointer;
+}
+.dsh-master-jump:hover {
+  background: var(--dsw-alias-button-floating-hover, var(--dsw-alias-bg-layer-3));
+}
 .dsh-master-turn { margin: 0 0 14px; }
-.dsh-master-turn-group { min-width: 0; margin: 8px 0 16px; }
+.dsh-master-turn-group { min-width: 0; margin: 8px 0 20px; }
 .dsh-master-process-summary {
   display: flex;
   align-items: center;
@@ -133,11 +166,36 @@ export const PANEL_CSS = `
 .dsh-master-process-summary::-webkit-details-marker { display: none; }
 .dsh-master-process-summary svg { flex: none; width: 14px; height: 14px; }
 .dsh-master-process[open] > .dsh-master-process-summary > svg { transform: rotate(180deg); }
+.dsh-master-step { margin: 0 0 8px; }
+.dsh-master-step > summary { width: fit-content; overflow-wrap: anywhere; }
+.dsh-master-step .dsh-master-process-summary > svg { transform: rotate(-90deg); }
+.dsh-master-step[open] .dsh-master-process-summary > svg { transform: none; }
+.dsh-master-step-body { margin: 4px 0 4px 6px; padding-left: 12px; border-left: .5px solid var(--dsw-alias-border-l2); }
 .dsh-master-process-summary:focus-visible,
 .dsh-master-reasoning > summary:focus-visible,
 .dsh-master-context > summary:focus-visible { outline: 1.5px solid var(--dsw-focus-ring-color); outline-offset: 3px; }
 .dsh-master-process-body { padding: 8px 0; }
-.dsh-master-turn-group[data-state='error'] > .dsh-master-process > summary { color: var(--dsw-alias-state-error-primary); }
+.dsh-master-turn-status,
+.dsh-master-turn-progress {
+  color: var(--dsw-alias-label-secondary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: 22px;
+}
+.dsh-master-turn-status {
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: .5px solid var(--dsw-alias-border-l2);
+}
+.dsh-master-turn-group[data-state='error'] > .dsh-master-turn-status { color: var(--dsw-alias-state-error-primary); }
+.dsh-master-turn-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: .5px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-state-business-primary, var(--dsw-alias-label-secondary));
+}
 .dsh-master-response { margin-top: 8px; padding-top: 16px; border-top: .5px solid var(--dsw-alias-border-l2); }
 .dsh-master-response > .dsh-master-turn { margin-bottom: 0; }
 .dsh-master-reasoning { margin: 4px 0 10px; color: var(--dsw-alias-label-secondary); overflow-wrap: anywhere; }
@@ -146,6 +204,7 @@ export const PANEL_CSS = `
 .dsh-master-context { margin: 2px 0 8px; color: var(--dsw-alias-label-tertiary); overflow-wrap: anywhere; }
 .dsh-master-context > summary { cursor: pointer; font-size: var(--dsh-content-font-size-secondary, 13px); line-height: 22px; }
 .dsh-master-context[open] > summary { margin-bottom: 6px; }
+.dsh-master-transcript-info { margin-bottom: 0; }
 .dsh-master-context-body {
   padding: 0 0 0 10px;
   border-left: 2px solid var(--dsw-alias-border-l2);
@@ -153,7 +212,34 @@ export const PANEL_CSS = `
   line-height: 20px;
   color: var(--dsw-alias-label-secondary);
 }
-.dsh-master-turn[data-role='user'] { display: flex; flex-direction: column; align-items: flex-end; }
+.dsh-master-turn[data-role='user'] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  margin: 12px 0 22px;
+}
+.dsh-master-user-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+}
+.dsh-master-copy-message {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.dsh-master-copy-message svg { width: 14px; height: 14px; }
+.dsh-master-copy-message:hover,
+.dsh-master-copy-message:focus-visible { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .dsh-master-role {
   font-size: 11px;
   line-height: 16px;
@@ -169,7 +255,8 @@ export const PANEL_CSS = `
 .dsh-master-bubble {
   max-width: min(calc(var(--dsh-chat-content-width, 748px) * .702), 82%);
   background: var(--dsw-specific-bubble);
-  border-radius: 22px;
+  border-radius: var(--dsw-radius-xl, 22px);
+  box-sizing: border-box;
   padding: 10px 16px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -512,14 +599,15 @@ export const PANEL_CSS = `
 .dsh-master-access-panel > .dsh-master-toolbar-select { justify-self: end; }
 .dsh-master-composer {
   margin: 8px auto 20px;
-  border: .5px solid var(--dsw-alias-border-l2);
-  border-radius: 20px;
-  padding: 10px 12px 8px;
+  border: .5px solid transparent;
+  border-radius: var(--dsw-radius-xl, 22px);
+  padding: 12px 10px 8px;
   background: var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-2));
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
+.dsh-master-composer:focus-within { border-color: var(--dsw-alias-border-l2); }
 .dsh-master-question-composer {
   max-height: min(60vh, 520px);
   overflow: hidden;
@@ -536,8 +624,9 @@ export const PANEL_CSS = `
   border: 0;
   border-radius: 8px;
   padding: 2px 4px 8px;
-  resize: vertical;
-  min-height: 64px;
+  field-sizing: content;
+  resize: none;
+  min-height: 46px;
   max-height: 220px;
   outline: none;
 }
@@ -836,6 +925,7 @@ export const PANEL_CSS = `
 
 /* ----------------------------------------------------------------- artifacts */
 
+/* Keep delivered files visually separate from the transcript. */
 .dsh-master-artifacts {
   flex: none;
   width: calc(100% - 64px);
@@ -844,8 +934,23 @@ export const PANEL_CSS = `
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin: 0 auto 8px;
+  margin: 12px auto 8px;
+  padding-top: 10px;
+  border-top: .5px solid var(--dsw-alias-border-l2);
 }
+.dsh-master-artifacts[data-empty='true'] { gap: 2px; padding-top: 8px; }
+.dsh-master-artifacts[data-empty='true'] .dsh-master-artifacts-title { font-size: 12px; line-height: 18px; }
+.dsh-master-artifacts.dsh-master-artifacts-empty {
+  display: block;
+  margin-top: 4px;
+  margin-bottom: 0;
+  padding-top: 0;
+  border-top: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: 22px;
+}
+.dsh-master-artifacts-empty > summary { width: fit-content; cursor: pointer; }
 .dsh-master-artifacts[data-empty='true'] .dsh-master-hint {
   margin: 0;
   padding: 0;
@@ -1098,7 +1203,8 @@ export const PANEL_CSS = `
 }
 .dsh-master-changes-toggle svg { flex: none; width: 14px; height: 14px; }
 
-@media (max-width: 720px) {
+@container dsh-master-session (max-width: 720px) {
+  .dsh-master-head { padding-inline: 16px; }
   .dsh-master-composer { margin-bottom: 12px; }
   .dsh-master-composer-toolbar { align-items: flex-end; flex-wrap: wrap; }
   .dsh-master-composer-leading { flex-wrap: wrap; }

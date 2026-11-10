@@ -35,7 +35,7 @@ describe('readSnapshot', () => {
     const view = readSnapshot(snapshot([
       entry(1, 'user/message', { id: 'm1', role: 'user', content: [{ type: 'text', text: '看一下类型错误' }] }),
     ]))
-    expect(view?.rows).toEqual([{ key: 'user/message:1', kind: 'user', text: '看一下类型错误' }])
+    expect(view?.rows).toEqual([{ key: 'user/message:1', kind: 'user', text: '看一下类型错误', time: 1_700_000_000_001 }])
     expect(view?.unrendered).toBe(0)
   })
 
@@ -69,7 +69,7 @@ describe('readSnapshot', () => {
         content: [{ type: 'text', text }],
       }),
     ]))
-    expect(view?.rows).toEqual([{ key: 'user/message:1', kind: 'user', text }])
+    expect(view?.rows).toEqual([{ key: 'user/message:1', kind: 'user', text, time: 1_700_000_000_001 }])
   })
 
   it('replays a historical leaked instruction verbatim instead of guessing and trimming it', () => {
@@ -78,7 +78,7 @@ describe('readSnapshot', () => {
     const view = readSnapshot(snapshot([
       entry(1, 'user/message', { content: [{ type: 'text', text }] }),
     ]))
-    expect(view?.rows).toEqual([{ key: 'user/message:1', kind: 'user', text }])
+    expect(view?.rows).toEqual([{ key: 'user/message:1', kind: 'user', text, time: 1_700_000_000_001 }])
   })
 
   it('counts events it cannot render rather than dropping them silently', () => {

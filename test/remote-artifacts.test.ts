@@ -160,6 +160,7 @@ describe('ArtifactCard', () => {
     const html = renderToStaticMarkup(createElement(ArtifactList, {
       artifacts: [], nodeId: NODE, sessionId: SESSION, support: support(),
     }))
+    expect(html).toMatch(/^<details class="dsh-master-artifacts dsh-master-artifacts-empty">/u)
     expect(html).toContain('本次会话的交付文件')
     expect(html).toContain('请生成并交付一个可下载的文件')
     expect(html).not.toContain('<a ')

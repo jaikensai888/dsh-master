@@ -78,6 +78,48 @@ describe('remote turn disclosure', () => {
     expect(html).not.toContain('download')
   })
 
+  it('summarizes a tool row with the command it ran and drops the repeated assistant label', () => {
+    const records = [
+      frame(1, 'turn/start', { turn: 7 }),
+      frame(2, 'assistant/message', {
+        turn: 7, step: 1, message: { content: [{ type: 'text', text: '先确认 uv 版本。' }] },
+      }),
+      frame(3, 'tool/call', {
+        turn: 7, step: 2, callId: 'c9', name: 'bash',
+        arguments: JSON.stringify({ command: 'grep -o "0x[0-9a-f]*" frontend/creation/script.js | head' }),
+      }),
+      frame(4, 'tool/result', {
+        turn: 7,
+        step: 2,
+        message: {
+          role: 'tool',
+          source: { kind: 'tool', callId: 'c9' },
+          content: [{ type: 'text', text: '2057015745573a5700577572a5700577572a5700577572a5700577572a5700577572' }],
+          isError: false,
+        },
+      }),
+      frame(5, 'turn/end', { turn: 7, reason: { kind: 'completed' } }),
+    ]
+    const view = readSnapshot({
+      type: 'snapshot',
+      header: { version: 3, id: 's-1', createdAt: 1, isSeeded: false },
+      cursor: 5,
+      records,
+      hasMore: false,
+      projections: { asOfSeq: 5, values: {} },
+    })!
+    const html = renderToStaticMarkup(createElement(ConversationLog, { rows: view.rows, events: view.turnEvents }))
+    const summary = html.match(/<span class="dsh-master-tool-summary">([\s\S]*?)<\/span>/u)?.[1]
+
+    // The row answers "what ran here?"; the output fragment stays in the body.
+    expect(summary).toContain('grep -o')
+    expect(summary).toContain('frontend/creation/script.js')
+    expect(summary).not.toContain('2057015745573a')
+    // Assistant narration is left-aligned body text; a label above every block was noise.
+    expect(html).toContain('先确认 uv 版本。')
+    expect(html).not.toContain('>助手<')
+  })
+
   it('keeps the roll-up off a turn that is still running', () => {
     // Same edit, but the turn has not ended: the per-call card is visible and the
     // "已编辑 N 个文件" heading is not claimed yet.
@@ -111,5 +153,40 @@ describe('remote turn disclosure', () => {
     expect(html).toContain('data-tool="edit"')
     expect(html).not.toContain('data-changes')
     expect(html).not.toContain('已编辑')
+  })
+
+  it('keeps narration between compact tool summaries, with live progress after the latest activity', () => {
+    const view = readSnapshot({ ...fixture, records: [
+      frame(1, 'user/message', { content: [{ type: 'text', text: '帮我刷机' }] }),
+      frame(2, 'turn/start', { turn: 1 }),
+      frame(3, 'user/message', {
+        source: { kind: 'time-context', form: 'snapshot' },
+        content: [{ type: 'text', text: 'Time sampled while preparing the turn' }],
+      }),
+      frame(4, 'tool/call', { turn: 1, step: 1, callId: 'read', name: 'read', arguments: '{}' }),
+      frame(5, 'tool/result', { turn: 1, step: 1, message: { source: { callId: 'read' }, content: [{ type: 'text', text: '设备列表' }] } }),
+      frame(6, 'tool/call', { turn: 1, step: 1, callId: 'check', name: 'pwsh', arguments: '{"command":"list ports"}' }),
+      frame(7, 'tool/result', { turn: 1, step: 1, message: { source: { callId: 'check' }, content: [{ type: 'text', text: 'COM5' }] } }),
+      frame(8, 'assistant/message', { turn: 1, step: 2, message: { content: [{ type: 'text', text: 'COM5 已就绪。' }] } }),
+      frame(9, 'tool/call', { turn: 1, step: 2, callId: 'flash', name: 'pwsh', arguments: '{"command":"flash"}' }),
+    ] })!
+    const html = renderToStaticMarkup(createElement(ConversationLog, { rows: view.rows, events: view.turnEvents }))
+
+    expect(html).toMatch(/<details class="dsh-master-step">/u)
+    expect(html).toContain('已读取文件，执行了命令')
+    expect(html).toContain('正在运行命令')
+    expect(html.indexOf('执行了命令')).toBeLessThan(html.indexOf('COM5 已就绪。'))
+    expect(html.indexOf('COM5 已就绪。')).toBeLessThan(html.indexOf('正在运行命令'))
+    expect(html.indexOf('正在运行命令')).toBeLessThan(html.indexOf('正在处理'))
+    expect(html).not.toContain('dsh-master-process"')
+    expect(html).toContain('<time dateTime="1970-01-01T00:00:01.000Z"')
+    expect(html).toMatch(/<details class="dsh-master-context dsh-master-transcript-info">[\s\S]*?Time sampled/u)
+
+    const disconnected = renderToStaticMarkup(createElement(ConversationLog, {
+      rows: view.rows, events: view.turnEvents, connected: false,
+    }))
+    expect(disconnected).not.toContain('正在处理')
+    expect(disconnected).not.toContain('正在运行命令')
+    expect(disconnected).toContain('data-state="unknown"')
   })
 })

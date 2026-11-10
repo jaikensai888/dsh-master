@@ -148,12 +148,17 @@ export function ArtifactList(props: {
   if (!hasArtifacts && support.status === 'loading') return null
   const unavailable = support.status === 'supported' && support.describe.deliveryTool === 'unavailable'
   const emptySupported = support.status === 'supported' && !unavailable && !hasArtifacts
+  if (emptySupported) {
+    return (
+      <details className="dsh-master-artifacts dsh-master-artifacts-empty">
+        <summary>{COPY.artifactSection}</summary>
+        <div className="dsh-master-hint">{COPY.artifactEmpty}</div>
+      </details>
+    )
+  }
   return (
     <section className="dsh-master-artifacts" data-empty={hasArtifacts ? undefined : 'true'} aria-label={COPY.artifactSection}>
       <div className="dsh-master-artifacts-title">{COPY.artifactSection}</div>
-      {support.status === 'supported' && emptySupported ? (
-        <div className="dsh-master-hint" role="status">{COPY.artifactEmpty}</div>
-      ) : null}
       <CapabilityNotice state={support} onRetry={props.onRetrySupport} />
       {props.artifacts.map(artifact => (
         <ArtifactCard

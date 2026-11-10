@@ -42,6 +42,8 @@ export interface ConversationRow {
   readonly kind: 'user' | 'assistant' | 'reasoning' | 'tool-call' | 'tool-result' | 'notice' | 'context'
   /** The line's main text. */
   readonly text: string
+  /** When a user message was recorded, in epoch milliseconds. */
+  readonly time?: number
   /** Secondary text — tool arguments, a note. */
   readonly detail?: string
   /** Tool output, joined to its call by call id. */
@@ -242,7 +244,8 @@ function rowOf(event: Record<string, unknown>): ConversationRow | undefined {
         }
       }
       if (text.trim() === '') return undefined
-      return { key, kind: 'user', text }
+      const time = num(event, 'time')
+      return { key, kind: 'user', text, ...(time === undefined ? {} : { time }) }
     }
     case 'assistant/message': {
       const text = messageText(data['message'], true)
@@ -464,7 +467,7 @@ export function conversationItems(rows: readonly ConversationRow[], events: read
     const canAnswer = status === 'completed' && !incomplete && lastReply !== undefined && !lastReply.interrupted
       && !facts.some(event => event.step === lastStep && event.hasToolCalls)
     const answerKeys = new Set(canAnswer ? lastReply.replyKeys : [])
-    const visible = members.filter(row => status === 'unknown' || incomplete || row.failed === true || row.kind === 'notice'
+    const visible = members.filter(row => status !== 'completed' || incomplete || row.failed === true || row.kind === 'notice'
       || row.kind === 'tool-call' && row.text === 'ask_user_question' && row.output === undefined)
     const visibleKeys = new Set(visible.map(row => row.key))
     const durationMs = start?.time !== undefined && end?.time !== undefined && end.time >= start.time ? end.time - start.time : undefined

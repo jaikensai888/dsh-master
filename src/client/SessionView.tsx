@@ -55,7 +55,9 @@ import {
   type LocalAttachment,
 } from './attachments.js'
 import { COPY, MARKDOWN_LABELS } from './copy.js'
+import { observeConversationTail } from './conversation-scroll.js'
 import { observeConversationWidth } from './conversation-width.js'
+import { resultPreview, toolPreview } from './tool-preview.js'
 import {
   classifyFileSupportError,
   probeFileSupport,
@@ -82,6 +84,7 @@ export interface SessionViewProps {
   readonly nodeId: string
   readonly sessionId: string
   readonly title: string
+  readonly nodeName?: string
   /** Whether the deployment enabled sending prompts. */
   readonly promptEnabled: boolean
   /**
@@ -97,36 +100,60 @@ export type { FileSupportState }
 /** How the follow stream is doing, for the header chip. */
 type Phase = 'connecting' | 'live' | 'ended' | 'failed'
 
-/** Describe one row for its role label. */
-function roleLabel(row: ConversationRow): string {
-  switch (row.kind) {
-    case 'user': return COPY.roleUser
-    case 'assistant': return COPY.roleAssistant
-    case 'reasoning': return '思考过程'
-    case 'context': return COPY.contextInjection
-    case 'tool-call': return COPY.roleToolCall
-    case 'tool-result': return COPY.roleToolResult
-    case 'notice': return COPY.roleNotice
-  }
+const messageTime = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
+
+function UserMessage({ row }: { readonly row: ConversationRow }): ReactElement {
+  const [copyLabel, setCopyLabel] = useState<string>(MARKDOWN_LABELS.code.copyLabel)
+  const date = row.time === undefined ? undefined : new Date(row.time)
+  return (
+    <div className="dsh-master-turn" data-role="user" aria-label={COPY.roleUser}>
+      <div className="dsh-master-bubble">{row.text}</div>
+      <div className="dsh-master-user-meta">
+        {date !== undefined && Number.isFinite(date.getTime()) ? (
+          <time dateTime={date.toISOString()} title={date.toLocaleString()}>{messageTime.format(date)}</time>
+        ) : null}
+        <button
+          type="button"
+          className="dsh-master-copy-message"
+          title={copyLabel}
+          aria-label={copyLabel}
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(row.text)
+              setCopyLabel(MARKDOWN_LABELS.code.copiedLabel)
+            } catch {
+              setCopyLabel(COPY.copyFailed)
+            }
+          }}
+        >
+          <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor">
+            <rect x="5" y="2" width="9" height="10" rx="2" />
+            <path d="M11 13a2 2 0 0 1-2 1H4a2 2 0 0 1-2-2V6a2 2 0 0 1 1-2" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  )
 }
 
 /**
  * Render one conversation row.
  *
  * Assistant and user bodies go through `MarkdownText`; tool calls follow the Web UI's
- * compact disclosure row and reveal their input/output only when expanded. A
- * `write`/`edit` call that carried structured diffs renders the file-change card
- * instead, so what it changed is visible without opening the raw argument JSON.
+ * compact disclosure row and reveal their input/output only when expanded. The row's
+ * preview comes from the call's arguments, not from its result, so a `grep` over a
+ * minified file shows what was searched instead of a wall of output. A `write`/`edit`
+ * call that carried structured diffs renders the file-change card instead, so what it
+ * changed is visible without opening the raw argument JSON.
  *
  * @param row - the row.
- * @param hideRole - whether the row belongs to a turn's final answer.
  * @param cwd - the session workspace root, used to shorten recorded paths.
  * @returns the row element.
  */
-function Row({ row, hideRole = false, cwd }: {
+function Row({ row, cwd, active = true }: {
   readonly row: ConversationRow
-  readonly hideRole?: boolean
   readonly cwd?: string | undefined
+  readonly active?: boolean
 }): ReactElement {
   if (row.kind === 'tool-call' && row.change !== undefined) {
     return <FileChangeCard change={row.change} cwd={cwd} />
@@ -154,9 +181,14 @@ function Row({ row, hideRole = false, cwd }: {
   if (row.kind === 'tool-call' || row.kind === 'tool-result') {
     const isCall = row.kind === 'tool-call'
     const output = isCall ? row.output : row.text
-    const running = isCall && output === undefined
-    const state = row.failed === true ? 'error' : running ? 'running' : 'ok'
-    const summary = output?.split(/\r?\n/u, 1)[0] ?? COPY.toolRunning
+    const pending = isCall && output === undefined
+    const running = pending && active
+    const state = row.failed === true ? 'error' : running ? 'running' : pending ? 'unknown' : 'ok'
+    // A call previews what it was asked to do; only a row without its call (a result
+    // that arrived alone) has nothing but its own first line to describe itself.
+    const summary = (isCall ? toolPreview(row.detail) : resultPreview(row.text))
+      ?? (output === undefined ? undefined : resultPreview(output))
+      ?? (running ? COPY.toolRunning : COPY.toolUnconfirmed)
     const expandable = row.detail !== undefined || output !== undefined
     return (
       <details className="dsh-master-tool" data-state={state} data-expandable={expandable || undefined}>
@@ -192,27 +224,20 @@ function Row({ row, hideRole = false, cwd }: {
   if (row.kind === 'notice') {
     return (
       <div className={row.failed === true ? 'dsh-master-error' : 'dsh-master-notice'}>
-        <span>{roleLabel(row)}</span>
+        <span>{COPY.roleNotice}</span>
         <span>·</span>
         <span>{row.text}</span>
         {row.detail === undefined ? null : <span>— {row.detail}</span>}
       </div>
     )
   }
-  if (row.kind === 'user') {
-    return (
-      <div className="dsh-master-turn" data-role="user">
-        <div className="dsh-master-role">{roleLabel(row)}</div>
-        <div className="dsh-master-bubble">{row.text}</div>
-      </div>
-    )
-  }
+  if (row.kind === 'user') return <UserMessage row={row} />
+  // The assistant's own text carries no role label: it is the only left-aligned body,
+  // and one label above every narration block turned a normal turn into a log dump.
+  // The one note such a row can carry (an interrupted marker) still rides above it.
   return (
     <div className="dsh-master-turn">
-      {hideRole ? null : <div className="dsh-master-role">
-        {roleLabel(row)}
-        {row.detail === undefined ? '' : ` ${row.detail}`}
-      </div>}
+      {row.detail === undefined ? null : <div className="dsh-master-role">{row.detail}</div>}
       <div className="dsh-master-text">
         <MarkdownText text={row.text} labels={MARKDOWN_LABELS} />
       </div>
@@ -220,58 +245,134 @@ function Row({ row, hideRole = false, cwd }: {
   )
 }
 
-function TurnProcess({ group, cwd }: { readonly group: TurnGroup; readonly cwd?: string | undefined }): ReactElement {
+const ACTIVITY_LABELS = {
+  read: ['已读取文件', '正在读取文件'],
+  search: ['已搜索代码', '正在搜索代码'],
+  command: ['执行了命令', '正在运行命令'],
+  tool: ['已调用工具', '正在调用工具'],
+} as const
+
+function toolActivity(row: ConversationRow, active: boolean): string | undefined {
+  if (row.kind !== 'tool-call' || row.failed === true || row.change !== undefined) return undefined
+  const pending = row.output === undefined
+  if (pending && (!active || row.text === 'ask_user_question')) return undefined
+  if (row.text === 'ask_user_question') return '向用户提出了问题'
+  const kind = /^(pwsh|bash|shell|exec_command|terminal)$/u.test(row.text) ? 'command'
+    : /^(read|read_file|read_image)$/u.test(row.text) ? 'read'
+      : /^(grep|glob)$/u.test(row.text) ? 'search' : 'tool'
+  return ACTIVITY_LABELS[kind][pending ? 1 : 0]
+}
+
+/** Fold consecutive tool calls while keeping narration and actionable rows in event order. */
+function TurnActivity({ rows, cwd, active }: {
+  readonly rows: readonly ConversationRow[]
+  readonly cwd?: string | undefined
+  readonly active: boolean
+}): ReactElement {
+  const segments: { key: string; labels: Set<string>; pending: boolean; rows: ConversationRow[] }[] = []
+  for (const row of rows) {
+    const label = toolActivity(row, active)
+    const pending = row.output === undefined
+    const previous = segments.at(-1)
+    if (label !== undefined && previous !== undefined && previous.labels.size > 0 && previous.pending === pending) {
+      previous.labels.add(label)
+      previous.rows.push(row)
+    } else {
+      segments.push({ key: row.key, labels: new Set(label === undefined ? [] : [label]), pending, rows: [row] })
+    }
+  }
+  return <>
+    {segments.map(segment => {
+      const children = segment.rows.map(row => <Row key={row.key} row={row} cwd={cwd} active={active} />)
+      return segment.labels.size === 0 ? children : (
+        <details className="dsh-master-step" key={segment.key}>
+          <summary className="dsh-master-process-summary">
+            <IconChevronDownOutline14 />
+            {[...segment.labels].join('，')}
+            {segment.rows.length > segment.labels.size ? <span className="dsh-master-meta"> · {segment.rows.length} 次</span> : null}
+          </summary>
+          <div className="dsh-master-step-body">{children}</div>
+        </details>
+      )
+    })}
+  </>
+}
+
+function TurnProcess({ group, cwd, connected }: {
+  readonly group: TurnGroup
+  readonly cwd?: string | undefined
+  readonly connected: boolean
+}): ReactElement {
   const seconds = group.durationMs === undefined ? undefined : Math.max(1, Math.floor(group.durationMs / 1000))
-  const label = group.status === 'running' ? '正在处理'
-    : group.status === 'error' ? '执行失败'
-      : group.status === 'stopped' ? '已中断'
-        : group.status === 'unknown' ? '执行记录'
-          : seconds === undefined ? '已完成' : `已完成，用时 ${seconds} 秒`
-  // A finished turn is a summary line; the process is what it summarizes. While it
-  // runs there is nothing else to read yet, so keep the steps in view.
-  const showProcess = group.status === 'running' || group.status === 'error' || group.status === 'stopped'
+  const label = group.status === 'error' ? '执行失败'
+    : group.status === 'stopped' ? '已停止'
+      : seconds === undefined ? '已完成' : `已完成，用时 ${seconds} 秒`
+  const active = connected && group.status === 'running'
   return (
     <div className="dsh-master-turn-group" data-state={group.status}>
-      <details
-        key={`${group.key}:${group.status}`}
-        className="dsh-master-process"
-        open={showProcess}
-      >
-        <summary className="dsh-master-process-summary">
-          {group.status === 'running' ? <StateDot state="ongoing" /> : null}
-          <span>{label}</span>
-          {group.process.length === 0 ? null : <IconChevronDownOutline14 />}
-        </summary>
-        <div className="dsh-master-process-body">
-          {group.process.length === 0 ? <div className="dsh-master-hint">暂无可展开的过程记录。</div>
-            : group.process.map(row => <Row key={row.key} row={row} cwd={cwd} />)}
-        </div>
-      </details>
+      {group.status === 'running' || group.status === 'unknown' ? null : group.process.length === 0 ? (
+        <div className="dsh-master-turn-status">{label}</div>
+      ) : (
+        <details className="dsh-master-process">
+          <summary className="dsh-master-process-summary">
+            <span>{label}</span>
+            <IconChevronDownOutline14 />
+          </summary>
+          <div className="dsh-master-process-body">
+            {group.process.map(row => <Row key={row.key} row={row} cwd={cwd} active={false} />)}
+          </div>
+        </details>
+      )}
       {group.compatibility === undefined ? null : <div className="dsh-master-hint">{group.compatibility}</div>}
       {group.failure === undefined ? null : <div className="dsh-master-error" role="alert">{group.failure}</div>}
-      {group.visible.map(row => <Row key={row.key} row={row} cwd={cwd} />)}
+      <TurnActivity rows={group.visible} cwd={cwd} active={active} />
       {group.answer.length === 0 ? null : <div className="dsh-master-response" data-turn-answer="">
-        {group.answer.map(row => <Row key={row.key} row={row} hideRole cwd={cwd} />)}
+        {group.answer.map(row => <Row key={row.key} row={row} cwd={cwd} />)}
       </div>}
       {group.changes === undefined || group.status === 'running' ? null : (
         <TurnChangesCard summary={group.changes} cwd={cwd} />
       )}
+      {active ? (
+        <div className="dsh-master-turn-progress" role="status">
+          <StateDot state="ongoing" />
+          {hasPendingUserQuestion(group.visible) ? '等待你的操作' : '正在处理…'}
+        </div>
+      ) : null}
     </div>
   )
 }
 
 /** Pure transcript surface, also used to verify real event fixtures without starting an agent. */
-export function ConversationLog({ rows, events, cwd }: {
+export function ConversationLog({ rows, events, cwd, connected = true, streaming = false, unrendered = 0 }: {
   readonly rows: readonly ConversationRow[]
   readonly events: readonly TurnEvent[]
   readonly cwd?: string | undefined
+  readonly connected?: boolean
+  readonly streaming?: boolean
+  readonly unrendered?: number
 }): ReactElement {
+  const items = conversationItems(rows, events)
+  const context = items.filter((item): item is ConversationRow => item.kind === 'context')
   return <>
     {events.length === 0 && rows.some(row => row.kind === 'assistant') ? (
       <div className="dsh-master-hint">节点未提供回合信息，保留逐条记录。</div>
     ) : null}
-    {conversationItems(rows, events).map(item => item.kind === 'turn-group'
-      ? <TurnProcess key={item.key} group={item} cwd={cwd} /> : <Row key={item.key} row={item} cwd={cwd} />)}
+    {items.map(item => {
+      if (item.kind === 'context') return null
+      return item.kind === 'turn-group'
+        ? <TurnProcess key={item.key} group={item} cwd={cwd} connected={connected} />
+        : <Row key={item.key} row={item} cwd={cwd} active={connected} />
+    })}
+    {connected && streaming && !items.some(item => item.kind === 'turn-group' && item.status === 'running') ? (
+      <div className="dsh-master-turn-progress" role="status"><StateDot state="ongoing" />正在处理…</div>
+    ) : null}
+    {context.length === 0 && unrendered === 0 ? null : (
+      <details className="dsh-master-context dsh-master-transcript-info">
+        <summary>会话记录详情</summary>
+        {context.map(row => <Row key={row.key} row={row} cwd={cwd} />)}
+        {unrendered === 0 ? null : <div className="dsh-master-hint">另有 {unrendered} 条事件未显示在对话中。</div>}
+      </details>
+    )}
   </>
 }
 
@@ -514,7 +615,9 @@ export function SessionView(props: SessionViewProps): ReactElement {
   const [artifacts, setArtifacts] = useState<readonly FileArtifact[]>([])
   const [artifactError, setArtifactError] = useState<string | undefined>(undefined)
   const [sendUncertain, setSendUncertain] = useState(false)
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false)
   const logRef = useRef<HTMLDivElement | null>(null)
+  const jumpToLatest = useRef<(() => void) | undefined>()
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const settledQuestions = useRef(new Set<string>())
   const sessionKey = `${nodeId}\u0000${sessionId}`
@@ -745,8 +848,14 @@ export function SessionView(props: SessionViewProps): ReactElement {
 
   useEffect(() => {
     const log = logRef.current
-    if (log !== null) log.scrollTop = log.scrollHeight
-  }, [rows, streaming, questionRequests])
+    if (log === null) return
+    const tail = observeConversationTail(log, setShowJumpToLatest)
+    jumpToLatest.current = tail.jump
+    return () => {
+      jumpToLatest.current = undefined
+      tail.dispose()
+    }
+  }, [sessionKey])
 
   const answerQuestion = useCallback((requestId: string, answer: MasterQuestionAnswer): void => {
     setQuestionActionId(requestId)
@@ -899,41 +1008,56 @@ export function SessionView(props: SessionViewProps): ReactElement {
     && (attachments.length === 0 || attachmentsUsable)
     && canSubmit(draft, attachments, promptEnabled, sendUncertain)
 
-  const phaseText = streaming
-    ? COPY.streaming
-    : phase === 'live' ? COPY.live
-      : phase === 'ended' ? COPY.ended
-        : phase === 'failed' ? COPY.failed
-          : COPY.connecting
+  const phaseText = phase === 'live' ? COPY.live
+    : phase === 'ended' ? COPY.ended
+      : phase === 'failed' ? COPY.failed
+        : COPY.connecting
+  const location = [props.nodeName, cwd].filter(Boolean).join(' · ')
 
   return (
     <div className="dsh-master-body" ref={bodyRef}>
-      <div className="dsh-master-head">
-        <span className="dsh-master-label" title={props.title}>{props.title}</span>
-        {cwd === undefined ? null : <span className="dsh-master-meta">{cwd}</span>}
-        {streaming ? <StateDot state="ongoing" /> : null}
-        <span className="dsh-master-meta">{phaseText}</span>
-      </div>
+      <header className="dsh-master-head">
+        <h1 className="dsh-master-label" title={props.title}>{props.title}</h1>
+        {location === '' ? null : (
+          <span className="dsh-master-label dsh-master-meta dsh-master-location" title={location}>{location}</span>
+        )}
+        <span className="dsh-master-meta dsh-master-connection" data-phase={phase}>{phaseText}</span>
+      </header>
 
       {error === undefined ? null : <div className="dsh-master-error">{error}</div>}
 
-      <div className="dsh-master-log" ref={logRef}>
+      <div className="dsh-master-log" ref={logRef} role="region" aria-label={COPY.conversation} tabIndex={0}>
         <div className="dsh-master-log-column">
           {hasMore ? <div className="dsh-master-hint">{COPY.loadOlderPending}</div> : null}
           {rows.length === 0 && turnEvents.length === 0
             ? <div className="dsh-master-hint">{COPY.emptyConversation}</div>
-            : <ConversationLog rows={rows} events={turnEvents} cwd={cwd} />}
+            : null}
+          <ConversationLog rows={rows} events={turnEvents} cwd={cwd} connected={phase === 'live'}
+            streaming={streaming} unrendered={unrendered} />
           {questionCompatibilityFor?.nodeId === nodeId && questionCompatibilityFor.sessionId === sessionId ? (
             <div className="dsh-master-question-compatibility" role="status">{COPY.questionCompatibility}</div>
           ) : null}
           {questionError === undefined || questionRequests.length > 0 ? null : (
             <div className="dsh-master-question-error" role="alert">{questionError}</div>
           )}
-          {unrendered === 0 ? null : (
-            <div className="dsh-master-hint">另有 {unrendered} 条事件本版本未渲染（例如压缩、子代理等）。</div>
-          )}
         </div>
       </div>
+      {showJumpToLatest ? (
+        <div className="dsh-master-jump-slot">
+          <button
+            type="button"
+            className="dsh-master-jump"
+            title={COPY.jumpToLatest}
+            aria-label={COPY.jumpToLatest}
+            onClick={() => {
+              jumpToLatest.current?.()
+              logRef.current?.focus({ preventScroll: true })
+            }}
+          >
+            <IconChevronDownOutline14 />
+          </button>
+        </div>
+      ) : null}
 
       <ArtifactList
         artifacts={artifacts}
@@ -981,6 +1105,7 @@ export function SessionView(props: SessionViewProps): ReactElement {
             )}
             <textarea
               className="dsh-master-composer-input"
+              aria-label={COPY.composerPlaceholder}
               value={draft}
               placeholder={promptEnabled ? COPY.composerPlaceholder : COPY.composerDisabled}
               disabled={!promptEnabled || sending}
@@ -1035,13 +1160,12 @@ export function SessionView(props: SessionViewProps): ReactElement {
                   <span>{COPY.unavailableShort}</span>
                   <IconChevronDownOutline14 />
                 </button>
-                {streaming ? <StateDot state="ongoing" /> : null}
                 <Button
                   className="dsh-master-send"
                   variant="primary"
                   icon={<IconSendOutline14 />}
                   aria-label={sending ? COPY.sending : COPY.send}
-                  title={sending ? COPY.sending : COPY.send}
+                  title={sending ? COPY.sending : COPY.sendHint}
                   disabled={!sendEnabled}
                   onClick={submit}
                 />

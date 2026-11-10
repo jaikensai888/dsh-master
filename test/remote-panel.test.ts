@@ -36,7 +36,8 @@ describe('remote session panel', () => {
 
     expect(markup).not.toContain('dsh-master-tree')
     expect(markup).not.toContain('远程工作区')
-    expect(markup).toContain('my-desktop · dsh-master 插件设计')
+    expect(markup).toMatch(/<h1[^>]*>dsh-master 插件设计<\/h1>/u)
+    expect(markup).toMatch(/<span[^>]*dsh-master-location[^>]*>my-desktop<\/span>/u)
     expect(markup).toContain('class="dsh-master-body"')
   })
 
@@ -50,7 +51,7 @@ describe('remote session panel', () => {
 
     const markup = renderToStaticMarkup(createElement(RemotePanel))
 
-    expect(markup).toContain('<div class="dsh-master-log"><div class="dsh-master-log-column">')
+    expect(markup).toMatch(/<div class="dsh-master-log"[^>]*role="region"[^>]*><div class="dsh-master-log-column">/u)
     expect(markup).toContain('</div></div><div class="dsh-master-composer">')
   })
 

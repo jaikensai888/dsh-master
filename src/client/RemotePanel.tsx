@@ -51,7 +51,8 @@ export function RemotePanel(): ReactElement {
             key={`${selection.nodeId}/${selection.sessionId}`}
             nodeId={selection.nodeId}
             sessionId={selection.sessionId}
-            title={`${selection.nodeName ?? selection.nodeId} · ${selection.sessionTitle ?? selection.sessionId}`}
+            title={selection.sessionTitle ?? selection.sessionId}
+            nodeName={selection.nodeName ?? selection.nodeId}
             promptEnabled={status?.promptEnabled === true}
           />
         )}

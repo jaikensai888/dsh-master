@@ -28,12 +28,13 @@ describe('remote conversation layout', () => {
     const style = ensureStyles()
     const css = style?.textContent ?? ''
     const rootRule = css.match(/\.dsh-master-root\s*\{([^}]*)\}/u)?.[1]
+    const bodyRule = css.match(/\.dsh-master-body\s*\{([^}]*)\}/u)?.[1]
     const logRule = css.match(/\.dsh-master-log\s*\{([^}]*)\}/u)?.[1]
     const columnRule = css.match(/\.dsh-master-log-column\s*\{([^}]*)\}/u)?.[1]
     const composerRule = css.match(/\.dsh-master-composer\s*\{([^}]*)\}/u)?.[1]
     const questionComposerRule = css.match(/\.dsh-master-question-composer\s*\{([^}]*)\}/u)?.[1]
     const questionItemRule = css.match(/\.dsh-master-question-item\s*\{([^}]*)\}/u)?.[1]
-    const mobileComposerRule = css.match(/@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.dsh-master-composer\s*\{([^}]*)\}/u)?.[1]
+    const mobileComposerRule = css.match(/@container dsh-master-session\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.dsh-master-composer\s*\{([^}]*)\}/u)?.[1]
 
     expect(inserted).toBe(style)
     expect(declaration(rootRule, '--dsh-chat-content-width')).toBe(
@@ -47,6 +48,8 @@ describe('remote conversation layout', () => {
     expect(declaration(columnRule, 'margin')).toBe('0 auto')
     expect(declaration(composerRule, 'width')).toBe('calc(100% - 32px)')
     expect(declaration(composerRule, 'max-width')).toBe('calc(var(--dsh-chat-content-width) + 32px)')
+    expect(declaration(bodyRule, 'container')).toBe('dsh-master-session / inline-size')
+    expect(declaration(mobileComposerRule, 'margin-bottom')).toBe('12px')
     expect(declaration(questionComposerRule, 'max-height')).toBe('min(60vh, 520px)')
     expect(declaration(questionComposerRule, 'overflow')).toBe('hidden')
     expect(declaration(questionItemRule, 'overflow-y')).toBe('auto')
