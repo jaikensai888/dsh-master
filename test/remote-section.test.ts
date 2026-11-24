@@ -26,17 +26,27 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
     IconFolderCloseRegular: icon('folder-closed'),
     IconFolderOpenRegular: icon('folder-open'),
     IconPlusOutlineRegular: icon('plus'),
+    IconProjectAddOutlineRegular: icon('project-add'),
     IconTriangleRightFillRegular: icon('triangle'),
     IconArchiveOutlineRegular: icon('archive'),
+    IconEditOutlineRegular: icon('edit'),
     IconEllipsisOutlineRegular: icon('ellipsis'),
     IconGlobeOutlineRegular: icon('globe'),
     IconRefreshOutlineRegular: icon('refresh'),
+    IconCloseFillRegular: icon('close'),
+    relativeTime: () => ({ unit: 'hours', n: 2 }),
     Menu: () => null,
+    Modal: (props: { open?: boolean; title?: string; closeLabel?: string; footer?: ReactNode; children?: ReactNode }) => (
+      props.open === true
+        ? react.createElement('div', { 'data-modal': props.title, 'data-close-label': props.closeLabel }, props.footer, props.children)
+        : null
+    ),
     StateDot: icon('state'),
   }
 })
 
 import { RemoteSection, RemoteNodeSection, RemoteSessionItem, insertOptimisticBlank, type RemoteNodeSectionProps } from '../src/workspace/RemoteSection.js'
+import { ArchivedList } from '../src/workspace/ArchivedList.js'
 import type { RemoteSectionProps } from '../src/workspace/contract/slots.js'
 
 interface RemoteSessionItemProps {
@@ -49,6 +59,8 @@ interface RemoteSessionItemProps {
   archiveAvailable: boolean
   followed?: boolean
   onToggleFollow?: () => void
+  onRenameSessionRequest?: () => void
+  renameDisabled?: boolean
   onMenuOpenChange: (open: boolean) => void
   onOpenRemoteSession: (nodeId: string, sessionId: string, nodeName: string, sessionTitle: string) => void
   onArchiveRemoteSession: (nodeId: string, sessionId: string) => void
@@ -226,6 +238,83 @@ describe('the remote workspace sidebar', () => {
     ])
     menu?.props.onSelect?.('archive')
     expect(archived).toEqual([['node-7', 'session-archive-me']])
+  })
+
+  it('offers rename first in the remote session menu and targets that session', async () => {
+    const module = await import('../src/workspace/RemoteSection.js') as unknown as {
+      RemoteSessionItem?: (props: RemoteSessionItemProps) => ReactElement
+    }
+    expect(module.RemoteSessionItem).toBeDefined()
+    if (module.RemoteSessionItem === undefined) return
+
+    let requested = 0
+    const menu = findMenu(module.RemoteSessionItem({
+      nodeId: 'node-1',
+      nodeName: 'desktop',
+      session: { sessionId: 'session-1', title: '会话', updatedAt: 0, running: false, blank: false },
+      selection: undefined,
+      now: 0,
+      menuOpen: false,
+      archiveAvailable: true,
+      onRenameSessionRequest: () => { requested += 1 },
+      onMenuOpenChange: () => {},
+      onOpenRemoteSession: () => {},
+      onArchiveRemoteSession: () => {},
+      t: key => key,
+    }))
+
+    expect(menu?.props.items?.map(entry => entry.id)).toEqual(['rename', 'archive'])
+    menu?.props.onSelect?.('rename')
+    expect(requested).toBe(1)
+  })
+
+  it('disables rename when the node cannot accept one right now', async () => {
+    const module = await import('../src/workspace/RemoteSection.js') as unknown as {
+      RemoteSessionItem?: (props: RemoteSessionItemProps) => ReactElement
+    }
+    if (module.RemoteSessionItem === undefined) return
+
+    const menu = findMenu(module.RemoteSessionItem({
+      nodeId: 'node-1',
+      nodeName: 'desktop',
+      session: { sessionId: 'session-1', title: '会话', updatedAt: 0, running: false, blank: false },
+      selection: undefined,
+      now: 0,
+      menuOpen: false,
+      archiveAvailable: true,
+      onRenameSessionRequest: () => {},
+      renameDisabled: true,
+      onMenuOpenChange: () => {},
+      onOpenRemoteSession: () => {},
+      onArchiveRemoteSession: () => {},
+      t: key => key,
+    }))
+
+    const rename = menu?.props.items?.find(entry => entry.id === 'rename') as { disabled?: boolean } | undefined
+    expect(rename?.disabled).toBe(true)
+  })
+
+  it('keeps the row menu free of rename when the surface wires no rename action', async () => {
+    const module = await import('../src/workspace/RemoteSection.js') as unknown as {
+      RemoteSessionItem?: (props: RemoteSessionItemProps) => ReactElement
+    }
+    if (module.RemoteSessionItem === undefined) return
+
+    const menu = findMenu(module.RemoteSessionItem({
+      nodeId: 'node-1',
+      nodeName: 'desktop',
+      session: { sessionId: 'session-1', title: '会话', updatedAt: 0, running: false, blank: false },
+      selection: undefined,
+      now: 0,
+      menuOpen: false,
+      archiveAvailable: true,
+      onMenuOpenChange: () => {},
+      onOpenRemoteSession: () => {},
+      onArchiveRemoteSession: () => {},
+      t: key => key,
+    }))
+
+    expect(menu?.props.items?.map(entry => entry.id)).toEqual(['archive'])
   })
 
   it('offers follow independently of archive availability and reports the toggle', async () => {
@@ -482,6 +571,38 @@ describe('per-node remote workspace hierarchy', () => {
     expect(markup).toContain('>session.new<')
     expect(markup).not.toContain('>blank<')
   })
+
+  it('requests a rename for the session whose row menu was used', () => {
+    const requested: unknown[] = []
+    const props = nodeProps()
+    props.onRenameSessionRequest = session => { requested.push(session) }
+    // The node section renders row elements, not their menus; call the row to get it.
+    const item = findSessionItem(RemoteNodeSection(props))
+    expect(item).toBeDefined()
+    const menu = item === undefined ? undefined : findMenu(RemoteSessionItem(item.props))
+
+    expect(menu?.props.items?.map(entry => entry.id)).toEqual(['rename', 'archive'])
+    menu?.props.onSelect?.('rename')
+    expect(requested).toEqual([props.data?.sessions[0]])
+  })
+
+  it('disables the rename item on a node that is not ready', () => {
+    const props = nodeProps()
+    props.onRenameSessionRequest = () => {}
+    props.node = { nodeId: 'node-a', state: 'connecting' }
+    const item = findSessionItem(RemoteNodeSection(props))
+    const menu = item === undefined ? undefined : findMenu(RemoteSessionItem(item.props))
+
+    const rename = menu?.props.items?.find(entry => entry.id === 'rename') as { disabled?: boolean } | undefined
+    expect(rename?.disabled).toBe(true)
+  })
+
+  it('explains a node that cannot rename sessions at all', () => {
+    const markup = renderToStaticMarkup(createElement(RemoteNodeSection, {
+      ...nodeProps(), sessionRenameUnsupported: true,
+    }))
+    expect(markup).toContain('remote.sessionRenameUnsupported')
+  })
 })
 
 describe('optimistic blank insertion', () => {
@@ -538,3 +659,117 @@ describe('optimistic blank insertion', () => {
   }
   return findCreateButton(props.children)
 }
+
+/** Find the first session row element in a rendered node section tree. */
+function findSessionItem(element: ReactNode): ReactElement<RemoteSessionItemProps> | undefined {
+  if (Array.isArray(element)) {
+    for (const child of element) {
+      const found = findSessionItem(child)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+  if (!isValidElement(element)) return undefined
+  if (element.type === RemoteSessionItem) return element as ReactElement<RemoteSessionItemProps>
+  return findSessionItem((element.props as { children?: ReactNode }).children)
+}
+
+describe('the per-node archived list', () => {
+  /** The archived list element the node section composes, before it renders. */
+  function findArchivedList(element: ReactNode): ReactElement<{
+    rows: readonly { sessionId: string; title: string; workspace: string }[]
+    onOpen: (sessionId: string) => void
+    onUnarchive: (sessionId: string) => void
+    onClose?: () => void
+    unsupported?: string
+  }> | undefined {
+    if (Array.isArray(element)) {
+      for (const child of element) {
+        const found = findArchivedList(child)
+        if (found !== undefined) return found
+      }
+      return undefined
+    }
+    if (!isValidElement(element)) return undefined
+    if (element.type === ArchivedList) return element as ReturnType<typeof findArchivedList>
+    return findArchivedList((element.props as { children?: ReactNode }).children)
+  }
+
+  /** One node with one archived session that still has a summary and a workspace. */
+  function archivedProps(): RemoteNodeSectionProps {
+    const props = nodeProps()
+    props.data = {
+      ...props.data!,
+      archivedSessionIds: ['s1', 'gone'],
+    }
+    return { ...props, archivedOpen: true }
+  }
+
+  it('replaces the workspace tree with the archived rows for that node', () => {
+    const markup = renderToStaticMarkup(createElement(RemoteNodeSection, archivedProps()))
+    expect(markup).toContain('data-dsh-archived=""')
+    expect(markup).toContain('Assigned')
+    expect(markup).toContain('Actual name')
+    // The ordinary directory rows are the other body; only one of the two renders.
+    expect(markup).not.toContain('Empty directory')
+    expect(markup).not.toContain('data-icon="folder-open"')
+  })
+
+  it('drops an archived id whose summary the node no longer lists', () => {
+    const markup = renderToStaticMarkup(createElement(RemoteNodeSection, archivedProps()))
+    expect(markup).not.toContain('gone')
+    expect(markup.match(/role="treeitem"/gu)).toHaveLength(1)
+  })
+
+  it('reports the node capability and the concrete unarchive failure in place', () => {
+    const markup = renderToStaticMarkup(createElement(RemoteNodeSection, {
+      ...archivedProps(),
+      unarchiveError: { sessionId: 's1', message: 'remote.unarchiveFailed · workspace/not-archived' },
+    }))
+    expect(markup).toContain('remote.unarchiveFailed · workspace/not-archived')
+    const unsupported = renderToStaticMarkup(createElement(RemoteNodeSection, {
+      ...archivedProps(),
+      unarchiveUnsupported: true,
+    }))
+    expect(unsupported).toContain('remote.unarchiveUnsupported')
+  })
+
+  it('routes an archived row open and its unarchive action to the owning node', () => {
+    const opened: string[] = []
+    const unarchived: string[] = []
+    const element = RemoteNodeSection({
+      ...archivedProps(),
+      onOpenArchivedSession: (sessionId: string, title: string) => { opened.push(`${sessionId}:${title}`) },
+      onUnarchiveRemoteSession: (sessionId: string) => { unarchived.push(sessionId) },
+      onToggleArchived: () => undefined,
+    })
+    const list = findArchivedList(element)
+    expect(list?.props.rows.map(row => row.sessionId)).toEqual(['s1'])
+    list?.props.onOpen('s1')
+    list?.props.onUnarchive('s1')
+    expect(opened).toEqual(['s1:Assigned'])
+    expect(unarchived).toEqual(['s1'])
+  })
+
+  it('offers the archived toggle and the add-workspace action in the node header', () => {
+    const markup = renderToStaticMarkup(createElement(RemoteNodeSection, {
+      ...nodeProps(),
+      onToggleArchived: () => undefined,
+      onAddWorkspace: () => undefined,
+    }))
+    expect(markup).toContain('aria-label="archived.entry"')
+    expect(markup).toContain('aria-label="remote.addWorkspace"')
+  })
+
+  it('disables adding a workspace on a node that cannot accept one', () => {
+    const markup = renderToStaticMarkup(createElement(RemoteNodeSection, {
+      ...nodeProps(),
+      node: { nodeId: 'node-a', nodeName: 'Office', state: 'connecting' },
+      onAddWorkspace: () => undefined,
+      addWorkspaceHint: 'remote.addWorkspaceUnavailable',
+    }))
+    expect(markup).toContain('title="remote.addWorkspaceUnavailable"')
+    expect(markup).toContain('disabled=""')
+  })
+})
+

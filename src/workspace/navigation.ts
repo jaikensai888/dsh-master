@@ -48,6 +48,15 @@ export interface UiWorkspace {
    */
   startSession(workspaceId?: WorkspaceId, options?: StartOptions): Promise<void>
   openSession(sessionId: SessionId): void
+  /**
+   * Open a Session whose id is in the archive set, for reading its history.
+   *
+   * The archive policy clears a current selection that is archived, which is how
+   * a restored stale selection is dropped. An explicit open from the archived
+   * list is a different intent, so it is recorded here and the policy leaves that
+   * one selection alone until the current session changes.
+   */
+  openArchivedSession(sessionId: SessionId): void
   openWorkspace(workspaceId: WorkspaceId, beforeOpen?: (id: string) => void, options?: ConnectOptions): Promise<void>
   forkSession(sessionId: SessionId, onCreated?: (id: string) => void, options?: { allowMigration?: boolean }): Promise<SessionId>
   /**
@@ -101,6 +110,8 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   private readonly connecting = new Map<string, Promise<SessionId>>()
   private mainReference: { sessionId: string; release(): void } | undefined
   private disposed = false
+  /** The one archived session explicitly opened for reading, if any. */
+  private archivedOpen: string | undefined
 
   /**
    * @param ctx - Client root Context.
@@ -197,6 +208,14 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   }
 
   openSession(sessionId: SessionId): void {
+    this.revealSession(sessionId)
+  }
+
+  openArchivedSession(sessionId: SessionId): void {
+    // Deliberately no session-store mutation: opening an archived session is a
+    // read of its history. The exemption is what stops the policy below from
+    // immediately clearing it again.
+    this.archivedOpen = sessionId
     this.revealSession(sessionId)
   }
 
@@ -350,7 +369,13 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   private clearArchivedCurrent(): boolean {
     const current = this.mainReference?.sessionId ?? adaptSessionList(this.sessions.list.getSnapshot()).current
     if (current === undefined
-      || !this.workspaces.list.getSnapshot().archivedSessionIds.includes(current)) return false
+      || !this.workspaces.list.getSnapshot().archivedSessionIds.includes(current)) {
+      this.archivedOpen = undefined
+      return false
+    }
+    // The operator opened this one from the archived list on purpose: it stays
+    // readable until the current session changes or it is unarchived.
+    if (current === this.archivedOpen) return false
     this.clearMain()
     return true
   }

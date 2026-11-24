@@ -90,6 +90,23 @@ export type DirectoryPickingInjected = {
 /** Component-side view of the picking share: the bound occupancy selector hook. */
 export type DirectoryPickingHooks = PropsHooks<DirectoryPickingInjected['hooks']>
 
+/**
+ * The sidebar shell's viewport-scroller hand-off.
+ *
+ * A 0.2.x shell owns the outer scrolling itself: its viewport scrolls the
+ * navigation away and then continues the same gesture into the section's own
+ * vertical scroller. The section binds that element here; a shell that predates
+ * the contract supplies nothing, and the section keeps its own column-sized
+ * scroll chain instead.
+ */
+export interface SectionScrollerCapability {
+  /** Ref callback for the section's one vertical scroller. */
+  readonly bindScrollerRef: (element: HTMLElement | null) => void
+}
+
+/** Hook-shaped factory a 0.2.x shell hands the section; absent on older hosts. */
+export type UseSectionScroller = () => SectionScrollerCapability
+
 /** Props the fork renders for independent remote node sections and the node rail. */
 export interface RemoteSectionProps {
   readonly browseScope?: import('../stores.js').WorkspaceBrowseScope
@@ -150,6 +167,15 @@ export type WorkspaceBrowserInjected = {
   startSession: (workspaceId?: WorkspaceId) => void | Promise<void>
   /** Open a real Session. */
   open: (sessionId: SessionId) => void
+  /**
+   * Open an archived Session for reading its history.
+   *
+   * The Host's navigation policy clears a current selection that is archived
+   * (that is how a stale restored selection is dropped), so opening from the
+   * archived list has to say so explicitly; it keeps the session open without
+   * touching the archive set.
+   */
+  openArchivedSession: (sessionId: SessionId) => void
   /** Open a remote Session in dsh-master's keyed main panel. */
   openRemoteSession: (nodeId: string, sessionId: string, nodeName: string, sessionTitle: string) => void
   /**
@@ -182,6 +208,14 @@ export type WorkspaceBrowserInjected = {
    */
   archiveSession: (sessionId: SessionId) => Promise<void>
   /**
+   * Restore an archived Session to every grouping surface.
+   *
+   * The Host owns the archive set and answers with its complete new value; the
+   * transcript and workspace accounting were never moved, so this restores the
+   * row exactly where it was.
+   */
+  unarchiveSession: (sessionId: SessionId) => Promise<void>
+  /**
    * Reorder a session inside its Workspace account (DOM-insertBefore
    * semantics: omitted anchor appends to the end). The view refreshes from
    * the Host response/changed frame; failures leave the order unchanged.
@@ -201,6 +235,12 @@ export type WorkspaceBrowserProps =
   & Omit<WorkspaceBrowserInjected, 'hooks'>
   & PropsHooks<WorkspaceBrowserInjected['hooks']>
   & PropsLocale<'workspace'>
+  /**
+   * The shell's scroll hand-off. Present exactly on hosts that own the outer
+   * scrolling (0.2.x and later); its presence doubles as the contract probe, so
+   * the surface never guesses a host version from a build string.
+   */
+  & { readonly useSectionScroller?: UseSectionScroller | undefined }
 
 /**
  * Picker-private injected share. Pick semantics remain in the owner's onPick

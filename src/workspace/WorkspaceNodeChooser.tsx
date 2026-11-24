@@ -2,17 +2,22 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import {
   IconCheckOutlineRegular,
+  IconFolderCloseRegular,
   IconRefreshOutlineRegular,
+  IconSearchOutlineRegular,
   IconTriangleRightFillRegular,
+  StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MasterNode } from '../protocol.js'
 import type { WorkspaceBrowseScope } from './stores.js'
 import {
   browseNavigationKey,
   browseScopeName,
+  chooserPlacement,
   nodeChoices,
   nodeDisplayName,
 } from './browse-scope.js'
+import { FollowPin } from './follow-pin.js'
 import { RemoteSectionCss as css } from './styles.generated.js'
 
 interface Props {
@@ -30,16 +35,6 @@ interface Props {
   onOpened?: (() => void) | undefined
 }
 
-/**
- * The popover width, mirrored from `.chooserPopup` in RemoteSection.module.css.
- *
- * The horizontal clamp has to use the width the popover actually renders at, so the
- * two must change together: `min(400px, 100vw - 16px)` on both sides.
- */
-const CHOOSER_WIDTH = 400
-/** Keep the popover this far from either viewport edge, matching the CSS `100vw - 16px` cap. */
-const VIEWPORT_GUTTER = 8
-
 /** Shares the roster with RemoteSection; browsing never invokes session navigation. */
 export function WorkspaceNodeChooser({ nodes, scope, onChange, busy, error, t, onRefresh, currentNodeId, rail, onExpand, requestOpen, onOpened }: Props): ReactElement {
   const [open, setOpen] = useState(false)
@@ -50,28 +45,44 @@ export function WorkspaceNodeChooser({ nodes, scope, onChange, busy, error, t, o
   const trigger = useRef<HTMLButtonElement>(null)
   const popup = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
-  const [position, setPosition] = useState({ top: 0, left: 0, maxHeight: 360 })
+  const [position, setPosition] = useState<ReturnType<typeof chooserPlacement>>()
   const name = browseScopeName(nodes, scope, t('browse.localWorkspace'), t('browse.following'))
-  const status = (n: MasterNode) => t(n.revoked ? 'browse.revoked' : n.state === 'ready' ? 'browse.online' : n.state === 'offline' ? 'browse.offline' : 'browse.connecting')
+  const term = query.trim().toLocaleLowerCase()
+  const showLocal = t('browse.localWorkspace').toLocaleLowerCase().includes(term)
+  const showFollowing = t('browse.following').toLocaleLowerCase().includes(term)
+  const choices = open ? nodeChoices(nodes, query) : []
   const close = () => { setOpen(false); trigger.current?.focus() }
   useEffect(() => {
-    if (!open) return
+    const button = trigger.current
+    if (!open || rail || button === null) return
+    const sidebar = button.closest('[data-dsh-workspace-browser]') ?? button.parentElement
     const place = () => {
-      const rect = trigger.current?.getBoundingClientRect()
-      if (!rect) return
-      const width = Math.min(CHOOSER_WIDTH, window.innerWidth - VIEWPORT_GUTTER * 2)
-      const top = Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 180))
-      setPosition({ top, left: Math.max(VIEWPORT_GUTTER, Math.min(rect.left, window.innerWidth - width - VIEWPORT_GUTTER)), maxHeight: Math.max(140, Math.min(400, window.innerHeight - top - 12)) })
+      const rect = button.getBoundingClientRect()
+      const bounds = sidebar?.getBoundingClientRect() ?? { left: rect.left, right: rect.left + 280 }
+      setPosition(chooserPlacement(rect, bounds, { width: window.innerWidth, height: window.innerHeight }))
     }
-    const outside = (event: PointerEvent) => {
-      if (event.target instanceof Node && !popup.current?.contains(event.target) && !trigger.current?.contains(event.target)) setOpen(false)
+    const outside = (event: Event) => {
+      if (event.target instanceof Node && !popup.current?.contains(event.target) && !button.contains(event.target)) setOpen(false)
     }
-    place(); input.current?.focus()
+    const observer = new ResizeObserver(place)
+    if (sidebar !== null) observer.observe(sidebar)
+    place()
     document.addEventListener('pointerdown', outside)
+    document.addEventListener('focusin', outside)
     window.addEventListener('resize', place)
     window.addEventListener('scroll', place, true)
-    return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true) }
-  }, [open])
+    return () => {
+      observer.disconnect()
+      document.removeEventListener('pointerdown', outside)
+      document.removeEventListener('focusin', outside)
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open, rail])
+  const showPopup = open && !rail && position !== undefined
+  useEffect(() => {
+    if (showPopup) input.current?.focus({ preventScroll: true })
+  }, [showPopup])
   const choose = (next: WorkspaceBrowseScope) => { onChange(next); close() }
   return <>
     <button ref={trigger} type="button"
@@ -82,48 +93,58 @@ export function WorkspaceNodeChooser({ nodes, scope, onChange, busy, error, t, o
       {rail ? null : <span className={css.chooserTitleText}>{name}</span>}
       <IconTriangleRightFillRegular className={css.chooserArrow} />
     </button>
-    {open && createPortal(<div ref={popup} className={css.chooserPopup} role="dialog" aria-label={t('browse.choose')}
+    {showPopup && createPortal(<div ref={popup} className={css.chooserPopup} role="dialog" aria-label={t('browse.choose')}
       style={position} onKeyDown={event => {
         if (!browseNavigationKey(event.nativeEvent)) return
         if (event.key === 'Escape') { event.preventDefault(); close() }
-        if (event.key === 'Tab') { setOpen(false); return }
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
           event.preventDefault()
           const buttons = Array.from(popup.current?.querySelectorAll<HTMLButtonElement>('[data-browse-option]') ?? [])
           const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
-          buttons[(index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus()
+          if (buttons.length === 0) return
+          const next = event.key === 'ArrowDown' ? index + 1 : index < 0 ? buttons.length - 1 : index - 1
+          buttons[(next + buttons.length) % buttons.length]?.focus()
         }
         if (event.key === 'Enter' && event.target === input.current) popup.current?.querySelector<HTMLButtonElement>('[data-browse-option]')?.click()
       }}>
-      <input ref={input} className={css.chooserSearch} value={query} onChange={e => { setQuery(e.target.value) }} placeholder={t('browse.search')} aria-label={t('browse.search')} />
+      <div className={css.chooserHeading}>
+        <span>{t('browse.choose')}</span>
+        <button type="button" className={css.chooserRefresh} disabled={busy} aria-label={t('remote.refresh')}
+          title={t('remote.refresh')} onClick={() => { input.current?.focus(); onRefresh() }}>
+          <IconRefreshOutlineRegular size={16} />
+        </button>
+      </div>
+      <label className={css.chooserSearchField}>
+        <IconSearchOutlineRegular size={15} />
+        <input ref={input} className={css.chooserSearch} value={query} onChange={e => { setQuery(e.target.value) }} placeholder={t('browse.search')} aria-label={t('browse.search')} />
+      </label>
       <div className={css.chooserOptions}>
-        {(t('browse.local').toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()) || query.trim() === '') && <button type="button" data-browse-option="" className={`${css.chooserOption} ${css.chooserLocal}`} data-selected={scope.kind === 'local'} aria-pressed={scope.kind === 'local'} onClick={() => { choose({ kind: 'local' }) }}>
-          <span className={css.chooserText}>{t('browse.local')}</span>
+        {showLocal && <button type="button" data-browse-option="" className={css.chooserOption} data-selected={scope.kind === 'local'} aria-pressed={scope.kind === 'local'} onClick={() => { choose({ kind: 'local' }) }}>
+          <IconFolderCloseRegular size={16} />
+          <span className={css.chooserName}>{t('browse.localWorkspace')}</span>
           <span className={css.chooserTick}>{scope.kind === 'local' && <IconCheckOutlineRegular size={14} />}</span>
         </button>}
-        {(t('browse.following').toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()) || query.trim() === '') && <button type="button" data-browse-option="" className={`${css.chooserOption} ${css.chooserFollowing}`} data-selected={scope.kind === 'following'} aria-pressed={scope.kind === 'following'} onClick={() => { choose({ kind: 'following' }) }}>
-          <span className={css.chooserText}>{t('browse.following')}</span>
+        {showFollowing && <button type="button" data-browse-option="" className={css.chooserOption} data-selected={scope.kind === 'following'} aria-pressed={scope.kind === 'following'} onClick={() => { choose({ kind: 'following' }) }}>
+          <FollowPin />
+          <span className={css.chooserName}>{t('browse.following')}</span>
           <span className={css.chooserTick}>{scope.kind === 'following' && <IconCheckOutlineRegular size={14} />}</span>
         </button>}
-        {nodeChoices(nodes, query).map(n => <button key={n.nodeId} type="button" data-browse-option="" className={`${css.chooserOption} ${css.chooserRemote}`}
+        {(term === '' || choices.length > 0) && <div className={css.chooserGroupLabel}
+          data-separated={showLocal || showFollowing}>{t('browse.remoteNodes')}</div>}
+        {choices.map(n => <button key={n.nodeId} type="button" data-browse-option="" className={`${css.chooserOption} ${css.chooserRemote}`}
           data-selected={scope.kind === 'remote' && scope.nodeId === n.nodeId}
           aria-pressed={scope.kind === 'remote' && scope.nodeId === n.nodeId}
-          title={`${nodeDisplayName(n)} · ${n.nodeId} · ${status(n)}`} onClick={() => { choose({ kind: 'remote', nodeId: n.nodeId }) }}>
-          <span className={css.chooserText}>
-            <span className={css.chooserName}>{nodeDisplayName(n)}</span>
-            <span className={css.chooserMeta}><span>{status(n)}</span><span aria-hidden="true">·</span><span className={css.chooserId}>{n.nodeId}</span></span>
-          </span>
+          title={`${nodeDisplayName(n)} · ${n.nodeId} · ${t('browse.online')}`} onClick={() => { choose({ kind: 'remote', nodeId: n.nodeId }) }}>
+          <StateDot state="done" size={8} />
+          <span className={css.chooserName}>{nodeDisplayName(n)}</span>
           {currentNodeId === n.nodeId && <span className={css.chooserTag}>{t('browse.currentSession')}</span>}
-          <span className={css.chooserTick}>{scope.kind === 'remote' && scope.nodeId === n.nodeId && <IconCheckOutlineRegular size={14} />}</span>
+          {scope.kind === 'remote' && scope.nodeId === n.nodeId && <span className={css.chooserTick}><IconCheckOutlineRegular size={14} /></span>}
         </button>)}
-      </div>
-      {busy && <div role="status" className={css.message}>{t('remote.loading')}</div>}
-      {error && <div role="alert" className={css.message}>{error}</div>}
-      <div className={css.chooserFooter}>
-        <button type="button" className={css.chooserRefresh} disabled={busy} onClick={onRefresh}>
-          <IconRefreshOutlineRegular className={css.chooserRefreshIcon} size={13} />
-          <span>{t('remote.refresh')}</span>
-        </button>
+        {busy && <div role="status" className={css.message}>{t('remote.loading')}</div>}
+        {error && <div role="alert" className={css.message}>{error}</div>}
+        {!busy && !error && choices.length === 0 && (term === '' || !showLocal && !showFollowing) && (
+          <div role="status" className={css.message}>{t(term === '' ? 'browse.noOnlineNodes' : 'empty.noMatches')}</div>
+        )}
       </div>
     </div>, document.body)}
   </>

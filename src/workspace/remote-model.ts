@@ -4,7 +4,60 @@
  * @module dsh-master/workspace/remote-model
  */
 
-import type { MasterNode, MasterSession, MasterWorkspace } from '../protocol.js'
+import type { MasterNode, MasterSession, MasterSessionsValue, MasterWorkspace } from '../protocol.js'
+
+/**
+ * Which nodes a background status tick may re-read.
+ *
+ * A tick must never invent a row set for a node whose first list has not landed
+ * (its loading placeholder is the truthful state), and an offline node has no
+ * list to read at all. Everything else — expanded, scoped, or followed — is fair
+ * game, because that is exactly what the user can currently see.
+ *
+ * @param candidates - nodes whose rows are on screen this render.
+ * @param data - the per-node cache that records which lists have landed.
+ * @returns node ids safe to refresh silently, in candidate order.
+ */
+export function pollableNodeIds(
+  candidates: readonly MasterNode[],
+  data: Readonly<Record<string, MasterSessionsValue>>,
+): string[] {
+  return candidates
+    .filter(node => !nodeIsOffline(node) && node.state === 'ready' && Object.hasOwn(data, node.nodeId))
+    .map(node => node.nodeId)
+}
+
+/**
+ * Replace one session's displayed title with the title the node accepted.
+ *
+ * The node normalizes a rename (trim, control characters, byte budget), so its
+ * answer — not the dialog's draft — is what the tree renders. Rows and the
+ * archive set keep their identity; the `updatedAt` stamp is refreshed by the
+ * follow-up list load rather than guessed here.
+ *
+ * @param data - per-node session/registry cache.
+ * @param nodeId - the node that owns the session.
+ * @param sessionId - the renamed session.
+ * @param title - the accepted title.
+ * @returns a cache with that one row retitled, or the input when nothing matched.
+ */
+export function replaceSessionTitle(
+  data: Readonly<Record<string, MasterSessionsValue>>,
+  nodeId: string,
+  sessionId: string,
+  title: string,
+): Readonly<Record<string, MasterSessionsValue>> {
+  const current = data[nodeId]
+  if (current === undefined) return data
+  let found = false
+  const sessions = current.sessions.map((session) => {
+    if (session.sessionId !== sessionId || session.title === title) return session
+    found = true
+    return { ...session, title }
+  })
+  if (!found) return data
+  return { ...data, [nodeId]: { ...current, sessions } }
+}
 
 /** Project registry membership, retaining empty workspaces and visible unassigned sessions. */
 export function groupRemoteWorkspaces(

@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { MAX_PROMPT_BODY_BYTES, createMasterRouteHandler } from '../src/http-api.js'
 import type { MasterService } from '../src/service.js'
 import type { MasterStatus } from '../src/protocol.js'
+import { MAX_SESSION_TITLE_LENGTH, MAX_WORKSPACE_PATH_LENGTH } from '../src/protocol.js'
 
 /** A response that records what the handler wrote. */
 class FakeResponse {
@@ -330,8 +331,46 @@ describe('the prompt gate', () => {
     expect(seen[0]).toEqual(['node-1', 'session-1'])
   })
 
-  it('honours an explicit steer mode', async () => {
+  it('unarchives the requested remote session and returns the complete archive set', async () => {
     const seen: unknown[][] = []
+    const master = service({
+      unarchiveSession: (...args: unknown[]) => {
+        seen.push(args)
+        return Promise.resolve({ archivedSessionIds: ['still-archived'] })
+      },
+    })
+    const response = await call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/unarchive',
+      headers: { host: '127.0.0.1:43120', 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'node-1', sessionId: 'session-1' }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(response.json).toEqual({ ok: true, value: { archivedSessionIds: ['still-archived'] } })
+    expect(seen[0]).toEqual(['node-1', 'session-1'])
+  })
+
+  it('accepts POST only on both archive verbs and requires both identities', async () => {
+    const master = service({
+      archiveSession: () => Promise.resolve({ archivedSessionIds: [] }),
+      unarchiveSession: () => Promise.resolve({ archivedSessionIds: [] }),
+    })
+    for (const url of ['/dsh-master/api/session/archive', '/dsh-master/api/session/unarchive']) {
+      const read = await call(handlerFor(master), fakeRequest({ url, headers: { host: '127.0.0.1:43120' } }))
+      expect(read.status).toBe(405)
+      const missing = await call(handlerFor(master), fakeRequest({
+        method: 'POST',
+        url,
+        headers: { host: '127.0.0.1:43120' },
+        body: JSON.stringify({ nodeId: 'node-1' }),
+      }))
+      expect(missing.status).toBe(400)
+      expect(missing.json).toMatchObject({ error: { code: 'master/invalid-arguments' } })
+    }
+  })
+
+  it('honours an explicit steer mode', async () => {    const seen: unknown[][] = []
     const master = service({
       promptEnabled: true,
       prompt: (...args: unknown[]) => { seen.push(args); return Promise.resolve() },
@@ -374,6 +413,144 @@ describe('the prompt gate', () => {
     }))
     expect(response.status).toBe(413)
     expect(response.json).toMatchObject({ error: { code: 'master/too-large' } })
+  })
+})
+
+describe('the remote session rename route', () => {
+  it('forwards the node, session and trimmed title, and returns the accepted title', async () => {
+    const seen: unknown[][] = []
+    const master = service({
+      renameSession: (...args: unknown[]) => {
+        seen.push(args)
+        return Promise.resolve({ sessionId: 'session-1', title: '新的标题' })
+      },
+    })
+    const response = await call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/rename',
+      headers: { host: '127.0.0.1:43120', 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'node-1', sessionId: 'session-1', title: '  新的标题  ' }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(response.json).toEqual({
+      ok: true,
+      value: { sessionId: 'session-1', title: '新的标题' },
+    })
+    expect(seen[0]).toEqual(['node-1', 'session-1', '新的标题'])
+  })
+
+  it('accepts POST only', async () => {
+    const response = await call(handlerFor(service()), fakeRequest({
+      url: '/dsh-master/api/session/rename',
+      headers: { host: '127.0.0.1:43120' },
+    }))
+    expect(response.status).toBe(405)
+    expect(response.headers['allow']).toBe('POST')
+  })
+
+  it('rejects a missing, blank or oversized title without calling the service', async () => {
+    let called = false
+    const master = service({
+      renameSession: () => {
+        called = true
+        return Promise.resolve({ sessionId: 'session-1', title: 'x' })
+      },
+    })
+    const post = (body: string) => call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/rename',
+      headers: { host: '127.0.0.1:43120', 'content-type': 'application/json' },
+      body,
+    }))
+
+    const missingSession = await post(JSON.stringify({ nodeId: 'node-1', title: 'ok' }))
+    expect(missingSession.status).toBe(400)
+    const missingTitle = await post(JSON.stringify({ nodeId: 'node-1', sessionId: 'session-1' }))
+    expect(missingTitle.status).toBe(400)
+    const nonString = await post(JSON.stringify({ nodeId: 'node-1', sessionId: 'session-1', title: 42 }))
+    expect(nonString.status).toBe(400)
+    const blank = await post(JSON.stringify({ nodeId: 'node-1', sessionId: 'session-1', title: '   ' }))
+    expect(blank.status).toBe(400)
+    expect(blank.json).toMatchObject({ error: { code: 'master/invalid-arguments' } })
+    const tooLong = await post(JSON.stringify({
+      nodeId: 'node-1', sessionId: 'session-1', title: 'x'.repeat(MAX_SESSION_TITLE_LENGTH + 1),
+    }))
+    expect(tooLong.status).toBe(400)
+    expect(called).toBe(false)
+  })
+
+  it('does not require prompt access', async () => {
+    const master = service({
+      promptEnabled: false,
+      renameSession: () => Promise.resolve({ sessionId: 'session-1', title: 'ok' }),
+    })
+    const response = await call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/rename',
+      headers: { host: '127.0.0.1:43120', 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'node-1', sessionId: 'session-1', title: 'ok' }),
+    }))
+    expect(response.status).toBe(200)
+    expect(response.json).toMatchObject({ ok: true })
+  })
+})
+
+describe('the remote workspace create route', () => {
+  const workspace = { workspaceId: 'ws-1', title: 'my-app', path: 'D:\\projects\\my-app', sessionIds: [] }
+
+  it('forwards the node and the trimmed path and returns the registry row', async () => {
+    const seen: unknown[][] = []
+    const master = service({
+      createWorkspace: (...args: unknown[]) => {
+        seen.push(args)
+        return Promise.resolve({ workspace, created: true })
+      },
+    })
+    const response = await call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/workspace/create',
+      headers: { host: '127.0.0.1:43120', 'content-type': 'application/json' },
+      body: JSON.stringify({ nodeId: 'node-1', path: '  D:\\projects\\my-app  ' }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(response.json).toEqual({ ok: true, value: { workspace, created: true } })
+    expect(seen[0]).toEqual(['node-1', 'D:\\projects\\my-app'])
+  })
+
+  it('accepts POST only', async () => {
+    const response = await call(handlerFor(service()), fakeRequest({
+      url: '/dsh-master/api/workspace/create',
+      headers: { host: '127.0.0.1:43120' },
+    }))
+    expect(response.status).toBe(405)
+    expect(response.headers['allow']).toBe('POST')
+  })
+
+  it('rejects a missing, non-string or blank path without calling the service', async () => {
+    let called = false
+    const master = service({
+      createWorkspace: () => {
+        called = true
+        return Promise.resolve({ workspace, created: false })
+      },
+    })
+    const post = (body: string) => call(handlerFor(master), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/workspace/create',
+      headers: { host: '127.0.0.1:43120', 'content-type': 'application/json' },
+      body,
+    }))
+
+    expect((await post(JSON.stringify({ path: 'D:\\x' }))).status).toBe(400)
+    expect((await post(JSON.stringify({ nodeId: 'node-1' }))).status).toBe(400)
+    expect((await post(JSON.stringify({ nodeId: 'node-1', path: 42 }))).status).toBe(400)
+    expect((await post(JSON.stringify({ nodeId: 'node-1', path: '   ' }))).status).toBe(400)
+    const tooLong = await post(JSON.stringify({ nodeId: 'node-1', path: `D:\\${'x'.repeat(MAX_WORKSPACE_PATH_LENGTH)}` }))
+    expect(tooLong.status).toBe(400)
+    expect(tooLong.json).toMatchObject({ error: { code: 'master/invalid-arguments' } })
+    expect(called).toBe(false)
   })
 })
 

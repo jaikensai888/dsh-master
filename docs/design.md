@@ -48,6 +48,7 @@
 | 某节点的目录与会话 | `GET /dsh-master/api/sessions?nodeId=` | `session/list` + `workspace/follow` 首个 baseline（随后取消流） |
 | 打开一个会话（历史 + 实时） | `GET /dsh-master/api/session/follow?nodeId=&sessionId=`（NDJSON） | `POST /api/session/follow` → `session/follow` |
 | 新建/复用远程空白会话 | `POST /dsh-master/api/session/create`（`nodeId` + `workspaceId` + 可选 `sessionId`） | `POST /api/session/create` → `session/create` |
+| 重命名远程会话 | `POST /dsh-master/api/session/rename`（`nodeId` + `sessionId` + `title`） | `POST /api/invoke` → `session/rename` |
 | 发消息 | `POST /dsh-master/api/session/prompt`（**默认关闭**） | `POST /api/session/prompt` → `session/prompt` |
 
 **转发原则：`data.value` 原样透传，不做严格 schema 校验。** 节点上的 DSH 版本不一定是我们的版本；把版本偏差变成「会话一片空白」是最糟的失败模式。`src/client/wire.ts` 负责尽力解释，解释不了的事件**计数并显示**，不静默丢弃。
@@ -64,11 +65,19 @@
 
 节点和目录的展开状态分别保存于 `remoteNodeExpansion`、`remoteWorkspaceExpansion`；目录键为 `JSON.stringify([nodeId, workspaceId])`，未分组用 `null`，不会与其他节点或本地状态冲突。旧 v5 缓存保留原排序和折叠偏好，旧 `remoteExpanded` 作为尚无独立节点设置时的默认值。
 
-刷新会重新读取节点及全部已展开在线节点，过期请求会取消或忽略。本地列表和各节点内容独立滚动，外层侧栏也提供滚动路径，避免多节点标题被裁切。旧节点缺少工作区协议时显示提示并回退未分组；仅目录解析失败时仍保留有效的归档状态。数据变化仍需手动刷新。远程树使用现有 primitives、设计 token 和行尺寸，远程视图继续通过注入 renderer 接入。
+刷新会重新读取节点及全部已展开在线节点，过期请求会取消或忽略。滚动按宿主契约分两支：0.2 系列宿主自己拥有外层滚动（视口先把导航滚走，再经 `useSectionScroller` 交接给区块），区块被 `max-height: 100cqh` 限成一屏高，**本地行与全部远程节点只共用一个滚动容器**（`[data-dsh-section-body]`）；0.1 系列宿主给的是确定高度列，则沿用旧的「本地列表与各节点各自滚动 + 浏览器根作外层滚动路径」链路。能力缺失时才回退到 DOM 探测（`[data-sidebar-scrollport]`），不按版本号猜。旧节点缺少工作区协议时显示提示并回退未分组；仅目录解析失败时仍保留有效的归档状态。数据变化仍需手动刷新。远程树使用现有 primitives、设计 token 和行尺寸，远程视图继续通过注入 renderer 接入。
 
 远程会话不能交给官方对话页渲染，所以点击本地会话仍走本地会话页，点击远程会话则调用 `layout.selectPanel('dsh-master')` 并由 `RemotePanel` 打开。用户已确认移除独立的 `sidebar.panellist`「远程」入口。
 
 2026-11-09 新增：「工作区」下拉在「本地」旁增加「关注」，本地分组、平铺和远程正式会话的行菜单增加「关注 / 取消关注」。关注列表占用同一侧栏位置，按关注时间倒序列出标题、机器和工作区，并用现有搜索入口筛选这三列；打开条目只切换右侧会话，左侧保持在「关注」并高亮该行，取消关注只删浏览器记录。记录存于侧栏视图 store 的 `following` 字段（沿用 `dsh.workspace.view.v5`，旧快照补齐为空数组）；本机用 `sessionId` 标识，远程用 Coordinator 来源 + `nodeId` + `sessionId`，不同节点或来源即使会话 id 相同也各自独立。进入「关注」或手动刷新时重新核验来源，只请求有关注记录且可路由的节点（同节点合并为一次、并发上限 4），核验与刷新期间远程条目不可打开；离线、来源变化、加载失败、归档和暂未找到都保留记录与上次摘要，并允许取消关注。标题区同时改为范围下拉：同一个控件显示当前范围（本地工作区 / 节点名 / 关注）并打开选择弹层。
+
+2026-11-11 新增：远程正式会话行的「…」菜单增加「重命名」，弹窗预填当前标题。复用远端 `session/rename`：节点会 resume 该会话并写入 `session/title`（`source: user`），从此覆盖自动标题；标题由节点规范化（trim、去控制字符、按字节预算截断），所以侧栏与面板显示节点返回的值。与本地一致，**确认未修改的标题是合法操作**，用于把自动标题固定成用户标题。成功后先取消该节点在途的列表请求再替换标题，并同步主面板 selection 的标题；随后后台刷新该节点。节点未就绪时菜单项置灰，缺少该 Remote 时隐藏入口并给出节点级提示。与归档、新建一样不受 `allowPrompt` 限制，因为不执行 Agent 回合。
+
+2026-11-11 新增（执行状态）：关注列表的每一行现在也显示“执行中”圆点，与本地树、远程树使用同一个 `StateDot`；本地行直接读主机的会话订阅（实时），远程行读远程数据快照。为了让远程状态不只有手动刷新才更新，`RemoteSection` 在页面可见时每 15 秒对**当前可见的节点**（展开的、当前范围的、关注目标）做一次静默 `session/list`：不切换加载态、不清除错误、与在途加载/新建/重命名互斥；从后台回到页面时立即刷新一次。没有订阅 `session/control` 状态流，所以其他客户端的变更最多滞后一个刷新周期。
+
+2026-11-23 新增：侧栏标题行的「＋」改为紧贴搜索图标左侧（新增 `.headerCluster` 把「＋」与搜索放进同一个右对齐容器，官方 `searchSlot` 的 `margin-left:auto` 因此不再把「＋」推到最右），本地范围常驻；「＋」不再依赖 `sidebar.workspaces.directoryFlow` 是否有占用者——有占用者时走现有 `WorkspacePickFlow`（目录选择器插槽），没有占用者（官方 `ui-workspace` 仍接管、或 profile 未装选择器插件）时改开宿主侧路径输入弹窗，路径交给 `workspaces.create` 校验。添加成功后不再顺手新建会话，而是展开并定位到该工作区（`create` 对已登记目录幂等，重复选择只是定位）。
+
+新增「已归档」入口与列表：本地标题行（范围下拉为「本地」时）与每个远程节点标题行各有自己的入口，列表随所在范围切换。行显示标题、所属工作区与最近更新时间，点击打开历史会话；行尾「…」提供「取消归档」。归档集是注册表全局的 `archivedSessionIds`，所以列表是「归档集 ∩ 会话摘要 ∩ 工作区归属」的投影（`src/workspace/archived.ts`）：没有摘要的归档 id 不产生行（避免打不开的死行），归档但已无归属的会话落到「未分组」。远程侧新增 `POST /dsh-master/api/session/unarchive`（→ `workspace/unarchiveSession`）与 `POST /dsh-master/api/workspace/create`（→ `workspace/create`），两者都返回节点权威结果：归档集整体替换本地缓存，失败保留归档行并显示节点的具体错误；节点报 `node/capability-unavailable` 时把该节点的「取消归档」标记为不可用并在列表里如实说明。本地打开归档会话走新增的 `uiWorkspace.openArchivedSession`：归档策略原本会立刻清掉「当前会话已归档」的主视图，这条路径记录一次显式打开、只在当前会话变化或取消归档后失效。远程取消归档按节点 + 会话 id 定位，不走文件名或会话标题。
 
 ---
 
@@ -82,6 +91,10 @@
 | 历史 + 实时 + 发消息 | ✅ 打通 | 走 coordinator 已有的转发面 |
 | 列表 / 分组 / 搜索 / 拖拽 / fork / 归档 | ⚠️ 自建，功能更少 | 官方工作区浏览器不可复用 |
 | 远程新建会话 | ✅ 已接入 `session/create` | 只允许节点已登记的工作区；已有空白会话优先复用；空白行仅当前选中时显示 |
+| 远程会话重命名 | ✅ 已接入 `session/rename` | 节点 resume 后写用户标题并覆盖自动标题；显示节点规范化后的返回值 |
+| 会话执行状态 | ⚠️ 圆点 + 15 秒静默刷新 | 三处列表都显示 `running` 圆点；本地实时，远程靠快照刷新，未订阅 `session/control` |
+| 添加工作区 | ✅ 已接入 `workspace/create` | 本地走选择器插槽或宿主路径弹窗；远程只传路径，由节点校验并幂等返回已有工作区 |
+| 查看已归档 / 取消归档 | ✅ 已接入 `workspace/unarchiveSession` | 本地与每个节点各自一份列表（标题 / 工作区 / 更新时间）；取消归档由所属宿主确认，失败保留行并显示具体错误 |
 | 对话渲染 | ⚠️ 自建，覆盖主要事件；视觉已用官方原子组件与 `--dsw-*` token 对齐 | 官方对话组件不导出；`ui-primitives` 的 `MarkdownText` / `Button` / `StateDot` / `Pill` / 图标是唯一可复用的官方视觉层 |
 | 工具卡片 / diff / 计划 / todo / 子代理视图 | ❌ 暂缺 | 目前只渲染文本、工具调用与结果、少量 notice；其余事件计数显示 |
 | token 级流式增量 | ⚠️ 只显示「输出中」 | `assistant-stream` 的 `chunk` 是 provider 形状，**不猜**；等 durable `assistant/message` |

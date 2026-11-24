@@ -93,6 +93,15 @@ export interface FollowingRow {
   readonly workspace: string
   readonly status: FollowStatus
   /**
+   * Whether the session is executing a turn right now.
+   *
+   * Local rows read it from the host's own session subscription, so it is live.
+   * Remote rows can only read the last `session/list` snapshot the remote data
+   * owner holds; a row that cannot be opened (offline, archived, missing) is
+   * never reported as running.
+   */
+  readonly running: boolean
+  /**
    * True when the row's display summary came from the current source rather than the
    * record. Only fresh summaries are written back to the browser store.
    */
@@ -175,6 +184,7 @@ function localRow(
       machine: record.machine,
       workspace: record.workspace,
       status,
+      running: false,
       fresh: false,
     }
   }
@@ -188,6 +198,7 @@ function localRow(
     machine: labels.localMachine,
     workspace: workspaceOf(local.workspaces, sessionId)?.title ?? labels.ungrouped,
     status: archived ? 'archived' : 'ok',
+    running: archived ? false : summary.running,
     fresh: true,
   }
 }
@@ -205,6 +216,7 @@ function remoteRow(
     title: record.title,
     machine: record.machine,
     workspace: record.workspace,
+    running: false,
     fresh: false,
   }
   const coordinator = remote.coordinator
@@ -230,6 +242,7 @@ function remoteRow(
       machine,
       workspace: workspaceTitle,
       status: 'archived',
+      running: false,
       fresh: true,
     }
   }
@@ -244,6 +257,7 @@ function remoteRow(
     machine,
     workspace: workspaceTitle,
     status: 'ok',
+    running: session.running,
     fresh: true,
   }
 }

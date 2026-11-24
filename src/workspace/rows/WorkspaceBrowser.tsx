@@ -19,7 +19,8 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import {
-  Button, IconCloseFillRegular as IconCloseFill14, IconPersonalizationOutlineRegular as IconPersonalizationOutline16,
+  Button, IconArchiveOutlineRegular as IconArchiveOutline16, IconCloseFillRegular as IconCloseFill14,
+  IconPersonalizationOutlineRegular as IconPersonalizationOutline16,
   IconProjectAddOutlineRegular as IconProjectAddOutline16, IconSearchOutlineRegular as IconSearchOutline16, Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
@@ -29,7 +30,7 @@ import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { adaptSessionsHook, adaptSessionStatusHook } from '../adapt.js'
-import type { WorkspaceBrowserProps } from '../contract/slots.js'
+import type { UseSectionScroller, WorkspaceBrowserProps } from '../contract/slots.js'
 import type { SessionNode, SessionOrderBy } from '../tree.js'
 import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from '../tree.js'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.js'
@@ -37,8 +38,11 @@ import { FLAT_SESSION_ORDER_KEY, followKey, type WorkspaceBrowseScope } from '..
 import type { FollowingLocalSnapshot } from '../following.js'
 import { WorkspacePickFlow } from '../WorkspacePicker.js'
 import { runSessionAction } from '../navigation.js'
-import { WorkspaceBrowserCss as css } from '../styles.generated.js'
+import { WorkspaceBrowserCss as css, WorkspaceExtrasCss as extras } from '../styles.generated.js'
 import { getRemoteSelection, subscribeRemoteSelection } from '../../client/selection.js'
+import { archivedRows, filterArchivedRows } from '../archived.js'
+import { ArchivedList } from '../ArchivedList.js'
+import { AddWorkspaceDialog } from '../AddWorkspaceDialog.js'
 
 /**
  * Column slide length (--ds-transition-duration-slow): rail-search focus waits it out —
@@ -51,6 +55,32 @@ const SEARCH_DEBOUNCE_MS = 250
 const SEARCH_QUERY_MAX_CODE_UNITS = 500
 /** Session rows visible per Workspace before the local overflow control. */
 const COLLAPSED_SESSION_LIMIT = 5
+
+/**
+ * Which sidebar shell owns scrolling.
+ *
+ * - `viewport` (0.2.x): the shell's viewport scrolls the navigation away and
+ *   hands the rest of the gesture to the section's own scroller, which the
+ *   section binds through `useSectionScroller`. The section is capped at one
+ *   viewport (`100cqh`) and has exactly one scroll owner.
+ * - `column` (0.1.x): the shell gives the section a definite-height column and
+ *   the section's own lists scroll inside it.
+ *
+ * The capability decides first. The DOM probe is the fallback for a host that
+ * declares the hook in its slot contract but does not deliver it to a
+ * replacement registrant: 0.2.x is the only shell that puts a
+ * `data-sidebar-scrollport` element in the tree.
+ */
+type SectionScrollContract = 'viewport' | 'column'
+
+/** Stand-in used when the host supplies no hand-off, so the hook call is unconditional. */
+const NO_SECTION_SCROLLER: UseSectionScroller = () => ({ bindScrollerRef: () => undefined })
+
+function sectionScrollContract(useSectionScroller: UseSectionScroller | undefined): SectionScrollContract {
+  if (useSectionScroller !== undefined) return 'viewport'
+  if (typeof document === 'undefined') return 'column'
+  return document.querySelector('[data-sidebar-scrollport]') === null ? 'column' : 'viewport'
+}
 
 /** Fold one Workspace without charging its provisional New Session against the ordinary-row limit. */
 function collapsedSessionRows(sessions: readonly SessionNode[]): {
@@ -447,6 +477,7 @@ function SessionTree({
       <div
         className={clsx(css.list, workspaceDropAtListStart && css.listTopDropActive)}
         role="tree"
+        data-dsh-local-tree=""
         aria-label={t('section.sessions')}
       >
         {groups.length === 0 && (
@@ -603,7 +634,7 @@ function SessionTree({
           )
         })}
       </div>
-      <span className={css.fade} />
+      <span className={css.fade} data-dsh-fade="" />
     </div>
   )
 }
@@ -687,7 +718,7 @@ function FlatList({
   const now = Date.now()
   return (
     <div className={clsx(css.treeBody, css.wide)}>
-      <div className={clsx(css.list, css.flatList)} role="tree" aria-label={t('section.sessions')}>
+      <div className={clsx(css.list, css.flatList)} role="tree" data-dsh-local-tree="" aria-label={t('section.sessions')}>
         {rows.length === 0 && (
           <div className={css.empty}>{t('empty.none')}</div>
         )}
@@ -730,7 +761,7 @@ function FlatList({
           )
         })}
       </div>
-      <span className={css.fade} />
+      <span className={css.fade} data-dsh-fade="" />
     </div>
   )
 }
@@ -811,7 +842,7 @@ function SearchResults({
           </div>
         )}
       </div>
-      <span className={css.fade} />
+      <span className={css.fade} data-dsh-fade="" />
     </div>
   )
 }
@@ -843,6 +874,8 @@ export function WorkspaceBrowser({
   deleteWorkspace,
   insertWorkspaceBefore,
   archiveSession,
+  unarchiveSession,
+  openArchivedSession,
   insertSessionBefore,
   createWorkspace,
   renderRemoteSection,
@@ -850,9 +883,15 @@ export function WorkspaceBrowser({
   searchResultLimit,
   useDirectoryFlow,
   useHostInfo,
+  useSectionScroller,
   renderSlot,
   t,
 }: WorkspaceBrowserProps) {
+  // The hand-off hook is called unconditionally: its presence is fixed for the
+  // registration's lifetime, so the fallback keeps the hook order stable and the
+  // section still renders on hosts that never declare it.
+  const sectionScroller = (useSectionScroller ?? NO_SECTION_SCROLLER)()
+  const scrollContract = sectionScrollContract(useSectionScroller)
   const useSessionPendingInteraction = useLegacyPendingInteraction ?? adaptSessionStatusHook(useSessionStatus)
   // The one local adaptation of upstream behaviour: 0.1.5 nests a session's display
   // facts under `projections.values` and calls the id `sessionId`; this fork reads the
@@ -905,6 +944,10 @@ export function WorkspaceBrowser({
   const openLocal = (id: SessionId) => {
     if (browseScope.kind !== 'following') actions.setBrowseScope({ kind: 'local' })
     open(id)
+  }
+  const openArchivedLocal = (id: SessionId) => {
+    if (browseScope.kind !== 'following') actions.setBrowseScope({ kind: 'local' })
+    openArchivedSession(id)
   }
   /** Add or remove a local session's follow marker; only a known, real session is recorded. */
   const toggleLocalFollow = (sessionId: string) => {
@@ -995,6 +1038,79 @@ export function WorkspaceBrowser({
   const [wsPickerOpen, setWsPickerOpen] = useState(false)
   const wsPlusRef = useRef<HTMLButtonElement>(null)
   const composingRef = useRef(false)
+
+  // ------------------------------------------------------------ archived view
+  //
+  // The archive set is registry-global, so the local list is this browser's own
+  // projection of the subscriptions it already holds. Opening an archived row
+  // goes through the host's archived-open path, which keeps that session in the
+  // main view instead of being cleared by the archive-selection policy.
+  const [archivedOpen, setArchivedOpen] = useState(false)
+  const localArchivedRows = useMemo(() => archivedRows(
+    Object.values(sessionById).map(summary => ({
+      sessionId: summary.id,
+      title: summary.blank ? t('session.new') : summary.displayTitle,
+      updatedAt: summary.updatedAt,
+      running: summary.running === true,
+    })),
+    workspaces,
+    archivedSessionIds,
+    t('group.ungrouped'),
+  ), [archivedSessionIds, sessionById, t, workspaces])
+  const visibleArchivedRows = useMemo(
+    () => filterArchivedRows(localArchivedRows, query),
+    [localArchivedRows, query],
+  )
+  const [unarchivingId, setUnarchivingId] = useState<string | undefined>(undefined)
+  const [unarchiveFailure, setUnarchiveFailure] = useState<{ sessionId: string; message: string } | undefined>(undefined)
+  const requestUnarchive = (sessionId: string) => {
+    if (unarchivingId !== undefined) return
+    setUnarchiveFailure(undefined)
+    setUnarchivingId(sessionId)
+    unarchiveSession(sessionId).catch((reason: unknown) => {
+      // The row stays in the list: the archive set is the host's answer, and a
+      // refusal means nothing changed there.
+      setUnarchiveFailure({
+        sessionId,
+        message: `${t('archived.unarchiveFailed')} · ${reason instanceof Error ? reason.message : String(reason)}`,
+      })
+    }).finally(() => { setUnarchivingId(undefined) })
+  }
+
+  // ----------------------------------------------------------- add workspace
+  //
+  // One trigger, two routes. With a composed directory picker the flow owns the
+  // interaction; without one the host-side path dialog is the route, so the add
+  // affordance exists in every composition instead of disappearing with the slot.
+  const [addPathOpen, setAddPathOpen] = useState(false)
+  const [addPathBusy, setAddPathBusy] = useState(false)
+  const [addPathError, setAddPathError] = useState<string | undefined>(undefined)
+  const locateWorkspace = (workspaceId: WorkspaceId) => {
+    // Registering a directory is the goal, not starting work in it: reveal the
+    // row and expand it, leaving the open conversation alone.
+    actions.setBrowseScope({ kind: 'local' })
+    actions.setLocalExpanded(true)
+    actions.setGroupExpanded(workspaceId as string, true)
+    setArchivedOpen(false)
+  }
+  const adoptWorkspacePath = (path: string) => {
+    if (addPathBusy) return
+    setAddPathBusy(true)
+    setAddPathError(undefined)
+    createWorkspace({ path }).then((workspace) => {
+      setAddPathBusy(false)
+      setAddPathOpen(false)
+      locateWorkspace(workspace.workspaceId)
+    }).catch((reason: unknown) => {
+      setAddPathBusy(false)
+      setAddPathError(`${t('addWorkspace.failed')} · ${reason instanceof Error ? reason.message : String(reason)}`)
+    })
+  }
+  const openAddWorkspace = () => {
+    setAddPathError(undefined)
+    if (directoryFlowAvailable) setWsPickerOpen(true)
+    else setAddPathOpen(true)
+  }
 
   // Rail search = expand + land in the search box: the flag arms before the
   // expand request; once the shell flips wide the input mounts and takes focus.
@@ -1217,7 +1333,12 @@ export function WorkspaceBrowser({
   const remoteSection = renderRemoteSection(remoteSectionProps)
 
   return (
-    <div className={clsx(css.root, !wide && css.rail)} data-dsh-workspace-browser="">
+    <div
+      className={clsx(css.root, !wide && css.rail)}
+      data-dsh-workspace-browser=""
+      data-dsh-section={scrollContract}
+      data-dsh-wide={wide ? 'true' : 'false'}
+    >
       <div
         className={css.treeBody}
         data-dsh-local-section=""
@@ -1235,64 +1356,97 @@ export function WorkspaceBrowser({
           />
         )}
         {wide && (
-          <div className={clsx(css.searchSlot, searchExpanded && css.searchSlotExpanded)}>
-            <div
-              ref={searchRoot}
-              className={clsx(css.search, searchExpanded && css.searchExpanded)}
-              onClick={() => {
-                setWsPickerOpen(false)
-                setSearchExpanded(true)
-                actions.setLocalExpanded(true)
-                searchInput.current?.focus()
-              }}
-            >
-              <Tooltip label={t('search')} side="bottom" delayMs={500} disabled={searchExpanded}>
+          // Add-workspace and search travel together in one right-aligned
+          // cluster, so the ＋ sits immediately left of the search icon instead
+          // of trailing the view options on the far edge of the header.
+          <div className={extras.headerCluster}>
+            {!searchExpanded && browseScope.kind === 'local' && (
+              <Tooltip label={t('workspace.add')} side="bottom" delayMs={500}>
                 <button
+                  ref={wsPlusRef}
                   type="button"
-                  className={css.searchButton}
-                  aria-label={t('search.sessions.aria')}
-                  aria-expanded={searchExpanded}
-                  onClick={() => {
-                    setWsPickerOpen(false)
-                    setSearchExpanded(true)
-                  }}
+                  className={clsx(css.iconButton, extras.addWorkspace)}
+                  aria-label={t('workspace.add')}
+                  onClick={openAddWorkspace}
                 >
-                  <IconSearchOutline16 size={searchExpanded ? 11 : 14} />
+                  <IconProjectAddOutline16 size={16} />
                 </button>
               </Tooltip>
-              <input
-                ref={searchInput}
-                className={css.searchInput}
-                type="text"
-                placeholder={t('search.placeholder')}
-                maxLength={SEARCH_QUERY_MAX_CODE_UNITS}
-                value={query}
-                tabIndex={searchExpanded ? 0 : -1}
-                onChange={(e) => { setQuery(sanitizeSearchQuery(e.target.value)) }}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Escape') return
-                  setQuery('')
-                  setSearchExpanded(false)
+            )}
+            <div className={clsx(css.searchSlot, searchExpanded && css.searchSlotExpanded)}>
+              <div
+                ref={searchRoot}
+                className={clsx(css.search, searchExpanded && css.searchExpanded)}
+                onClick={() => {
+                  setWsPickerOpen(false)
+                  setSearchExpanded(true)
+                  actions.setLocalExpanded(true)
+                  searchInput.current?.focus()
                 }}
-              />
-              {searchExpanded && (
-                <button
-                  type="button"
-                  className={css.clearButton}
-                  aria-label={t('search.clear')}
-                  onClick={(e) => {
-                    e.stopPropagation()
+              >
+                <Tooltip label={t('search')} side="bottom" delayMs={500} disabled={searchExpanded}>
+                  <button
+                    type="button"
+                    className={css.searchButton}
+                    aria-label={t('search.sessions.aria')}
+                    aria-expanded={searchExpanded}
+                    onClick={() => {
+                      setWsPickerOpen(false)
+                      setSearchExpanded(true)
+                    }}
+                  >
+                    <IconSearchOutline16 size={searchExpanded ? 11 : 14} />
+                  </button>
+                </Tooltip>
+                <input
+                  ref={searchInput}
+                  className={css.searchInput}
+                  type="text"
+                  placeholder={t('search.placeholder')}
+                  maxLength={SEARCH_QUERY_MAX_CODE_UNITS}
+                  value={query}
+                  tabIndex={searchExpanded ? 0 : -1}
+                  onChange={(e) => { setQuery(sanitizeSearchQuery(e.target.value)) }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Escape') return
                     setQuery('')
                     setSearchExpanded(false)
                   }}
-                >
-                  <IconCloseFill14 />
-                </button>
-              )}
+                />
+                {searchExpanded && (
+                  <button
+                    type="button"
+                    className={css.clearButton}
+                    aria-label={t('search.clear')}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setQuery('')
+                      setSearchExpanded(false)
+                    }}
+                  >
+                    <IconCloseFill14 />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
         <div className={clsx(css.headerActions, wide && searchExpanded && css.headerActionsHidden)}>
+          {/* The archived list belongs to the scope being browsed: this header
+              owns the local one, each node header owns its own. */}
+          {wide && browseScope.kind === 'local' && (
+            <Tooltip label={t('archived.entry')} side="bottom" delayMs={500}>
+              <button
+                type="button"
+                className={clsx(css.iconButton, archivedOpen && extras.iconButtonActive)}
+                aria-label={t('archived.entry')}
+                aria-pressed={archivedOpen}
+                onClick={() => { setArchivedOpen(open => !open) }}
+              >
+                <IconArchiveOutline16 size={16} />
+              </button>
+            </Tooltip>
+          )}
           {wide && (
             <ViewOptionsMenu
               groupBy={groupBy}
@@ -1302,21 +1456,17 @@ export function WorkspaceBrowser({
               t={t}
             />
           )}
-          {/* Adding is the button's one action, so a composition with no
-              picking affordance has nothing to offer here: the region hides the
-              button rather than leaving a dead one in the header. */}
-          {directoryFlowAvailable && browseScope.kind === 'local' && (
+          {/* The collapsed rail still offers adding: with no room for a search
+              field, the plus is the one header action that survives. */}
+          {!wide && browseScope.kind === 'local' && (
             <Tooltip label={t('workspace.add')} side="bottom" delayMs={500}>
               <button
-                ref={wsPlusRef}
                 type="button"
                 className={css.iconButton}
                 aria-label={t('workspace.add')}
-                onClick={() => {
-                  setWsPickerOpen(v => !v)
-                }}
+                onClick={openAddWorkspace}
               >
-                <IconProjectAddOutline16 size={wide ? 16 : 18} />
+                <IconProjectAddOutline16 size={18} />
               </button>
             </Tooltip>
           )}
@@ -1334,9 +1484,19 @@ export function WorkspaceBrowser({
           side="right"
           onPick={(workspaceId) => {
             setWsPickerOpen(false)
-            requestStartSession(workspaceId)
+            // Adding a directory registers it; it does not start work in it.
+            locateWorkspace(workspaceId)
           }}
           onClose={() => { setWsPickerOpen(false) }}
+        />
+        <AddWorkspaceDialog
+          open={addPathOpen}
+          target={t('addWorkspace.localTarget')}
+          busy={addPathBusy}
+          error={addPathError}
+          t={t}
+          onSubmit={adoptWorkspacePath}
+          onClose={() => { if (!addPathBusy) setAddPathOpen(false) }}
         />
       </div>
 
@@ -1364,6 +1524,21 @@ export function WorkspaceBrowser({
           {t('browse.sessionElsewhere', { name: currentRemoteSelection?.nodeName ?? currentRemoteSelection?.nodeId ?? t('browse.local') })}
           <button type="button" onClick={() => { if (currentScope) changeBrowseScope(currentScope) }}>{t('browse.return')}</button>
         </div>}
+        {/*
+          The section body is the one place the section's scrolling lives.
+
+          A 0.2.x shell owns the outer scrolling: it caps this section at one
+          viewport, and this element is the section's own scroller, bound to the
+          shell's wheel hand-off. A 0.1.x shell instead hands the section a
+          definite-height column and each list scrolls itself; there the wrapper
+          adds no box (`display: contents`), so that chain is untouched. Local
+          rows and every remote node live inside it either way, which is what
+          keeps the section down to a single scroll owner.
+        */}
+        <div
+          data-dsh-section-body=""
+          ref={wide && scrollContract === 'viewport' ? sectionScroller.bindScrollerRef : undefined}
+        >
         {wide && (
           <div
             className={css.listArea}
@@ -1372,7 +1547,22 @@ export function WorkspaceBrowser({
           >
           {scopeKind === 'following'
           ? null
-          : normalizedQuery !== ''
+          : archivedOpen
+            ? (
+              <ArchivedList
+                rows={visibleArchivedRows}
+                now={Date.now()}
+                loading={sessionPhase !== 'ready' || workspacePhase !== 'ready'}
+                selectedId={currentLocalSession}
+                t={t}
+                onOpen={openArchivedLocal}
+                onUnarchive={requestUnarchive}
+                onClose={() => { setArchivedOpen(false) }}
+                {...unarchivingId === undefined ? {} : { pendingId: unarchivingId }}
+                {...unarchiveFailure === undefined ? {} : { actionError: unarchiveFailure }}
+              />
+            )
+            : normalizedQuery !== ''
             ? (
               <SearchResults
                 useSessions={useSessions}
@@ -1441,6 +1631,7 @@ export function WorkspaceBrowser({
           </div>
         )}
       {remoteSection}
+        </div>
       </div>
 
       {wide && sessionActionError !== null && (

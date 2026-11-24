@@ -5,6 +5,7 @@ import {
   RemoteSectionCss,
   WORKSPACE_CSS,
   WorkspaceBrowserCss,
+  WorkspaceExtrasCss,
   WorkspacePickerCss,
 } from '../src/workspace/styles.generated.js'
 
@@ -21,6 +22,7 @@ const MAPS = {
   WorkspaceBrowser: WorkspaceBrowserCss,
   LocalSection: LocalSectionCss,
   WorkspacePicker: WorkspacePickerCss,
+  WorkspaceExtras: WorkspaceExtrasCss,
 } as const
 
 /** Every generated class name, with its module, across all stylesheets. */
@@ -45,9 +47,64 @@ function paddingLeft(rule: string | undefined): string | undefined {
 }
 
 describe('the compiled workspace stylesheet', () => {
-  it('provides an outer scrolling path when independent node headers exceed the viewport', () => {
-    const rule = WORKSPACE_CSS.match(/\[data-dsh-workspace-browser\]\s*\{([^}]*)\}/u)?.[1]
-    expect(declaration(rule, 'overflow-y')).toBe('auto')
+  it('keeps the legacy outer scroll path and hands the wheel to the 0.2.x shell viewport', () => {
+    // 0.1.x shells give this region a definite-height column, so the browser root
+    // is the outer scroll path for node headers that would otherwise be clipped.
+    const legacy = WORKSPACE_CSS.match(/\[data-dsh-workspace-browser\]\s*\{([^}]*)\}/u)?.[1]
+    expect(declaration(legacy, 'overflow-y')).toBe('auto')
+
+    // 0.2.x shells own the outer scrolling. A scroll container here would have no
+    // travel (the section's height is content-driven) yet still claim the wheel
+    // gesture — the dead end this contract branch removes.
+    const viewport = WORKSPACE_CSS.match(
+      /\[data-dsh-workspace-browser\]\[data-dsh-section=['"]viewport['"]\]\[data-dsh-wide=['"]true['"]\]\s*\{([^}]*)\}/u,
+    )?.[1]
+    expect(declaration(viewport, 'max-height')).toBe('100cqh')
+    expect(declaration(viewport, 'overflow')).toBe('visible')
+    expect(declaration(viewport, 'overscroll-behavior')).toBe('auto')
+  })
+
+  it('gives the 0.2.x section exactly one scroller and yields it to the viewport first', () => {
+    // Boxless on 0.1.x hosts, so the legacy column chain keeps its flex children.
+    const base = WORKSPACE_CSS.match(/\[data-dsh-section-body\]\s*\{([^}]*)\}/u)?.[1]
+    expect(declaration(base, 'display')).toBe('contents')
+
+    const scroller = WORKSPACE_CSS.match(
+      /\[data-dsh-workspace-browser\]\[data-dsh-section=['"]viewport['"]\]\[data-dsh-wide=['"]true['"]\]\s+\[data-dsh-section-body\]\s*\{([^}]*)\}/u,
+    )?.[1]
+    expect(declaration(scroller, 'overflow-y')).toBe('auto')
+    expect(declaration(scroller, 'overscroll-behavior')).toBe('auto')
+    expect(declaration(scroller, 'scrollbar-gutter')).toBe('stable')
+
+    // While the shell viewport can still scroll down, the section stays out of the
+    // gesture; the shell's hand-off then continues the same gesture inside it.
+    expect(WORKSPACE_CSS).toMatch(/@container\s+scroll-state\(scrollable:\s*bottom\)\s*\{/u)
+    expect(WORKSPACE_CSS).toMatch(
+      /@container\s+scroll-state\(scrollable:\s*bottom\)\s*\{[^}]*\[data-dsh-section-body\][^}]*overflow-y:\s*hidden/u,
+    )
+  })
+
+  it('turns every nested list into plain content under the 0.2.x contract', () => {
+    const scope = String.raw`\[data-dsh-section=['"]viewport['"]\]\[data-dsh-wide=['"]true['"]\]`
+    for (const cls of [RemoteSectionCss.content, RemoteSectionCss.followingList, WorkspaceExtrasCss.archivedList]) {
+      const rule = WORKSPACE_CSS.match(new RegExp(`${scope}\\s+\\.${cls}\\s*\\{([^}]*)\\}`, 'u'))?.[1]
+      expect(rule, cls).toBeDefined()
+      expect(declaration(rule, 'overflow-y')).toBe('visible')
+      expect(declaration(rule, 'overscroll-behavior')).toBe('auto')
+    }
+    for (const cls of [RemoteSectionCss.expanded, RemoteSectionCss.following]) {
+      const rule = WORKSPACE_CSS.match(new RegExp(`${scope}\\s+\\.${cls}\\s*\\{([^}]*)\\}`, 'u'))?.[1]
+      expect(rule, cls).toBeDefined()
+      expect(declaration(rule, 'flex')).toBe('none')
+    }
+    // The local tree is plain content inside the same scroller, and the shell's own
+    // fade replaces the one anchored to the list.
+    expect(WORKSPACE_CSS).toMatch(
+      /\[data-dsh-section=['"]viewport['"]\]\[data-dsh-wide=['"]true['"]\]\s+\[data-dsh-local-tree\]\s*\{[^}]*overflow:\s*visible/u,
+    )
+    expect(WORKSPACE_CSS).toMatch(
+      /\[data-dsh-section=['"]viewport['"]\]\s+\[data-dsh-fade\]\s*\{[^}]*display:\s*none/u,
+    )
   })
   it('gives every class an identifier a browser will actually accept', () => {
     // **The regression this exists for.** A CSS class selector may not begin with a
@@ -254,6 +311,8 @@ describe('the compiled workspace stylesheet', () => {
   it('keeps all class-bearing stylesheets distinct and non-empty', () => {
     expect(ENTRIES.length).toBeGreaterThan(60)
     const scopes = new Set(ENTRIES.map(entry => entry.value.split('_')[0]))
-    expect(scopes.size).toBe(4)
+    // One scope per module that actually declares a class; the local section
+    // sheet is geometry-only and contributes none.
+    expect(scopes.size).toBe(5)
   })
 })

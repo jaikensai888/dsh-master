@@ -35,6 +35,7 @@ const MODULES = [
   { file: 'LocalSection.module.css', identifier: 'LocalSectionCss', source: 'local' },
   { file: 'WorkspacePicker.module.css', identifier: 'WorkspacePickerCss', source: 'upstream' },
   { file: 'RemoteSection.module.css', identifier: 'RemoteSectionCss', source: 'local' },
+  { file: 'WorkspaceExtras.module.css', identifier: 'WorkspaceExtrasCss', source: 'local' },
 ]
 
 /**

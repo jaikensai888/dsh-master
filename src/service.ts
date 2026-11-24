@@ -23,14 +23,17 @@ import {
 import type {
   MasterArchiveValue,
   MasterCreateSessionValue,
+  MasterCreateWorkspaceValue,
   MasterError,
   MasterNodesValue,
   MasterPendingQuestionsValue,
   MasterQuestionAccepted,
   MasterQuestionAnswer,
+  MasterRenameSessionValue,
   MasterSessionsValue,
   MasterStatus,
 } from './protocol.js'
+import { MAX_SESSION_TITLE_LENGTH, MAX_WORKSPACE_PATH_LENGTH } from './protocol.js'
 
 /** The Cordis service key other plugins resolve. */
 export const MASTER_SERVICE_KEY = 'dshMaster'
@@ -155,6 +158,58 @@ export class MasterService {
   }
 
   /**
+   * Restore one archived session on its owning remote node.
+   *
+   * Not gated by `allowPrompt`: unarchiving runs no agent turn and changes no
+   * files. The node remains the authority — it reports the complete resulting
+   * archive set, which the sidebar installs as-is.
+   *
+   * @param nodeId - target node.
+   * @param sessionId - the archived session on that node.
+   * @param signal - caller cancellation.
+   * @returns the complete archive set after the write.
+   */
+  async unarchiveSession(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<MasterArchiveValue> {
+    if (nodeId.trim() === '' || sessionId.trim() === '') {
+      throw new MasterUpstreamError(toFailure(
+        'master/invalid-arguments',
+        'nodeId and sessionId are required non-empty strings',
+      ))
+    }
+    return { archivedSessionIds: await this.#client.unarchiveSession(nodeId, sessionId, signal) }
+  }
+
+  /**
+   * Register one existing directory as a workspace on the target node.
+   *
+   * Not gated by `allowPrompt`: registering a directory runs no agent turn. The
+   * node canonicalizes the path, checks that it exists, and answers with the
+   * registry row it now knows, so a repeated registration resolves to the same
+   * workspace with `created: false`.
+   *
+   * @param nodeId - target node.
+   * @param path - absolute directory path on that node.
+   * @param signal - caller cancellation.
+   * @returns the registry row and whether this call created it.
+   */
+  async createWorkspace(nodeId: string, path: string, signal?: AbortSignal): Promise<MasterCreateWorkspaceValue> {
+    const trimmedPath = path.trim()
+    if (nodeId.trim() === '' || trimmedPath === '') {
+      throw new MasterUpstreamError(toFailure(
+        'master/invalid-arguments',
+        'nodeId and path are required non-empty strings',
+      ))
+    }
+    if (trimmedPath.length > MAX_WORKSPACE_PATH_LENGTH) {
+      throw new MasterUpstreamError(toFailure(
+        'master/invalid-arguments',
+        `path must not exceed ${String(MAX_WORKSPACE_PATH_LENGTH)} characters`,
+      ))
+    }
+    return this.#client.createWorkspace(nodeId, trimmedPath, signal)
+  }
+
+  /**
    * Create or reuse a blank session in one remote workspace.
    *
    * Deliberately not gated by `allowPrompt`: creating a blank session runs no
@@ -186,6 +241,50 @@ export class MasterService {
       ))
     }
     return this.#client.createSession(nodeId, workspaceId, sessionId, signal)
+  }
+
+  /**
+   * Rename one remote session's title.
+   *
+   * Deliberately not gated by `allowPrompt`: no agent turn runs and no file
+   * changes. The node resumes the session to append the title event, so this does
+   * allocate a live session on that machine — the same effect as opening it.
+   *
+   * The node normalizes (and may truncate) the title, so the returned value is the
+   * accepted one and is what the caller displays.
+   *
+   * @param nodeId - target node.
+   * @param sessionId - target session on that node.
+   * @param title - proposed title.
+   * @param signal - caller cancellation.
+   * @returns the session identity and the accepted title.
+   */
+  async renameSession(
+    nodeId: string,
+    sessionId: string,
+    title: string,
+    signal?: AbortSignal,
+  ): Promise<MasterRenameSessionValue> {
+    const trimmed = title.trim()
+    if (nodeId.trim() === '' || sessionId.trim() === '') {
+      throw new MasterUpstreamError(toFailure(
+        'master/invalid-arguments',
+        'nodeId and sessionId are required non-empty strings',
+      ))
+    }
+    if (trimmed === '') {
+      throw new MasterUpstreamError(toFailure(
+        'master/invalid-arguments',
+        'title is required to be a non-empty string',
+      ))
+    }
+    if (trimmed.length > MAX_SESSION_TITLE_LENGTH) {
+      throw new MasterUpstreamError(toFailure(
+        'master/invalid-arguments',
+        `title must not exceed ${String(MAX_SESSION_TITLE_LENGTH)} characters`,
+      ))
+    }
+    return this.#client.renameSession(nodeId, sessionId, trimmed, signal)
   }
 
   /** Read session-scoped permissions and approvals on the selected node. */

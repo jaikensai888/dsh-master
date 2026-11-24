@@ -14,6 +14,7 @@ import {
   IconEllipsisOutlineRegular as IconEllipsisOutline16,
   IconRefreshOutlineRegular as IconRefreshOutline14,
   Menu,
+  StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useState, type ReactElement } from 'react'
 import { FollowPin } from './follow-pin.js'
@@ -94,6 +95,14 @@ export function FollowingRowItem({ row, selected, menuOpen, onMenuOpenChange, t,
           )}
         </span>
       </span>
+      {row.running ? (
+        // Same ongoing dot the remote and local session rows use, so "executing"
+        // reads identically in all three lists. The wrapper carries the label the
+        // dot itself cannot: a screen reader gets the words, the row gets a tooltip.
+        <span className={css.followingRunning} role="img" aria-label={t('status.running')} title={t('status.running')}>
+          <StateDot state="ongoing" />
+        </span>
+      ) : null}
       <span className={css.followingActions}>
         <Menu
           open={menuOpen}

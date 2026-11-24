@@ -25,6 +25,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { handleFileRoute } from './files-api.js'
 import { isTrustedMasterRequest } from './net/trust-fence.js'
 import {
+  MAX_SESSION_TITLE_LENGTH,
+  MAX_WORKSPACE_PATH_LENGTH,
   ROUTE_PREFIX,
   type MasterError,
   type MasterQuestionAnswer,
@@ -553,7 +555,7 @@ export function createMasterRouteHandler(
         return
       }
 
-      if (route === '/api/session/archive') {
+      if (route === '/api/session/archive' || route === '/api/session/unarchive') {
         if (method !== 'POST') {
           response.setHeader('allow', 'POST')
           sendFailure(response, 405, failure('master/method-not-allowed', `${method} is not allowed here`))
@@ -585,7 +587,121 @@ export function createMasterRouteHandler(
           return
         }
         try {
-          const value = await service.archiveSession(nodeId, sessionId)
+          // Both answers carry the complete archive set, so the caller installs
+          // the node's projection instead of mutating its own copy.
+          const value = route === '/api/session/archive'
+            ? await service.archiveSession(nodeId, sessionId)
+            : await service.unarchiveSession(nodeId, sessionId)
+          sendJson(response, 200, { ok: true, value })
+        } catch (error) {
+          const mapped = classify(error)
+          sendFailure(response, mapped.status, mapped.error)
+        }
+        return
+      }
+
+      if (route === '/api/workspace/create') {
+        if (method !== 'POST') {
+          response.setHeader('allow', 'POST')
+          sendFailure(response, 405, failure('master/method-not-allowed', `${method} is not allowed here`))
+          return
+        }
+        const service = deps.service()
+        if (service === undefined) {
+          sendFailure(response, 503, failure('master/unavailable', 'the master service is not mounted'))
+          return
+        }
+        let body: Record<string, unknown>
+        try {
+          body = await readJsonBody(request)
+        } catch (error) {
+          const code = error instanceof Error && error.name.startsWith('master/')
+            ? error.name
+            : 'master/invalid-arguments'
+          const message = error instanceof Error ? error.message : 'unreadable request body'
+          sendFailure(response, code === 'master/too-large' ? 413 : 400, failure(code, message))
+          return
+        }
+        const nodeId = bodyText(body, 'nodeId')
+        const rawPath = body['path']
+        if (nodeId === undefined || typeof rawPath !== 'string') {
+          sendFailure(response, 400, failure(
+            'master/invalid-arguments',
+            'nodeId and path are required',
+          ))
+          return
+        }
+        // A path of only whitespace would travel as a blank registration.
+        const path = rawPath.trim()
+        if (path === '') {
+          sendFailure(response, 400, failure('master/invalid-arguments', 'path must not be blank'))
+          return
+        }
+        if (path.length > MAX_WORKSPACE_PATH_LENGTH) {
+          sendFailure(response, 400, failure(
+            'master/invalid-arguments',
+            `path must not exceed ${String(MAX_WORKSPACE_PATH_LENGTH)} characters`,
+          ))
+          return
+        }
+        try {
+          const value = await service.createWorkspace(nodeId, path)
+          sendJson(response, 200, { ok: true, value })
+        } catch (error) {
+          const mapped = classify(error)
+          sendFailure(response, mapped.status, mapped.error)
+        }
+        return
+      }
+
+      if (route === '/api/session/rename') {
+        if (method !== 'POST') {
+          response.setHeader('allow', 'POST')
+          sendFailure(response, 405, failure('master/method-not-allowed', `${method} is not allowed here`))
+          return
+        }
+        const service = deps.service()
+        if (service === undefined) {
+          sendFailure(response, 503, failure('master/unavailable', 'the master service is not mounted'))
+          return
+        }
+        let body: Record<string, unknown>
+        try {
+          body = await readJsonBody(request)
+        } catch (error) {
+          const code = error instanceof Error && error.name.startsWith('master/')
+            ? error.name
+            : 'master/invalid-arguments'
+          const message = error instanceof Error ? error.message : 'unreadable request body'
+          sendFailure(response, code === 'master/too-large' ? 413 : 400, failure(code, message))
+          return
+        }
+        const nodeId = bodyText(body, 'nodeId')
+        const sessionId = bodyText(body, 'sessionId')
+        const rawTitle = body['title']
+        if (nodeId === undefined || sessionId === undefined || typeof rawTitle !== 'string') {
+          sendFailure(response, 400, failure(
+            'master/invalid-arguments',
+            'nodeId, sessionId and title are required',
+          ))
+          return
+        }
+        // Trim before the bound: DSH normalizes too, so a title of only spaces
+        // must fail here rather than travel as a blank write.
+        const title = rawTitle.trim()
+        if (title === '') {
+          sendFailure(response, 400, failure('master/invalid-arguments', 'title must not be blank'))
+          return
+        }
+        if (title.length > MAX_SESSION_TITLE_LENGTH) {
+          sendFailure(response, 400, failure(
+            'master/invalid-arguments',
+            `title must not exceed ${String(MAX_SESSION_TITLE_LENGTH)} characters`,
+          ))
+          return
+        }
+        try {
+          const value = await service.renameSession(nodeId, sessionId, title)
           sendJson(response, 200, { ok: true, value })
         } catch (error) {
           const mapped = classify(error)

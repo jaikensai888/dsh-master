@@ -4,6 +4,88 @@
   overscroll-behavior: contain;
 }
 
+/*
+  0.2-series shells own the outer scrolling: their viewport scrolls the navigation
+  away and then continues the gesture into the section's own scroller. On that
+  contract the browser root must not be a scroll container at all — a
+  zero-range one here claims the wheel gesture the viewport needs — and the
+  section is capped at one viewport so it can never outgrow the shell.
+*/
+[data-dsh-workspace-browser][data-dsh-section='viewport'][data-dsh-wide='true'] {
+  flex: none;
+  min-height: 0;
+  max-height: 100cqh;
+  overflow: visible;
+  overscroll-behavior: auto;
+}
+
+/* Legacy layout: the wrapper adds no box, so the list seat and the remote nodes
+   stay direct flex children of the section, exactly as before. */
+[data-dsh-section-body] {
+  display: contents;
+}
+
+/*
+  The section's one scrolling element on 0.2-series hosts: local rows and every
+  remote node live inside it. Geometry mirrors the shipped browser's list seat
+  (4px of unclipped room for insertion markers, the scrollbar 2px from the
+  sidebar edge, rows held to the sidebar's inline padding).
+*/
+[data-dsh-workspace-browser][data-dsh-section='viewport'][data-dsh-wide='true'] [data-dsh-section-body] {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  box-sizing: border-box;
+  margin-left: -4px;
+  margin-right: calc(2px - var(--dsh-session-list-edge-inset));
+  padding-left: 4px;
+  padding-bottom: 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: auto;
+  scrollbar-gutter: stable;
+}
+
+/*
+  While the shell viewport can still scroll down, the section does not take the
+  gesture: the viewport moves the navigation away first, and the shell's wheel
+  hand-off continues the same gesture in here. The engine without scroll-state
+  queries simply scrolls the section directly.
+*/
+@container scroll-state(scrollable: bottom) {
+  [data-dsh-workspace-browser][data-dsh-section='viewport'][data-dsh-wide='true'] [data-dsh-section-body] {
+    overflow-y: hidden;
+  }
+}
+
+/* Under the 0.2 contract the local seat is a plain block inside that scroller:
+   it no longer sizes itself against the column, and no longer scrolls. */
+[data-dsh-workspace-browser][data-dsh-section='viewport'][data-dsh-wide='true'] [data-dsh-local-list] {
+  display: block;
+  flex: none;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+}
+
+[data-dsh-workspace-browser][data-dsh-section='viewport'][data-dsh-wide='true'] [data-dsh-local-list][hidden] {
+  display: none;
+}
+
+[data-dsh-workspace-browser][data-dsh-section='viewport'][data-dsh-wide='true'] [data-dsh-local-tree] {
+  flex: none;
+  min-height: 0;
+  overflow: visible;
+  padding-bottom: 0;
+}
+
+/* The shell draws its own fade at the viewport bottom; a fade anchored to the
+   content would sit at the end of the list and dim the last rows forever. */
+[data-dsh-workspace-browser][data-dsh-section='viewport'] [data-dsh-fade] {
+  display: none;
+}
+
 [data-dsh-workspace-title] { flex: none; }
 [data-dsh-node-chooser] {
   display: inline-flex;

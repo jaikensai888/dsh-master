@@ -24,6 +24,7 @@ import { readSessionAccess, readApprovalResult, readForwardedApprovals, readForw
 import type {
   MasterCoordinatorFacts,
   MasterCreateSessionValue,
+  MasterCreateWorkspaceValue,
   MasterError,
   MasterNode,
   MasterPendingQuestionsValue,
@@ -31,6 +32,7 @@ import type {
   MasterQuestionAccepted,
   MasterQuestionAnswer,
   MasterQuestionOption,
+  MasterRenameSessionValue,
   MasterSession,
   MasterWorkspace,
   MasterWorkspaceSnapshot,
@@ -474,6 +476,82 @@ export class CoordinatorClient {
   }
 
   /**
+   * Restore one archived session to the node's workspace grouping surfaces.
+   *
+   * The node keeps the transcript and the workspace accounting intact while a
+   * session is archived, so this only rewrites the archive set; it returns the
+   * complete resulting set rather than a diff, which is what the tree installs.
+   *
+   * @param nodeId - target node.
+   * @param sessionId - the session to unarchive on that node.
+   * @param signal - caller cancellation.
+   * @returns the complete archive set after the write.
+   */
+  async unarchiveSession(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<string[]> {
+    const value = await this.#invokeNode(nodeId, 'workspace/unarchiveSession', { request: { sessionId } }, signal)
+    return readArchivedSessionIds(asRecord(value))
+  }
+
+  /**
+   * Register one existing directory as a workspace on the target node.
+   *
+   * The node canonicalizes and validates the path against its own filesystem, so
+   * a stale or relative path fails there rather than becoming a phantom row here.
+   * Registering a known directory is idempotent: the node answers with the
+   * existing registry row and `created: false`.
+   *
+   * @param nodeId - target node.
+   * @param path - absolute directory path on that node.
+   * @param signal - caller cancellation.
+   * @returns the registry row and whether this call created it.
+   */
+  async createWorkspace(nodeId: string, path: string, signal?: AbortSignal): Promise<MasterCreateWorkspaceValue> {
+    const value = await this.#invokeNode(nodeId, 'workspace/create', { request: { path } }, signal)
+    const record = asRecord(value)
+    const workspace = record === undefined ? undefined : readWorkspaceRow(record['workspace'])
+    if (record === undefined || workspace === undefined) {
+      throw new MasterUpstreamError(toMasterError(
+        'master/coordinator-unreadable',
+        'workspace/create did not return a workspace row',
+      ))
+    }
+    return { workspace, created: bool(record, 'created') ?? false }
+  }
+
+  /**
+   * Rename one remote session's title.
+   *
+   * The node resumes the session, then appends a user-sourced `session/title`
+   * event, which also supersedes automatic title generation on that machine. The
+   * accepted title is the node's normalized copy (trimmed, control characters
+   * removed, byte-budget truncated), so callers must display it verbatim rather
+   * than their own draft.
+   *
+   * @param nodeId - target node.
+   * @param sessionId - target session on that node.
+   * @param title - proposed title; the node normalizes it.
+   * @param signal - caller cancellation.
+   * @returns the session identity and the accepted title.
+   */
+  async renameSession(
+    nodeId: string,
+    sessionId: string,
+    title: string,
+    signal?: AbortSignal,
+  ): Promise<MasterRenameSessionValue> {
+    const value = await this.#invokeNode(nodeId, 'session/rename', { request: { sessionId, title } }, signal)
+    const row = asRecord(value)
+    const accepted = row === undefined ? undefined : str(row, 'title')
+    if (accepted === undefined || accepted.trim() === '') {
+      throw new MasterUpstreamError(toMasterError(
+        'master/coordinator-unreadable',
+        'session/rename did not return an accepted title',
+      ))
+    }
+    return { sessionId, title: accepted }
+  }
+
+  /**
    * Create or reuse a blank session inside one registered remote workspace.
    *
    * The node validates `workspaceId` against its own registry and performs the
@@ -752,6 +830,28 @@ function* emitFollowRecord(record: Record<string, unknown>, status: number, endp
         `${endpoint} emitted an unknown record type (HTTP ${String(status)})`,
       ))
   }
+}
+
+/**
+ * Read one workspace row from a node answer.
+ *
+ * `workspace/create` answers with the registry row it now knows. `sessionIds`
+ * is defaulted to empty rather than required: an older node may omit the field
+ * on a freshly created workspace whose accounting has no members yet, and the
+ * create result is only used to locate and expand that row — membership arrives
+ * with the next `workspace/follow` baseline.
+ */
+function readWorkspaceRow(value: unknown): MasterWorkspace | undefined {
+  const row = asRecord(value)
+  const workspaceId = row === undefined ? undefined : str(row, 'workspaceId')
+  const title = row === undefined ? undefined : str(row, 'title')
+  const path = row === undefined ? undefined : str(row, 'path')
+  const rawSessionIds = row?.['sessionIds']
+  if (row === undefined || workspaceId === undefined || workspaceId.length === 0
+    || title === undefined || path === undefined) return undefined
+  if (rawSessionIds !== undefined
+    && (!Array.isArray(rawSessionIds) || !rawSessionIds.every(id => typeof id === 'string'))) return undefined
+  return { workspaceId, title, path, sessionIds: (rawSessionIds ?? []) as string[] }
 }
 
 /** Validate the registry before using its identities or session membership. */

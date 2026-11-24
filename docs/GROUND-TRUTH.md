@@ -210,6 +210,32 @@ dsh-master（本机 DSH 插件，operator token，管理面消费方）
 - **审批 / 提问 / 会话生命周期通知都没有透传**，`session/control` 也没有专用包装（只能走通用 `/api/stream`）`[文档]`。
 - `session/create` 的绑定语义（2026-11-03 核对会话控制器源码）：`workspaceId` 与 `cwd` 互斥；给 `workspaceId` 时节点用注册表校验并 `attachSession`；返回 `{sessionId, agentPreset?}`。**不传 `sessionId` 一定新建**；传入的 blank 仅在未归档、属于该 workspace、cwd 一致且未开始 turn 时复用。`[源码：dsh-api-session-controller]`
 - `/dsh-master/api/session/create` 是本插件的薄包装：只接受 `nodeId` + `workspaceId` + 可选 `sessionId`，**不接受 `cwd` / `agentPreset`**；只创建/复用空白会话，不执行 prompt，因此不受 `allowPrompt` 约束。`[源码]`
+- `session/rename`（2026-11-11 核对 DSH 0.2.1-rc.2 会话控制器与 session-title 服务）：入参 `{request:{sessionId,title}}`，返回 `{title,seq}`；节点先 `resolveAgent`（必要时 resume），再由 `sessionTitle` 服务 append `session/title`（`source:{kind:'user'}`），并 `supersede` 后续自动标题。标题会规范化（去控制字符、折叠空白、trim、按 `maxTitleBytes` 截断），规范化后为空报 `session/title-invalid`；部署未挂载 session-title 服务时 `gateway/internal`（“renaming is unavailable”）。**返回值才是权威标题。**`[源码]`
+- `/dsh-master/api/session/rename` 是本插件的薄包装：只接受 `nodeId` + `sessionId` + `title`（trim 后 1–200 字符），其它字段忽略；只在成功时把节点返回的标题交回浏览器；不执行 agent 回合，因此同样不受 `allowPrompt` 约束。`[源码]`
+- `session/list` 的 `running`（2026-11-11 核对 DSH 0.2.1-rc.2 会话列表实现）：活 Agent 时等于 `agents.get(sessionId).status === 'running'`，即“此刻有 turn 在跑”；非活会话（仅缓存/未加载）恒为 `false`。同一项里的 `agentAvailable` 表示“是否有活 Agent”，`running` 为真必然 `agentAvailable` 为真。**该字段是快照事实，不会推送**：`session/control` 才是状态流；master 没有订阅它，所以靠 `session/list` 的快照 + 定时/动作后刷新，侧栏的“执行中”最多滞后一个刷新周期。`[源码]`
+
+### 4.4 工作区登记与取消归档（2026-11-23 真机核对）
+
+本机运行的是 **DSH Desktop 2.0.18**（`E:\DSH2`，asar 内 `packages/api/workspace-controller`）。该版本的 `workspaceController` 除 `archiveSession` 外还暴露两个 Remote：
+
+| endpoint | 参数（`/api/invoke` 的 `args`） | 返回 | 语义 |
+| --- | --- | --- | --- |
+| `workspace/create` | `{ request: { path } }` | `{ workspace: {workspaceId,path,title,sessionIds,createdAt,updatedAt}, created }` | 登记**已存在**目录；规范化 + `realpath` 校验；已登记则幂等返回原 `workspaceId` 且 `created:false` |
+| `workspace/unarchiveSession` | `{ request: { sessionId } }` | `{ archivedSessionIds }` | 把会话从全局归档集移除；返回**完整**集合；未知 id 是 **no-op 且返回 ok**（不像 `archiveSession` 会校验会话存在） |
+
+真机证据（coordinator `192.168.0.13:8101`，operator token 直连 `/api/invoke`，未改任何持久状态）：
+
+| 探测 | 结果 |
+| --- | --- |
+| 三个 ready 节点（176 / 157 / 187 能力）`workspace/unarchiveSession` | 全部 `ok`（端点存在） |
+| 三个 ready 节点 `workspace/create` + 不存在路径 | 全部 `workspace/invalid-path`（`ENOENT … realpath`），**不登记任何东西** |
+| `my-desktop` `workspace/create` + 已登记路径 | `ok`、`created:false`、`workspaceId` 与原行相同；注册表 14 个工作区前后不变 |
+| `my-desktop` 取消归档 → 重新归档同一会话 | 归档集 107 → 106 → 107，目标会话成员关系恢复（重新归档会追加到集合末尾） |
+| `session/list` 是否含归档会话摘要 | 280 条会话中 107 条归档 id **全部**有摘要（105 条带标题；无标题的走短 id 兜底） |
+
+**结论：取消归档与远程登记工作区都不缺节点能力**，`dsh-master` 只需按上表参数转发；节点版本更旧（未提供这两个 Remote）时会得到 `node/capability-unavailable`，界面按“该宿主不支持”显示。
+
+另：官方 `ui-workspace`（2.0.18 客户端）的归档策略是**清掉当前选中的归档会话**，并在 toast 里说明“已归档对话暂时无法查看，请取消归档后查看”。`dsh-master` 的「已归档」列表要能点开历史，因此在 fork 的 `UiWorkspaceService` 里新增 `openArchivedSession`：记录一次显式打开，`clearArchivedCurrent()` 对该会话让路，直到当前会话变化或它被取消归档。`[源码 + 实测]`
 
 ---
 

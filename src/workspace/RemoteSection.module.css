@@ -48,7 +48,6 @@
   position: fixed;
   z-index: 10000;
   box-sizing: border-box;
-  width: min(400px, calc(100vw - 16px));
   display: flex;
   flex-direction: column;
   padding: 8px;
@@ -58,17 +57,38 @@
   color: var(--dsw-alias-label-primary);
   box-shadow: 0 16px 40px #0004, 0 3px 8px #0003;
 }
-.chooserSearch {
+.chooserHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 26px;
+  margin: 0 3px 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.chooserSearchField {
+  display: flex;
+  align-items: center;
   flex: none;
   box-sizing: border-box;
-  width: calc(100% - 4px);
-  min-width: 0;
-  height: 38px;
-  margin: 2px 2px 8px;
-  padding: 8px 11px;
+  gap: 8px;
+  height: 34px;
+  margin: 0 3px 6px;
+  padding: 0 9px;
   border: 1px solid var(--dsw-alias-border-l4);
   border-radius: 7px;
   background: var(--dsw-specific-sidebar-fill);
+  color: var(--dsw-alias-label-tertiary);
+  cursor: text;
+}
+.chooserSearchField > svg { flex: none; }
+.chooserSearch {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
   color: var(--dsw-alias-label-primary);
   font: inherit;
   font-size: 13px;
@@ -76,7 +96,7 @@
   outline: none;
 }
 .chooserSearch::placeholder { color: var(--dsw-alias-label-caption); }
-.chooserSearch:focus {
+.chooserSearchField:focus-within {
   /* The confirmed picker design's focus colour; no --dsw-* token carries this muted blue. */
   border-color: #839bd0;
   box-shadow: 0 0 0 2px #819bd01a;
@@ -86,14 +106,26 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+.chooserGroupLabel {
+  margin: 4px 3px 0;
+  padding: 4px 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.chooserGroupLabel[data-separated='true'] {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
 .chooserOption {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   box-sizing: border-box;
   width: 100%;
-  min-height: 42px;
-  padding: 11px 12px;
+  min-height: 34px;
+  padding: 5px 9px;
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -105,6 +137,7 @@
   text-align: left;
   cursor: pointer;
 }
+.chooserOption > svg { flex: none; }
 .chooserOption:hover,
 .chooserOption[data-selected="true"] { background: var(--dsw-alias-interactive-bg-hover); }
 .chooserOption:focus-visible {
@@ -112,42 +145,18 @@
   outline: 2px solid #91a9df;
   outline-offset: -2px;
 }
-.chooserLocal { margin-bottom: 3px; }
-.chooserFollowing { margin-bottom: 3px; }
-.chooserRemote { min-height: 66px; }
-.chooserText {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-}
+.chooserRemote { min-height: 31px; font-weight: 500; }
 .chooserName {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 21px;
-}
-.chooserMeta {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+  flex: 1;
   min-width: 0;
-  margin-top: 2px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 18px;
-  white-space: nowrap;
-}
-.chooserId {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .chooserTag {
   flex: none;
-  padding: 2px 5px;
+  padding: 1px 4px;
+  border: 1px solid var(--dsw-alias-border-l3);
   border-radius: 4px;
   background: var(--dsw-alias-interactive-bg-active);
   color: var(--dsw-alias-label-secondary);
@@ -164,30 +173,20 @@
   height: 14px;
   color: var(--dsw-alias-label-primary);
 }
-.chooserFooter {
-  flex: none;
-  margin-top: 8px;
-  padding-top: 5px;
-  border-top: 1px solid var(--dsw-alias-border-l2);
-}
 .chooserRefresh {
   display: flex;
   align-items: center;
-  gap: 8px;
-  box-sizing: border-box;
-  width: 100%;
-  padding: 9px 12px;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
-  font: inherit;
-  font-size: 12px;
-  line-height: 18px;
-  text-align: left;
   cursor: pointer;
 }
-.chooserRefreshIcon { flex: none; }
 .chooserRefresh:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
@@ -199,10 +198,6 @@
 .chooserRefresh:focus-visible {
   outline: 2px solid #91a9df;
   outline-offset: -2px;
-}
-
-@media (max-width: 420px) {
-  .chooserOption { gap: 8px; padding-left: 10px; padding-right: 10px; }
 }
 
 .expanded {
@@ -225,6 +220,30 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+/*
+  0.2-series sidebar shells: the section itself is the one scroller (see
+  LocalSection), so a node's content is plain flow inside it. A per-node scroll
+  region here would be a second scroll owner with its own gesture boundary —
+  exactly the pattern that makes the sidebar feel stuck.
+*/
+[data-dsh-section='viewport'][data-dsh-wide='true'] .group {
+  flex: none;
+  min-height: 0;
+}
+
+[data-dsh-section='viewport'][data-dsh-wide='true'] .expanded {
+  flex: none;
+  min-height: 0;
+}
+
+[data-dsh-section='viewport'][data-dsh-wide='true'] .content {
+  flex: none;
+  min-height: 0;
+  overflow-y: visible;
+  overscroll-behavior: auto;
+  scrollbar-gutter: auto;
 }
 
 .groupToggle {
@@ -471,6 +490,21 @@
   scrollbar-gutter: stable;
 }
 
+/* Same rule as the node tree: on 0.2-series hosts the follow list is content inside
+   the section's single scroller, not a scroller of its own. */
+[data-dsh-section='viewport'][data-dsh-wide='true'] .following {
+  flex: none;
+  min-height: 0;
+}
+
+[data-dsh-section='viewport'][data-dsh-wide='true'] .followingList {
+  flex: none;
+  min-height: 0;
+  overflow-y: visible;
+  overscroll-behavior: auto;
+  scrollbar-gutter: auto;
+}
+
 /* A followed row carries a second line (machine · workspace) and borrows the
    local/remote session rows' hover and selected states, so it reproduces that
    row's box itself: one flex line with a marker slot and the two-line body. */
@@ -530,6 +564,15 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* Ongoing-turn dot, aligned with the trailing metadata column rather than the pin. */
+.followingRunning {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+}
+
 .followingMain {
   display: flex;
   flex: 1;
@@ -574,4 +617,35 @@
   border-radius: 4px;
   background: var(--dsw-alias-interactive-bg-active);
   color: var(--dsw-alias-label-secondary);
+}
+
+/*
+  Session rename dialog. Same geometry as the shipped workspace dialog so the two
+  read as one surface; the rules live here rather than in the forked stylesheet
+  because this dialog belongs to the remote section, not to the local tree.
+*/
+.renameInput {
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  padding: 7px 14px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 22px;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.renameInput:disabled {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.renameError {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
 }

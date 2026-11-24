@@ -14,6 +14,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
     IconEllipsisOutlineRegular: icon('ellipsis'),
     IconRefreshOutlineRegular: icon('refresh'),
     Menu: () => null,
+    StateDot: icon('state'),
   }
 })
 
@@ -30,6 +31,7 @@ const t = (key: string, params?: Record<string, unknown>): string => {
     'following.offline': '离线',
     'following.archived': '已归档',
     'menu.unfollow': '取消关注',
+    'status.running': '进行中',
   }
   return (labels[key] ?? key).replace('{name}', String(params?.['name'] ?? ''))
 }
@@ -42,6 +44,7 @@ const row = (overrides: Partial<FollowingRow> = {}): FollowingRow => ({
   machine: '本地',
   workspace: 'infra',
   status: 'ok',
+  running: false,
   fresh: true,
   ...overrides,
 })
@@ -133,6 +136,13 @@ describe('the follow list', () => {
     ])
     menu?.props.onSelect?.('unfollow')
     expect(unfollowed).toEqual(['local:s1'])
+  })
+
+  it('shows the ongoing dot only while the followed session is running', () => {
+    const running = renderList([row({ running: true })])
+    expect(running).toContain(RemoteSectionCss.followingRunning)
+    expect(running).toContain('aria-label="进行中"')
+    expect(renderList([row({ running: false })])).not.toContain(RemoteSectionCss.followingRunning)
   })
 
   it('carries the follow row and its actions class so the menu can be revealed', () => {

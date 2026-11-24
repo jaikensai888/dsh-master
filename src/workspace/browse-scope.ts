@@ -6,6 +6,27 @@ export function browseNavigationKey(event: Pick<KeyboardEvent, 'key' | 'isCompos
   return ['Enter', 'Escape', 'Tab', 'ArrowDown', 'ArrowUp'].includes(event.key) ? event.key : undefined
 }
 
+/** Keep the portalled popup inside the sidebar and the visible part of the window. */
+export function chooserPlacement(
+  trigger: Pick<DOMRectReadOnly, 'left' | 'top' | 'bottom'>,
+  sidebar: Pick<DOMRectReadOnly, 'left' | 'right'>,
+  viewport: { width: number; height: number },
+) {
+  const gutter = 8
+  const gap = 4
+  const heightLimit = 336
+  const right = Math.min(sidebar.right - gutter, viewport.width - gutter)
+  const left = Math.max(gutter, sidebar.left, trigger.left)
+  const width = Math.max(0, Math.min(320, right - left))
+  const top = Math.max(gutter, trigger.bottom + gap)
+  const bottom = Math.max(gutter, viewport.height - trigger.top + gap)
+  const below = viewport.height - top - gutter
+  const above = viewport.height - bottom - gutter
+  const flip = below < heightLimit && above > below
+  const maxHeight = Math.max(0, Math.min(heightLimit, flip ? above : below))
+  return { left, width, maxHeight, ...(flip ? { bottom } : { top }) }
+}
+
 export function browseNodes(nodes: readonly MasterNode[], scope: WorkspaceBrowseScope): MasterNode[] {
   return scope.kind === 'remote' ? nodes.filter(node => node.nodeId === scope.nodeId) : []
 }

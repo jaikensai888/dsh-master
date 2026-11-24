@@ -13,16 +13,20 @@ import {
   IconFolderCloseRegular,
   IconFolderOpenRegular,
   IconPlusOutlineRegular as IconPlusOutline16,
+  IconProjectAddOutlineRegular as IconProjectAddOutline16,
   IconTriangleRightFillRegular,
   IconArchiveOutlineRegular as IconArchiveOutline20,
+  IconEditOutlineRegular as IconEditOutline16,
   IconEllipsisOutlineRegular as IconEllipsisOutline16,
   IconGlobeOutlineRegular as IconGlobeOutline14,
   IconRefreshOutlineRegular as IconRefreshOutline14,
   Menu,
+  Modal,
   StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactElement } from 'react'
+import { MAX_SESSION_TITLE_LENGTH } from '../protocol.js'
 import type {
   MasterCoordinatorFacts,
   MasterNode,
@@ -34,9 +38,12 @@ import {
   ApiError,
   archiveRemoteSession,
   createRemoteSession,
+  createRemoteWorkspace,
   fetchNodes,
   fetchSessions,
   fetchStatus,
+  renameRemoteSession,
+  unarchiveRemoteSession,
 } from '../client/api.js'
 import { timeAgo } from '../client/copy.js'
 import { getRemoteSelection, setRemoteSelection, subscribeRemoteSelection } from '../client/selection.js'
@@ -46,6 +53,8 @@ import {
   groupRemoteWorkspaces,
   nodeIsOffline,
   orderRemoteNodes,
+  pollableNodeIds,
+  replaceSessionTitle,
   reusableBlankSession,
   visibleRemoteSessions,
 } from './remote-model.js'
@@ -63,6 +72,9 @@ import type { FollowingLocalSnapshot, FollowingRemoteSnapshot, FollowingRow } fr
 import { FollowingList } from './FollowingList.js'
 import { followKey, type FollowRecord } from './following.js'
 import { FollowPin } from './follow-pin.js'
+import { archivedRows, installArchiveSet } from './archived.js'
+import { ArchivedList } from './ArchivedList.js'
+import { AddWorkspaceDialog } from './AddWorkspaceDialog.js'
 import { RowsCss, RemoteSectionCss as css, WorkspaceBrowserCss } from './styles.generated.js'
 
 /** Describe one failed call without losing the host's stable error code. */
@@ -86,6 +98,16 @@ function omitKey<T>(record: Readonly<Record<string, T>>, key: string): Record<st
 
 /** Shared empty follow set for a section that was composed without follow wiring. */
 const EMPTY_FOLLOWED: ReadonlySet<string> = new Set()
+
+/**
+ * How often the visible tree re-reads its session lists so the running dot and
+ * titles stay current without a manual refresh.
+ *
+ * Each tick costs one `session/list` per expanded (or followed) node. Fifteen
+ * seconds keeps a turn that just started or finished visible within one glance
+ * without turning the sidebar into a poller; a hidden page does not tick at all.
+ */
+const LIVE_STATUS_INTERVAL_MS = 15_000
 
 /** Local subscription state before the browser supplies it. */
 const EMPTY_LOCAL_SNAPSHOT: FollowingLocalSnapshot = {
@@ -152,6 +174,8 @@ export function RemoteSessionItem({
   archiveAvailable,
   followed = false,
   onToggleFollow,
+  onRenameSessionRequest,
+  renameDisabled = false,
   onMenuOpenChange,
   onOpenRemoteSession,
   onArchiveRemoteSession,
@@ -168,6 +192,10 @@ export function RemoteSessionItem({
   followed?: boolean | undefined
   /** Add or remove the follow marker; absent means the action is not offered. */
   onToggleFollow?: (() => void) | undefined
+  /** Open the rename dialog; absent means the action is not offered. */
+  onRenameSessionRequest?: (() => void) | undefined
+  /** The node cannot accept a rename right now (not `ready`, or capability missing). */
+  renameDisabled?: boolean
   onMenuOpenChange: (open: boolean) => void
   onOpenRemoteSession: (nodeId: string, sessionId: string, nodeName: string, sessionTitle: string) => void
   onArchiveRemoteSession: (nodeId: string, sessionId: string) => void
@@ -176,6 +204,15 @@ export function RemoteSessionItem({
   const selected = selection?.nodeId === nodeId && selection.sessionId === session.sessionId
   const title = session.blank ? t('session.new') : session.title
   const menuItems = [
+    // Renaming is offered first, mirroring the local session row's menu.
+    ...(onRenameSessionRequest === undefined
+      ? []
+      : [{
+        id: 'rename',
+        label: t('rename'),
+        icon: <IconEditOutline16 />,
+        disabled: renameDisabled,
+      }]),
     // Following is independent of the archive capability: a node that cannot
     // archive can still be followed.
     ...(onToggleFollow === undefined
@@ -211,6 +248,7 @@ export function RemoteSessionItem({
             items={menuItems}
             onSelect={(id) => {
               onMenuOpenChange(false)
+              if (id === 'rename') onRenameSessionRequest?.()
               if (id === 'archive') onArchiveRemoteSession(nodeId, session.sessionId)
               if (id === 'follow' || id === 'unfollow') onToggleFollow?.()
             }}
@@ -256,6 +294,28 @@ export interface RemoteNodeSectionProps {
   createErrors?: Readonly<Record<string, string>>
   /** The node rejected `session/create` as an unsupported capability. */
   createUnsupported?: boolean
+  /** The node rejected `session/rename` as an unsupported capability. */
+  sessionRenameUnsupported?: boolean
+  /** This node's archived list is the current body instead of its workspace tree. */
+  archivedOpen?: boolean
+  /** Toggle this node's archived list. */
+  onToggleArchived?: (() => void) | undefined
+  /** Session whose unarchive is in flight, so its menu entry stays disabled. */
+  unarchivingSessionId?: string | undefined
+  /** The node rejected `workspace/unarchiveSession` as an unsupported capability. */
+  unarchiveUnsupported?: boolean
+  /** The last failed unarchive on this node, tied to its session. */
+  unarchiveError?: { readonly sessionId: string; readonly message: string } | undefined
+  /** Open an archived session's history in the remote panel. */
+  onOpenArchivedSession?: ((sessionId: string, sessionTitle: string) => void) | undefined
+  /** Ask the owning node to restore one archived session. */
+  onUnarchiveRemoteSession?: ((sessionId: string) => void) | undefined
+  /** Open the add-workspace dialog for this node; absent means no such action. */
+  onAddWorkspace?: (() => void) | undefined
+  /** Why adding a workspace is unavailable right now, if it is. */
+  addWorkspaceHint?: string | undefined
+  /** Open the rename dialog for one session; absent means the action is not offered. */
+  onRenameSessionRequest?: ((session: MasterSession) => void) | undefined
   /** Tokens of followed sessions under the current Coordinator source. */
   followedSessions?: ReadonlySet<string>
   /** Add or remove one session's follow marker; absent on surfaces without follow wiring. */
@@ -279,6 +339,9 @@ export interface RemoteNodeSectionProps {
 export function RemoteNodeSection({
   node, expanded, busy, loading, error, data, selection, now, compact = false, scrollPositions, unavailable = false,
   workspaceExpansion, overflow, openSessionMenu, t, creating = {}, createErrors = {}, createUnsupported = false,
+  sessionRenameUnsupported = false, onRenameSessionRequest,
+  archivedOpen = false, onToggleArchived, unarchivingSessionId, unarchiveUnsupported = false, unarchiveError,
+  onOpenArchivedSession, onUnarchiveRemoteSession, onAddWorkspace, addWorkspaceHint,
   followedSessions = EMPTY_FOLLOWED, onToggleFollow,
   onToggleNode, onRefresh, onWorkspaceExpandedChange, onToggleOverflow,
   onSessionMenuChange, onOpenRemoteSession, onArchiveRemoteSession, onCreateRemoteSession,
@@ -292,6 +355,13 @@ export function RemoteNodeSection({
     data?.archivedSessionIds ?? [],
     currentSessionId,
   )
+  const archived = archivedRows(
+    data?.sessions ?? [],
+    data?.workspaces ?? [],
+    data?.archivedSessionIds ?? [],
+    t('group.ungrouped'),
+  )
+  const addWorkspaceDisabled = offline || node.state !== 'ready' || onAddWorkspace === undefined
   return (
     <div className={clsx(css.group, expanded && css.expanded)} data-dsh-remote-node={node.nodeId}>
       {!compact && <div className={css.header}>
@@ -303,6 +373,27 @@ export function RemoteNodeSection({
           <span className={css.groupTitle}>{name}</span>
           <NodeStatus node={node} />
         </button>
+        <button
+          type="button"
+          className={RowsCss.iconButton}
+          disabled={offline}
+          onClick={onToggleArchived}
+          aria-label={t('archived.entry')}
+          aria-pressed={archivedOpen}
+          title={t('archived.entry')}
+        >
+          <IconArchiveOutline20 size={14} />
+        </button>
+        <button
+          type="button"
+          className={RowsCss.iconButton}
+          disabled={addWorkspaceDisabled}
+          onClick={onAddWorkspace}
+          aria-label={t('remote.addWorkspace', { name })}
+          title={addWorkspaceHint ?? t('remote.addWorkspace', { name })}
+        >
+          <IconProjectAddOutline16 size={14} />
+        </button>
         <Button variant="ghost" icon={<IconRefreshOutline14 />} disabled={busy || loading}
           onClick={onRefresh} aria-label={t('remote.refresh')} title={t('remote.refresh')} />
       </div>}
@@ -311,7 +402,23 @@ export function RemoteNodeSection({
           ref={element => { if (element && scrollPositions) element.scrollTop = scrollPositions[node.nodeId] ?? 0 }}
           onScroll={event => { if (scrollPositions) scrollPositions[node.nodeId] = event.currentTarget.scrollTop }}>
           {unavailable && <div role="alert" className={css.message}>{t('browse.stale')}</div>}
-          {offline ? <div className={css.message} role="status">{t('remote.nodeOffline')}</div> : (
+          {offline ? <div className={css.message} role="status">{t('remote.nodeOffline')}</div> : archivedOpen ? (
+            <ArchivedList
+              rows={archived}
+              now={now}
+              loading={loading && data === undefined}
+              error={error}
+              selectedId={currentSessionId}
+              nonInteractive={unavailable}
+              t={t}
+              onOpen={(sessionId) => { onOpenArchivedSession?.(sessionId, archived.find(row => row.sessionId === sessionId)?.title ?? sessionId) }}
+              onUnarchive={(sessionId) => { onUnarchiveRemoteSession?.(sessionId) }}
+              onClose={onToggleArchived}
+              {...unarchivingSessionId === undefined ? {} : { pendingId: unarchivingSessionId }}
+              {...unarchiveError === undefined ? {} : { actionError: unarchiveError }}
+              {...unarchiveUnsupported ? { unsupported: t('remote.unarchiveUnsupported') } : {}}
+            />
+          ) : (
             <>
               {loading ? <div className={css.message} role="status">{t('remote.workspacesLoading')}</div> : null}
               {error === undefined ? null : <div className={css.message} role="alert">{error}</div>}
@@ -325,6 +432,9 @@ export function RemoteNodeSection({
               )}
               {createUnsupported ? (
                 <div className={css.message} role="status">{t('remote.createSessionUnsupported')}</div>
+              ) : null}
+              {sessionRenameUnsupported ? (
+                <div className={css.message} role="status">{t('remote.sessionRenameUnsupported')}</div>
               ) : null}
               {data !== undefined && groups.length === 0 ? <div className={css.message}>{t('remote.noWorkspaces')}</div> : null}
               {groups.map(group => {
@@ -409,6 +519,10 @@ export function RemoteNodeSection({
                                 )
                               }}
                             onMenuOpenChange={open => { onSessionMenuChange(node.nodeId, session.sessionId, open) }}
+                            onRenameSessionRequest={onRenameSessionRequest === undefined
+                              ? undefined
+                              : () => { onRenameSessionRequest(session) }}
+                            renameDisabled={node.state !== 'ready' || unavailable || sessionRenameUnsupported}
                             onOpenRemoteSession={(...args) => { if (!unavailable) onOpenRemoteSession(...args) }} onArchiveRemoteSession={(...args) => { if (!unavailable) onArchiveRemoteSession(...args) }} t={t} />
                         ))}
                         {visible.hiddenCount > 0 || more ? (
@@ -452,6 +566,24 @@ export function RemoteSection({
   const [creating, setCreating] = useState<Readonly<Record<string, boolean>>>({})
   const [createErrors, setCreateErrors] = useState<Readonly<Record<string, string>>>({})
   const [createUnsupported, setCreateUnsupported] = useState<Readonly<Record<string, boolean>>>({})
+  /** The session whose rename dialog is open, if any. */
+  const [renameTarget, setRenameTarget] = useState<{ nodeId: string; session: MasterSession } | undefined>(undefined)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [renaming, setRenaming] = useState(false)
+  const [renameError, setRenameError] = useState<string | undefined>(undefined)
+  const [renameUnsupported, setRenameUnsupported] = useState<Readonly<Record<string, boolean>>>({})
+  /** Node ids showing their archived list instead of the workspace tree. */
+  const [archivedViews, setArchivedViews] = useState<readonly string[]>([])
+  /** Per-node in-flight unarchive target, for the row-menu disable. */
+  const [unarchiving, setUnarchiving] = useState<Readonly<Record<string, string>>>({})
+  /** The last failed unarchive per node, kept next to the list it belongs to. */
+  const [unarchiveFailures, setUnarchiveFailures] = useState<Readonly<Record<string, { sessionId: string; message: string }>>>({})
+  /** Nodes that rejected `workspace/unarchiveSession`. */
+  const [unarchiveUnsupported, setUnarchiveUnsupported] = useState<Readonly<Record<string, boolean>>>({})
+  /** The node whose add-workspace dialog is open, if any. */
+  const [addWorkspaceTarget, setAddWorkspaceTarget] = useState<MasterNode | undefined>(undefined)
+  const [addWorkspaceBusy, setAddWorkspaceBusy] = useState(false)
+  const [addWorkspaceError, setAddWorkspaceError] = useState<string | undefined>(undefined)
   const browsing = useRef(browseScope)
   browsing.current = browseScope
   const changeScope = useRef(onBrowseScopeChange)
@@ -467,6 +599,14 @@ export function RemoteSection({
   const createdBlanks = useRef(new Map<string, { nodeId: string; sessionId: string }>())
   /** Synchronous per-workspace guard: state alone can lag a double click. */
   const inflightCreates = useRef(new Set<string>())
+  /** Same guard for rename submits, keyed by node + session. */
+  const inflightRenames = useRef(new Set<string>())
+  /** Same guard for unarchive submits, keyed by node + session. */
+  const inflightUnarchives = useRef(new Set<string>())
+  /** One add-workspace request at a time: a second submit must not race the first. */
+  const inflightWorkspaceAdds = useRef(false)
+  /** True between compositionstart and compositionend, so Enter never submits mid-IME. */
+  const composingRename = useRef(false)
   /** The follow records this render saw; refresh reads them without re-creating its callback. */
   const followingRef = useRef(following)
   followingRef.current = following
@@ -488,8 +628,10 @@ export function RemoteSection({
     entryPending.current = browseScope?.kind === 'following'
   }
   if (browseScope?.kind !== 'following') entryPending.current = false
+  /** Node ids a visible-page status tick should re-read; recomputed every render. */
+  const pollTargets = useRef<string[]>([])
 
-  const loadSessions = useCallback(async (nodeId: string, force = false): Promise<void> => {
+  const loadSessions = useCallback(async (nodeId: string, force = false, silent = false): Promise<void> => {
     if (!force && (Object.hasOwn(cache.current, nodeId) || sessionControllers.current.has(nodeId))) return
     sessionControllers.current.get(nodeId)?.abort()
     const controller = new AbortController()
@@ -497,12 +639,16 @@ export function RemoteSection({
     const rosterAtStart = rosterRequest.current
     const current = () => !controller.signal.aborted && rosterRequest.current === rosterAtStart
       && sessionControllers.current.get(nodeId) === controller
-    setLoading(previous => ({ ...previous, [nodeId]: true }))
-    setErrors(previous => {
-      const next = { ...previous }
-      delete next[nodeId]
-      return next
-    })
+    // A silent status refresh must not flash the node's "loading" line or clear an
+    // error the user is reading; it only replaces the cached rows on success.
+    if (!silent) {
+      setLoading(previous => ({ ...previous, [nodeId]: true }))
+      setErrors(previous => {
+        const next = { ...previous }
+        delete next[nodeId]
+        return next
+      })
+    }
     try {
       const result = await fetchSessions(nodeId, controller.signal)
       if (current()) {
@@ -517,11 +663,11 @@ export function RemoteSection({
         }
       }
     } catch (cause) {
-      if (current()) setErrors(previous => ({ ...previous, [nodeId]: describe(cause) }))
+      if (current() && !silent) setErrors(previous => ({ ...previous, [nodeId]: describe(cause) }))
     } finally {
       if (sessionControllers.current.get(nodeId) === controller) {
         sessionControllers.current.delete(nodeId)
-        setLoading(previous => ({ ...previous, [nodeId]: false }))
+        if (!silent) setLoading(previous => ({ ...previous, [nodeId]: false }))
       }
     }
   }, [])
@@ -541,6 +687,7 @@ export function RemoteSection({
     setError(undefined)
     setCreateErrors({})
     setCreateUnsupported({})
+    setRenameUnsupported({})
     try {
       const status = await fetchStatus(controller.signal)
       if (rosterRequest.current !== request || controller.signal.aborted) return
@@ -598,10 +745,7 @@ export function RemoteSection({
       const result = await archiveRemoteSession(nodeId, sessionId)
       // A list fetched before this archive must not resurrect the archived row.
       sessionControllers.current.get(nodeId)?.abort()
-      setData(previous => {
-        const node = previous[nodeId]
-        return node === undefined ? previous : { ...previous, [nodeId]: { ...node, archivedSessionIds: result.archivedSessionIds } }
-      })
+      setData(previous => installArchiveSet(previous, nodeId, result.archivedSessionIds))
       void loadSessions(nodeId, true)
       if (selection?.nodeId === nodeId && selection.sessionId === sessionId) setRemoteSelection(undefined)
     } catch (cause) {
@@ -610,6 +754,75 @@ export function RemoteSection({
       }
     }
   }, [selection, loadSessions])
+
+  /**
+   * Restore one archived session on its owning node.
+   *
+   * The node answers with the complete archive set, so the cached set is replaced
+   * rather than patched. A refusal keeps the archived row exactly where it was and
+   * reports the node's own reason; a node without the verb is marked so the menu
+   * entry stops offering an action that cannot succeed.
+   */
+  const unarchiveSession = useCallback(async (nodeId: string, sessionId: string): Promise<void> => {
+    const key = JSON.stringify([nodeId, sessionId])
+    if (inflightUnarchives.current.size > 0) return
+    inflightUnarchives.current.add(key)
+    setUnarchiveFailures(previous => omitKey(previous, nodeId))
+    setUnarchiving(previous => ({ ...previous, [nodeId]: sessionId }))
+    try {
+      const result = await unarchiveRemoteSession(nodeId, sessionId)
+      // A list fetched before this unarchive would still carry the archived row.
+      sessionControllers.current.get(nodeId)?.abort()
+      setData(previous => installArchiveSet(previous, nodeId, result.archivedSessionIds))
+      void loadSessions(nodeId, true)
+    } catch (cause) {
+      if (cause instanceof Error && cause.name === 'AbortError') return
+      setUnarchiveFailures(previous => ({
+        ...previous,
+        [nodeId]: { sessionId, message: `${t('remote.unarchiveFailed')} · ${describe(cause)}` },
+      }))
+      if (isCapabilityFailure(cause)) {
+        setUnarchiveUnsupported(previous => ({ ...previous, [nodeId]: true }))
+      }
+    } finally {
+      inflightUnarchives.current.delete(key)
+      setUnarchiving((previous) => {
+        const next = { ...previous }
+        delete next[nodeId]
+        return next
+      })
+    }
+  }, [loadSessions, t])
+
+  /**
+   * Register an existing directory on one node, then reveal it.
+   *
+   * Only the path crosses the wire: the node canonicalizes it, checks that it
+   * exists, and answers with the registry row. A repeated registration is
+   * idempotent there (`created: false`), so "locate the existing workspace" and
+   * "create it" are the same request.
+   */
+  const addWorkspace = useCallback(async (node: MasterNode, path: string): Promise<void> => {
+    if (inflightWorkspaceAdds.current || nodeIsOffline(node) || node.state !== 'ready') return
+    inflightWorkspaceAdds.current = true
+    setAddWorkspaceBusy(true)
+    setAddWorkspaceError(undefined)
+    try {
+      const value = await createRemoteWorkspace(node.nodeId, path)
+      onWorkspaceExpandedChange(JSON.stringify([node.nodeId, value.workspace.workspaceId]), true)
+      onNodeExpandedChange(node.nodeId, true)
+      // The workspace registry travels with the session list, so one forced load
+      // both installs the new row and settles its name/path with the node.
+      void loadSessions(node.nodeId, true)
+      setAddWorkspaceTarget(undefined)
+    } catch (cause) {
+      if (cause instanceof Error && cause.name === 'AbortError') return
+      setAddWorkspaceError(`${t('addWorkspace.failed')} · ${describe(cause)}`)
+    } finally {
+      inflightWorkspaceAdds.current = false
+      setAddWorkspaceBusy(false)
+    }
+  }, [loadSessions, onNodeExpandedChange, onWorkspaceExpandedChange, t])
 
   const createSession = useCallback(async (
     node: MasterNode,
@@ -654,6 +867,65 @@ export function RemoteSection({
     }
   }, [loadSessions, onOpenRemoteSession, onWorkspaceExpandedChange, t])
 
+  // ---------------------------------------------------------- session rename
+
+  const renameTrimmed = renameDraft.trim()
+  // Confirming the current title is allowed on purpose: that is how an automatic
+  // title becomes a user-pinned one, exactly as the local session dialog behaves.
+  const renameBlocked = renaming || renameTarget === undefined || renameTrimmed === ''
+
+  const requestRenameSession = useCallback((node: MasterNode, session: MasterSession): void => {
+    setRenameTarget({ nodeId: node.nodeId, session })
+    setRenameDraft(session.title)
+    setRenameError(undefined)
+  }, [])
+
+  const closeRename = useCallback((): void => {
+    // A submit in flight owns the dialog until the node answers; the guard is the
+    // ref rather than state so a click in the same tick cannot slip through.
+    if (inflightRenames.current.size > 0) return
+    setRenameTarget(undefined)
+    setRenameDraft('')
+    setRenameError(undefined)
+  }, [])
+
+  const confirmRename = useCallback(async (): Promise<void> => {
+    if (renameTarget === undefined) return
+    const target = renameTarget
+    const trimmed = renameDraft.trim()
+    const key = JSON.stringify([target.nodeId, target.session.sessionId])
+    if (trimmed === '' || inflightRenames.current.has(key)) return
+
+    inflightRenames.current.add(key)
+    setRenaming(true)
+    setRenameError(undefined)
+    try {
+      const value = await renameRemoteSession(target.nodeId, target.session.sessionId, trimmed)
+      // A list request that started before this rename would write the old title
+      // back into the cache; cancel it, then apply the node's accepted title.
+      sessionControllers.current.get(target.nodeId)?.abort()
+      setData(previous => replaceSessionTitle(previous, target.nodeId, value.sessionId, value.title))
+      // The open panel renders the selection's captured title, not the list row.
+      if (selection?.nodeId === target.nodeId && selection.sessionId === value.sessionId) {
+        setRemoteSelection({ ...selection, sessionTitle: value.title })
+      }
+      setRenameTarget(undefined)
+      setRenameDraft('')
+      void loadSessions(target.nodeId, true)
+    } catch (cause) {
+      if (cause instanceof Error && cause.name === 'AbortError') return
+      setRenameError(`${t('remote.sessionRenameFailed')} · ${describe(cause)}`)
+      if (isCapabilityFailure(cause)) {
+        setRenameUnsupported(previous => ({ ...previous, [target.nodeId]: true }))
+        setRenameTarget(undefined)
+        setRenameDraft('')
+      }
+    } finally {
+      inflightRenames.current.delete(key)
+      setRenaming(false)
+    }
+  }, [loadSessions, renameDraft, renameTarget, selection, t])
+
   useEffect(() => {
     void refresh()
     return () => {
@@ -683,6 +955,64 @@ export function RemoteSection({
         : browseScope.kind === 'remote' && browseScope.nodeId === node.nodeId)) void loadSessions(node.nodeId)
     }
   }, [nodes, nodeExpansion, defaultNodeExpanded, loadSessions, browseScope, following, coordinator?.url])
+
+  // Which nodes a status tick may re-read: exactly the ones whose rows are on
+  // screen (followed targets, the scoped node, or expanded nodes), and only after
+  // their first list has landed.
+  const scope = browseScope
+  const statusTargets = scope?.kind === 'following'
+    ? followingNodes(following, coordinator?.url, nodes)
+    : scope?.kind === 'remote'
+      ? nodes.filter(node => node.nodeId === scope.nodeId)
+      : nodes.filter(node => nodeExpansion[node.nodeId] ?? defaultNodeExpanded)
+  pollTargets.current = pollableNodeIds(statusTargets, data)
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    /**
+     * Re-read one row set without disturbing the visible loading/error states.
+     * A node owned by an in-flight load or a create/rename is skipped: that
+     * operation's own refresh is authoritative and will land on its own.
+     */
+    const refreshStatuses = (): void => {
+      if (document.visibilityState !== 'visible') return
+      for (const nodeId of pollTargets.current) {
+        if (sessionControllers.current.has(nodeId)) continue
+        const prefix = `[${JSON.stringify(nodeId)},`
+        let mutating = false
+        for (const key of inflightCreates.current) if (key.startsWith(prefix)) { mutating = true; break }
+        if (!mutating) {
+          for (const key of inflightRenames.current) if (key.startsWith(prefix)) { mutating = true; break }
+        }
+        if (mutating) continue
+        void loadSessions(nodeId, true, true)
+      }
+    }
+    let timer: ReturnType<typeof setInterval> | undefined
+    const start = (): void => {
+      if (timer !== undefined) return
+      timer = setInterval(refreshStatuses, LIVE_STATUS_INTERVAL_MS)
+    }
+    const stop = (): void => {
+      if (timer === undefined) return
+      clearInterval(timer)
+      timer = undefined
+    }
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') {
+        // Coming back to the tab is exactly when "what is still running?" matters,
+        // so refresh once immediately instead of waiting for the next tick.
+        refreshStatuses()
+        start()
+      } else stop()
+    }
+    if (document.visibilityState === 'visible') start()
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      stop()
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [loadSessions])
 
   const followingRemoteSnapshot: FollowingRemoteSnapshot = {
     coordinator,
@@ -848,8 +1178,75 @@ export function RemoteSection({
           onToggleFollow={followWiring}
           creating={creating} createErrors={createErrors}
           createUnsupported={createUnsupported[node.nodeId] === true}
+          sessionRenameUnsupported={renameUnsupported[node.nodeId] === true}
+          onRenameSessionRequest={session => { requestRenameSession(node, session) }}
+          archivedOpen={archivedViews.includes(node.nodeId)}
+          onToggleArchived={() => {
+            setArchivedViews(previous => previous.includes(node.nodeId)
+              ? previous.filter(id => id !== node.nodeId)
+              : [...previous, node.nodeId])
+          }}
+          unarchivingSessionId={unarchiving[node.nodeId]}
+          unarchiveUnsupported={unarchiveUnsupported[node.nodeId] === true}
+          unarchiveError={unarchiveFailures[node.nodeId]}
+          onOpenArchivedSession={(sessionId, sessionTitle) => {
+            onOpenRemoteSession(node.nodeId, sessionId, nodeDisplayName(node), sessionTitle)
+          }}
+          onUnarchiveRemoteSession={(sessionId) => { void unarchiveSession(node.nodeId, sessionId) }}
+          onAddWorkspace={() => {
+            setAddWorkspaceError(undefined)
+            setAddWorkspaceTarget(node)
+          }}
+          addWorkspaceHint={node.state === 'ready'
+            ? undefined
+            : t('remote.addWorkspaceUnavailable')}
           onCreateRemoteSession={workspace => { void createSession(node, workspace, data[node.nodeId]) }} />
       ))}
+      <Modal
+        open={renameTarget !== undefined}
+        onClose={closeRename}
+        closeLabel={t('close')}
+        title={t('rename.session.title')}
+        footer={(
+          <>
+            <Button variant="outline" disabled={renaming} onClick={closeRename}>{t('cancel')}</Button>
+            <Button variant="primary" disabled={renameBlocked} onClick={() => { void confirmRename() }}>
+              {renaming ? t('remote.sessionRenaming') : t('rename')}
+            </Button>
+          </>
+        )}
+      >
+        <input
+          className={css.renameInput}
+          value={renameDraft}
+          aria-label={t('field.sessionName')}
+          maxLength={MAX_SESSION_TITLE_LENGTH}
+          autoFocus
+          disabled={renaming}
+          onFocus={(event) => { event.target.select() }}
+          onChange={(event) => { setRenameDraft(event.target.value); setRenameError(undefined) }}
+          onCompositionStart={() => { composingRename.current = true }}
+          onCompositionEnd={() => { composingRename.current = false }}
+          onKeyDown={(event) => {
+            // Enter submits, except while an IME composition is still choosing candidates.
+            if (event.key !== 'Enter' || composingRename.current) return
+            event.preventDefault()
+            void confirmRename()
+          }}
+        />
+        {renameError === undefined ? null : <div className={css.renameError} role="alert">{renameError}</div>}
+      </Modal>
+      <AddWorkspaceDialog
+        open={addWorkspaceTarget !== undefined}
+        target={addWorkspaceTarget === undefined ? '' : nodeDisplayName(addWorkspaceTarget)}
+        busy={addWorkspaceBusy}
+        error={addWorkspaceError}
+        t={t}
+        onSubmit={(path) => {
+          if (addWorkspaceTarget !== undefined) void addWorkspace(addWorkspaceTarget, path)
+        }}
+        onClose={() => { if (!addWorkspaceBusy) setAddWorkspaceTarget(undefined) }}
+      />
     </>
   )
 }

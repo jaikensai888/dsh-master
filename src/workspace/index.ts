@@ -151,6 +151,8 @@ export function applyWorkspaceBrowser(
     startSession(workspaceId?: string): void | Promise<void>
     archiveSession(sessionId: string): Promise<void>
     openSession?(sessionId: string): void
+    openArchivedSession?(sessionId: string): void | Promise<void>
+    unarchiveSession?(sessionId: string): Promise<void>
   } | undefined
   const shipped = existingUiWorkspace !== undefined
   const uiWorkspace = existingUiWorkspace
@@ -189,6 +191,26 @@ export function applyWorkspaceBrowser(
     open: (sessionId: string) => {
       if (uiWorkspace.openSession !== undefined) uiWorkspace.openSession(sessionId)
       else openLocalSession(layout, sessions, sessionId)
+    },
+    openArchivedSession: (sessionId: string) => {
+      // The archived-open path exists on this fork's service and on any shipped
+      // service new enough to own an archive list. When it is absent, opening the
+      // session still shows its history; the archive policy simply wins.
+      if (uiWorkspace.openArchivedSession !== undefined) {
+        void uiWorkspace.openArchivedSession(sessionId)
+        return
+      }
+      if (uiWorkspace.openSession !== undefined) uiWorkspace.openSession(sessionId)
+      else openLocalSession(layout, sessions, sessionId)
+    },
+    unarchiveSession: async (sessionId: string) => {
+      // Same rule in the other direction: use the shipped service's own verb when
+      // it has one, and fall back to the workspace controller, which owns the
+      // archive set either way. A host too old to expose the verb refuses with a
+      // readable line instead of a TypeError from the missing method.
+      if (uiWorkspace.unarchiveSession !== undefined) return uiWorkspace.unarchiveSession(sessionId)
+      if (typeof workspaces.unarchiveSession === 'function') return workspaces.unarchiveSession(sessionId)
+      throw new Error('this host does not support unarchiving sessions')
     },
     openRemoteSession,
     renderRemoteSection: (props: RemoteSectionProps) => createElement(RemoteSection, props),

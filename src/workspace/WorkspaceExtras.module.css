@@ -1,0 +1,257 @@
+/*
+ * Styles for the two pieces of browsing UI this fork adds on top of the shipped
+ * workspace surfaces: the archived-session list (local and per remote node) and
+ * the add-workspace path dialog used when the composed directory picker is not
+ * available.
+ *
+ * Both reuse the row geometry and colour tokens of the existing session rows, so
+ * nothing here re-declares hover colours the primitives already own; the rules
+ * only add the second line (workspace + update time) and the reveal path for a
+ * trailing row menu.
+ */
+
+/* ------------------------------------------------------------ header cluster */
+
+/* Add-workspace and search as one right-aligned group. The search slot keeps
+   its own width animation; this wrapper only exists so the plus can sit to its
+   left instead of trailing the view options at the far edge of the header. */
+.headerCluster {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* A little breathing room between the plus and the search field, matching the
+   spacing the header uses between its other icon pairs. */
+.addWorkspace {
+  margin-right: 6px;
+}
+
+/* A pressed header toggle (the archived entry). */
+.iconButtonActive {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* ------------------------------------------------------------- archived list */
+
+/* The archived list replaces the session tree in the same browsing position. */
+.archived {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: 4px;
+}
+
+.archivedHeader {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  padding-left: 4px;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.archivedTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.archivedCount {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-active);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.archivedList {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+/* 0.2-series shells: the archived rows are content inside the section's single
+   scroller, so this list must not add a second one. */
+[data-dsh-section='viewport'][data-dsh-wide='true'] .archived {
+  flex: none;
+  min-height: 0;
+}
+
+[data-dsh-section='viewport'][data-dsh-wide='true'] .archivedList {
+  flex: none;
+  min-height: 0;
+  overflow-y: visible;
+  overscroll-behavior: auto;
+  scrollbar-gutter: auto;
+}
+
+/* Two-line row: title, then workspace · update time. */
+.archivedRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: auto;
+  min-height: 44px;
+  border-radius: 8px;
+  padding: 4px 8px 4px 10px;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.archivedRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* A row that cannot be opened (its node is offline, or the snapshot is stale). */
+.archivedUnavailable {
+  cursor: default;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.archivedUnavailable:hover {
+  background: transparent;
+}
+
+.archivedMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.archivedTitleText {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archivedUnavailable .archivedTitleText {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.archivedMeta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.archivedWorkspace {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archivedAge {
+  flex: none;
+  margin-left: 4px;
+}
+
+/* Ongoing-turn dot, aligned with the trailing metadata column. */
+.archivedRunning {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+}
+
+/* Trailing row menu: hidden until hover, an open menu, or keyboard focus —
+   touch devices get it permanently, exactly like the local session rows. */
+.archivedActions {
+  flex: none;
+  display: none;
+  align-items: center;
+}
+
+.archivedRow:hover .archivedActions,
+.archivedRowOpen .archivedActions,
+.archivedRow:focus-within .archivedActions {
+  display: inline-flex;
+}
+
+@media (hover: none) {
+  .archivedActions { display: inline-flex; }
+}
+
+/* One failed unarchive, kept next to the list it belongs to. */
+.archivedActionError {
+  flex: none;
+  margin: 4px 4px 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-danger, var(--dsw-alias-label-secondary));
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------- add-workspace dialog */
+
+.addForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.addLabel {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.addInput {
+  box-sizing: border-box;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-default);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-default);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+.addInput:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary, var(--dsw-alias-border-strong));
+  outline-offset: -1px;
+}
+
+.addInput:disabled {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.addHint {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.addError {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-danger, var(--dsw-alias-label-secondary));
+  overflow-wrap: anywhere;
+}

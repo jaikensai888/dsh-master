@@ -123,8 +123,19 @@ describe('local follow rows', () => {
   it('uses the fresh local title, machine label and workspace name', () => {
     const row = one(followingRows([localRecord('s1', 1)], localSnapshot(), remoteSnapshot(), labels))
     expect(row).toMatchObject({
-      status: 'ok', title: 'Local title', machine: '本地', workspace: 'Local repo', fresh: true,
+      status: 'ok', title: 'Local title', machine: '本地', workspace: 'Local repo', fresh: true, running: false,
     })
+  })
+
+  it('carries the live running flag for a local session and never for an archived one', () => {
+    const running = localSnapshot({
+      byId: {
+        s1: { id: 's1', displayTitle: 'Local title', blank: false, running: true, updatedAt: 1 },
+      },
+    })
+    expect(one(followingRows([localRecord('s1', 1)], running, remoteSnapshot(), labels)).running).toBe(true)
+    const archived = { ...running, archivedSessionIds: ['s1'] }
+    expect(one(followingRows([localRecord('s1', 1)], archived, remoteSnapshot(), labels)).running).toBe(false)
   })
 
   it('falls back to the saved summary and labels a not-found session after the list is ready', () => {
@@ -164,7 +175,32 @@ describe('remote follow rows', () => {
       machine: 'Machine node-a',
       workspace: 'Remote repo',
       fresh: true,
+      running: false,
     })
+  })
+
+  it('carries the remote running flag and clears it for an archived or offline row', () => {
+    const running = remoteSnapshot({
+      data: {
+        'node-a': sessionsValue({
+          sessions: [{ sessionId: 'r1', title: 'Remote title', updatedAt: 1, running: true, blank: false }],
+        }),
+      },
+    })
+    expect(one(followingRows([record], localSnapshot(), running, labels)).running).toBe(true)
+
+    const archived = remoteSnapshot({
+      data: {
+        'node-a': sessionsValue({
+          sessions: [{ sessionId: 'r1', title: 'Remote title', updatedAt: 1, running: true, blank: false }],
+          archivedSessionIds: ['r1'],
+        }),
+      },
+    })
+    expect(one(followingRows([record], localSnapshot(), archived, labels)).running).toBe(false)
+
+    const offline = remoteSnapshot({ nodes: [node('node-a', 'offline')] })
+    expect(one(followingRows([record], localSnapshot(), offline, labels)).running).toBe(false)
   })
 
   it('shows the saved summary while the source is being verified', () => {
@@ -254,11 +290,11 @@ describe('follow list filtering and summaries', () => {
   const rows: FollowingRow[] = [
     {
       key: 'a', target: { source: 'local', sessionId: 'a' }, followedAt: 2,
-      title: 'Deploy pipeline', machine: '本地', workspace: 'infra', status: 'ok', fresh: true,
+      title: 'Deploy pipeline', machine: '本地', workspace: 'infra', status: 'ok', running: true, fresh: true,
     },
     {
       key: 'b', target: { source: 'remote', coordinatorUrl: 'http://a', nodeId: 'n', sessionId: 'b' }, followedAt: 1,
-      title: 'Fix tests', machine: 'Office', workspace: 'web', status: 'offline', fresh: false,
+      title: 'Fix tests', machine: 'Office', workspace: 'web', status: 'offline', running: false, fresh: false,
     },
   ]
 

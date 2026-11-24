@@ -105,6 +105,71 @@ export interface MasterArchiveValue {
   readonly archivedSessionIds: readonly string[]
 }
 
+/**
+ * Longest directory path accepted by the workspace-create route, in characters.
+ *
+ * The node owns canonicalization and existence checks; this bound only keeps an
+ * obviously malformed payload out of the coordinator round trip. Windows allows
+ * paths up to 32k characters with the long-path prefix, so this picks the
+ * conservative POSIX `PATH_MAX`-scale bound rather than a UI-sized one.
+ */
+export const MAX_WORKSPACE_PATH_LENGTH = 4096
+
+/**
+ * `POST /dsh-master/api/workspace/create`.
+ *
+ * Registers an **existing** directory on the target node. The browser never
+ * invents a workspace identity: the node resolves the path against its own
+ * filesystem and answers with the registry row it now knows. Registering a path
+ * that is already a workspace is idempotent — the node returns the existing row
+ * with `created: false`, which is what lets the sidebar "locate" it instead of
+ * creating a duplicate.
+ */
+export interface MasterCreateWorkspaceRequest {
+  readonly nodeId: string
+  readonly path: string
+}
+
+/** The workspace the node registered or resolved, plus whether this call created it. */
+export interface MasterCreateWorkspaceValue {
+  readonly workspace: MasterWorkspace
+  readonly created: boolean
+}
+
+/** `POST /dsh-master/api/session/unarchive`. */
+export interface MasterUnarchiveSessionRequest {
+  readonly nodeId: string
+  readonly sessionId: string
+}
+
+/**
+ * Upper bound this host accepts for a session title.
+ *
+ * DSH normalizes and truncates a title to its own UTF-8 byte budget, so this is
+ * only a guard rail on what a browser may submit; the node's accepted title is
+ * what the panel then displays.
+ */
+export const MAX_SESSION_TITLE_LENGTH = 200
+
+/**
+ * `POST /dsh-master/api/session/rename`.
+ *
+ * Renaming appends a user-sourced `session/title` event on the remote host and
+ * supersedes automatic title generation there. Nothing else about the session —
+ * its workspace, transcript, or `cwd` — is touched.
+ */
+export interface MasterRenameSessionRequest {
+  readonly nodeId: string
+  readonly sessionId: string
+  readonly title: string
+}
+
+/** The title the node accepted after its own normalization. */
+export interface MasterRenameSessionValue {
+  readonly sessionId: string
+  readonly title: string
+}
+
 /** `POST /dsh-master/api/session/create`. */
 export interface MasterCreateSessionRequest {
   readonly nodeId: string

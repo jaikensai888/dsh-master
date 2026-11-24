@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { MasterNode, MasterSession, MasterWorkspace } from '../src/protocol.js'
+import type { MasterNode, MasterSession, MasterSessionsValue, MasterWorkspace } from '../src/protocol.js'
 import {
   groupRemoteWorkspaces,
   nodeIsOffline,
   orderRemoteNodes,
+  pollableNodeIds,
+  replaceSessionTitle,
   reusableBlankSession,
   visibleRemoteSessions,
 } from '../src/workspace/remote-model.js'
@@ -122,5 +124,63 @@ describe('remote workspace row model', () => {
     expect(reusableBlankSession(rows, [], workspace)).toBe('b1')
     expect(reusableBlankSession(rows, ['b1'], workspace)).toBe('b3')
     expect(reusableBlankSession(rows, ['b1', 'b3'], { ...workspace, sessionIds: ['b2'] })).toBeUndefined()
+  })
+})
+
+describe('remote session rename model', () => {  const data: Record<string, MasterSessionsValue> = {
+    'node-1': {
+      nodeId: 'node-1',
+      sessions: [session('s1'), session('s2')],
+      workspaces: [{ workspaceId: 'w1', title: 'repo', path: '/repo', sessionIds: ['s1', 's2'] }],
+      archivedSessionIds: ['archived'],
+    },
+    'node-2': {
+      nodeId: 'node-2',
+      sessions: [session('s1')],
+      workspaces: [],
+      archivedSessionIds: [],
+    },
+  }
+
+  it('retitles only the renamed row and keeps membership, order and archive state', () => {
+    const next = replaceSessionTitle(data, 'node-1', 's1', '新的标题')
+    expect(next['node-1']?.sessions.map(row => row.title)).toEqual(['新的标题', 's2'])
+    expect(next['node-1']?.sessions.map(row => row.sessionId)).toEqual(['s1', 's2'])
+    expect(next['node-1']?.workspaces).toEqual(data['node-1']?.workspaces)
+    expect(next['node-1']?.archivedSessionIds).toEqual(['archived'])
+    // Another node with the same session id is untouched.
+    expect(next['node-2']).toBe(data['node-2'])
+    // The input cache is not mutated.
+    expect(data['node-1']?.sessions[0]?.title).toBe('s1')
+  })
+
+  it('leaves the cache unchanged when the node, row or title is already settled', () => {
+    expect(replaceSessionTitle(data, 'missing-node', 's1', 'x')).toBe(data)
+    expect(replaceSessionTitle(data, 'node-1', 'unknown', 'x')).toBe(data)
+    expect(replaceSessionTitle(data, 'node-1', 's1', 's1')).toBe(data)
+  })
+})
+
+describe('status poll targets', () => {
+  const loaded: MasterSessionsValue = {
+    nodeId: 'loaded', sessions: [], workspaces: [], archivedSessionIds: [],
+  }
+
+  it('only refreshes ready nodes whose first list has landed, in candidate order', () => {
+    expect(pollableNodeIds(
+      [
+        node('first', 'ready'),
+        node('connecting', 'connecting'),
+        node('unloaded', 'ready'),
+        node('offline', 'offline'),
+        node('revoked', 'ready', true),
+        node('second', 'ready'),
+      ],
+      { first: loaded, connecting: loaded, offline: loaded, revoked: loaded, second: loaded },
+    )).toEqual(['first', 'second'])
+  })
+
+  it('skips every node before the first list arrives', () => {
+    expect(pollableNodeIds([node('fresh', 'ready')], {})).toEqual([])
   })
 })

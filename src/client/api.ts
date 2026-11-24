@@ -16,10 +16,12 @@ import {
   type MasterEnvelope,
   type MasterArchiveValue,
   type MasterCreateSessionValue,
+  type MasterCreateWorkspaceValue,
   type MasterNodesValue,
   type MasterPendingQuestionsValue,
   type MasterQuestionAccepted,
   type MasterQuestionAnswer,
+  type MasterRenameSessionValue,
   type MasterSessionsValue,
   type MasterStatus,
   type MasterStreamRecord,
@@ -166,6 +168,56 @@ export async function archiveRemoteSession(
 }
 
 /**
+ * Restore one archived remote session.
+ *
+ * The owning node answers with the complete resulting archive set, so the caller
+ * installs it instead of editing its own copy — the same rule as archiving.
+ *
+ * @param nodeId - the node that owns the session.
+ * @param sessionId - the archived session on that node.
+ * @param signal - caller cancellation.
+ * @returns the complete archive set after the write.
+ */
+export async function unarchiveRemoteSession(
+  nodeId: string,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<MasterArchiveValue> {
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/unarchive`, init(signal, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ nodeId, sessionId }),
+  }))
+  return unwrap(await envelopeOf(response) as MasterEnvelope<MasterArchiveValue>)
+}
+
+/**
+ * Register one existing directory as a workspace on a remote node.
+ *
+ * Only the path travels; the node canonicalizes it, checks existence, and
+ * returns the registry row. A path that is already registered resolves to the
+ * same workspace with `created: false`, which is how a repeated pick locates the
+ * existing row instead of duplicating it.
+ *
+ * @param nodeId - target node.
+ * @param path - absolute directory path on that node.
+ * @param signal - caller cancellation.
+ * @returns the registry row and whether this call created it.
+ */
+export async function createRemoteWorkspace(
+  nodeId: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<MasterCreateWorkspaceValue> {
+  const response = await fetch(`${ROUTE_PREFIX}/api/workspace/create`, init(signal, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ nodeId, path }),
+  }))
+  return unwrap(await envelopeOf(response) as MasterEnvelope<MasterCreateWorkspaceValue>)
+}
+
+/**
  * Create or reuse a blank session in one remote workspace.
  *
  * Only a node-registered `workspaceId` is sent; the browser never supplies a
@@ -193,6 +245,32 @@ export async function createRemoteSession(
     }),
   }))
   return unwrap(await envelopeOf(response) as MasterEnvelope<MasterCreateSessionValue>)
+}
+
+/**
+ * Rename one remote session's title.
+ *
+ * The node normalizes the title (trim, control characters, byte budget), so the
+ * returned value — not the draft — is what the panel should display.
+ *
+ * @param nodeId - target node.
+ * @param sessionId - target session on that node.
+ * @param title - trimmed display title.
+ * @param signal - caller cancellation.
+ * @returns the session identity and the accepted title.
+ */
+export async function renameRemoteSession(
+  nodeId: string,
+  sessionId: string,
+  title: string,
+  signal?: AbortSignal,
+): Promise<MasterRenameSessionValue> {
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/rename`, init(signal, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ nodeId, sessionId, title }),
+  }))
+  return unwrap(await envelopeOf(response) as MasterEnvelope<MasterRenameSessionValue>)
 }
 
 /** Read questions currently waiting for the selected remote session. */

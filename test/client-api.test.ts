@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { archiveRemoteSession, createRemoteSession, followSession } from '../src/client/api.js'
+import {
+  archiveRemoteSession,
+  createRemoteSession,
+  createRemoteWorkspace,
+  followSession,
+  renameRemoteSession,
+  unarchiveRemoteSession,
+} from '../src/client/api.js'
 import type { MasterStreamRecord } from '../src/protocol.js'
 
 describe('remote session create browser API', () => {
@@ -58,6 +65,91 @@ describe('remote archive browser API', () => {
     expect(String(url)).toBe('/dsh-master/api/session/archive')
     expect(init?.method).toBe('POST')
     expect(JSON.parse(String(init?.body))).toEqual({ nodeId: 'node-1', sessionId: 'session-1' })
+  })
+})
+
+describe('remote session rename browser API', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('posts the node, session and title, and returns the accepted title', async () => {
+    const fetchSpy = vi.fn<typeof fetch>()
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      value: { sessionId: 'session-1', title: '新的标题' },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(renameRemoteSession('node-1', 'session-1', '新的标题')).resolves.toEqual({
+      sessionId: 'session-1',
+      title: '新的标题',
+    })
+    const [url, init] = fetchSpy.mock.calls[0] ?? []
+    expect(String(url)).toBe('/dsh-master/api/session/rename')
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(String(init?.body))).toEqual({
+      nodeId: 'node-1',
+      sessionId: 'session-1',
+      title: '新的标题',
+    })
+  })
+})
+
+describe('remote unarchive browser API', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('posts the node/session identity and returns the node-confirmed archive set', async () => {
+    const fetchSpy = vi.fn<typeof fetch>()
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      value: { archivedSessionIds: ['still-hidden'] },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(unarchiveRemoteSession('node-1', 'session-1')).resolves.toEqual({
+      archivedSessionIds: ['still-hidden'],
+    })
+    const [url, init] = fetchSpy.mock.calls[0] ?? []
+    expect(String(url)).toBe('/dsh-master/api/session/unarchive')
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(String(init?.body))).toEqual({ nodeId: 'node-1', sessionId: 'session-1' })
+  })
+
+  it('surfaces the node code when the capability is missing there', async () => {
+    const fetchSpy = vi.fn<typeof fetch>()
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+      ok: false,
+      error: { code: 'node/capability-unavailable', message: 'workspace/unarchiveSession' },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(unarchiveRemoteSession('node-1', 'session-1')).rejects.toMatchObject({
+      code: 'node/capability-unavailable',
+    })
+  })
+})
+
+describe('remote workspace create browser API', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('posts the node and path, and returns the registry row with its created flag', async () => {
+    const fetchSpy = vi.fn<typeof fetch>()
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      value: {
+        workspace: { workspaceId: 'ws-1', title: 'my-app', path: 'D:\\projects\\my-app', sessionIds: [] },
+        created: false,
+      },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(createRemoteWorkspace('node-1', 'D:\\projects\\my-app')).resolves.toEqual({
+      workspace: { workspaceId: 'ws-1', title: 'my-app', path: 'D:\\projects\\my-app', sessionIds: [] },
+      created: false,
+    })
+    const [url, init] = fetchSpy.mock.calls[0] ?? []
+    expect(String(url)).toBe('/dsh-master/api/workspace/create')
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(String(init?.body))).toEqual({ nodeId: 'node-1', path: 'D:\\projects\\my-app' })
   })
 })
 

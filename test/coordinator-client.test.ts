@@ -150,6 +150,77 @@ describe('CoordinatorClient.createSession', () => {
   })
 })
 
+describe('CoordinatorClient remote session rename', () => {
+  it('renames a session through the session Remote and returns the accepted title', async () => {
+    const { client, calls } = clientWith(() => envelope({
+      ok: true,
+      value: { title: '新的标题', seq: 42 },
+    }))
+
+    await expect(client.renameSession('node-1', 'session-1', '新的标题')).resolves.toEqual({
+      sessionId: 'session-1',
+      title: '新的标题',
+    })
+    expect(calls[0]?.url).toBe('http://127.0.0.1:39472/api/invoke')
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+      nodeId: 'node-1',
+      endpoint: 'session/rename',
+      args: { request: { sessionId: 'session-1', title: '新的标题' } },
+    })
+  })
+
+  it('uses the title the node accepted rather than the requested one', async () => {
+    const { client } = clientWith(() => envelope({ ok: true, value: { title: 'normalized', seq: 1 } }))
+    await expect(client.renameSession('node-1', 'session-1', '  normalized  ')).resolves.toEqual({
+      sessionId: 'session-1',
+      title: 'normalized',
+    })
+  })
+
+  it('rejects a rename answer without a usable title', async () => {
+    for (const value of [{ seq: 1 }, { title: '   ' }, { title: 42 }]) {
+      const { client } = clientWith(() => envelope({ ok: true, value }))
+      await expect(client.renameSession('node-1', 'session-1', 'x')).rejects.toMatchObject({
+        code: 'master/coordinator-unreadable',
+      })
+    }
+  })
+
+  it('preserves the node refusal for an invalid title', async () => {
+    const { client } = clientWith(() => envelope({
+      ok: false,
+      error: { code: 'session/title-invalid', message: 'session title must contain visible characters' },
+    }))
+    await expect(client.renameSession('node-1', 'session-1', '   ')).rejects.toMatchObject({
+      code: 'session/title-invalid',
+    })
+  })
+
+  it('validates and trims the title before calling the coordinator', async () => {
+    const { client, calls } = clientWith(() => envelope({ ok: true, value: { title: 'ok', seq: 1 } }))
+    const master = new MasterService(client, false)
+
+    await expect(master.renameSession('node-1', 'session-1', '   ')).rejects.toMatchObject({
+      code: 'master/invalid-arguments',
+    })
+    await expect(master.renameSession('node-1', 'session-1', 'x'.repeat(201))).rejects.toMatchObject({
+      code: 'master/invalid-arguments',
+    })
+    await expect(master.renameSession('', 'session-1', 'ok')).rejects.toMatchObject({
+      code: 'master/invalid-arguments',
+    })
+    await expect(master.renameSession('node-1', ' ', 'ok')).rejects.toMatchObject({
+      code: 'master/invalid-arguments',
+    })
+    expect(calls).toHaveLength(0)
+
+    await master.renameSession('node-1', 'session-1', '  trimmed  ')
+    expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
+      args: { request: { sessionId: 'session-1', title: 'trimmed' } },
+    })
+  })
+})
+
 describe('CoordinatorClient remote workspace actions', () => {
   it('archives a session through the workspace Remote with its named request', async () => {
     const { client, calls } = clientWith(() => envelope({
@@ -168,8 +239,68 @@ describe('CoordinatorClient remote workspace actions', () => {
     })
   })
 
-  it('reads the archive set from the workspace follow baseline and closes the stream', async () => {
-    let cancelled = false
+  it('unarchives a session through the workspace Remote and returns the resulting set', async () => {
+    const { client, calls } = clientWith(() => envelope({
+      ok: true,
+      value: { archivedSessionIds: ['still-hidden'] },
+    }))
+
+    await expect(client.unarchiveSession('node-1', 'session-1')).resolves.toEqual(['still-hidden'])
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+      nodeId: 'node-1',
+      endpoint: 'workspace/unarchiveSession',
+      args: { request: { sessionId: 'session-1' } },
+    })
+  })
+
+  it('registers a directory through workspace/create and reads the registry row', async () => {
+    const { client, calls } = clientWith(() => envelope({
+      ok: true,
+      value: {
+        workspace: {
+          workspaceId: 'ws-1',
+          title: 'my-app',
+          path: 'D:\\projects\\my-app',
+          sessionIds: ['session-1'],
+          createdAt: '2026-11-23T00:00:00.000Z',
+          updatedAt: '2026-11-23T00:00:00.000Z',
+        },
+        created: true,
+      },
+    }))
+
+    await expect(client.createWorkspace('node-1', 'D:\\projects\\my-app')).resolves.toEqual({
+      workspace: { workspaceId: 'ws-1', title: 'my-app', path: 'D:\\projects\\my-app', sessionIds: ['session-1'] },
+      created: true,
+    })
+    expect(calls[0]?.url).toBe('http://127.0.0.1:39472/api/invoke')
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+      nodeId: 'node-1',
+      endpoint: 'workspace/create',
+      args: { request: { path: 'D:\\projects\\my-app' } },
+    })
+  })
+
+  it('defaults a missing created flag and session list instead of failing the row', async () => {
+    const { client } = clientWith(() => envelope({
+      ok: true,
+      value: { workspace: { workspaceId: 'ws-2', title: 'bare', path: 'D:\\bare' } },
+    }))
+
+    await expect(client.createWorkspace('node-1', 'D:\\bare')).resolves.toEqual({
+      workspace: { workspaceId: 'ws-2', title: 'bare', path: 'D:\\bare', sessionIds: [] },
+      created: false,
+    })
+  })
+
+  it('rejects a workspace answer without a usable row', async () => {
+    const { client } = clientWith(() => envelope({ ok: true, value: { created: true } }))
+    await expect(client.createWorkspace('node-1', 'D:\\x')).rejects.toMatchObject({
+      code: 'master/coordinator-unreadable',
+    })
+  })
+
+  it('reads the archive set from the workspace follow baseline and closes the stream', async () => {    let cancelled = false
     const encoder = new TextEncoder()
     const response = new Response(new ReadableStream<Uint8Array>({
       start(controller) {

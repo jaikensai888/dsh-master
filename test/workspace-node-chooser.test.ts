@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { browseNodes, nodeChoices, browseNavigationKey } from '../src/workspace/browse-scope.js'
+import { browseNodes, nodeChoices, browseNavigationKey, chooserPlacement } from '../src/workspace/browse-scope.js'
 
 const nodes = [
   { nodeId: 'same', nodeName: 'Local', state: 'ready' },
@@ -34,5 +34,16 @@ describe('workspace browse scope', () => {
   it('keeps every eligible node in server order for an empty query', () => {
     expect(nodeChoices(nodes, '')).toEqual([nodes[0], nodes[5]])
     expect(nodeChoices(nodes, '   ')).toEqual([nodes[0], nodes[5]])
+  })
+
+  it('fits the popup inside the sidebar even when the window is wide', () => {
+    const placement = chooserPlacement({ left: 16, top: 208, bottom: 232 }, { left: 12, right: 276 }, { width: 1440, height: 780 })
+    expect(placement).toMatchObject({ left: 16, width: 252, top: 236 })
+  })
+
+  it('opens above the trigger when there is more space there and stays inside the viewport', () => {
+    const placement = chooserPlacement({ left: 16, top: 370, bottom: 398 }, { left: 12, right: 276 }, { width: 250, height: 470 })
+    expect(placement).toMatchObject({ left: 16, width: 226, bottom: 104 })
+    expect(placement.maxHeight).toBeLessThanOrEqual(358)
   })
 })
