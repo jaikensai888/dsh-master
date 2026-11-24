@@ -243,6 +243,20 @@
   color: var(--dsw-alias-label-dimmed);
 }
 
+/* The path field and its browse button share one row; the field takes the room
+   so a long absolute path stays readable while the button keeps its width. */
+.addInputRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.addInputRow .addInput {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
 .addHint {
   font-size: 12px;
   line-height: 16px;

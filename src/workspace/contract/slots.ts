@@ -223,6 +223,15 @@ export type WorkspaceBrowserInjected = {
   insertSessionBefore: (workspaceId: WorkspaceId, sessionId: SessionId, beforeSessionId?: SessionId) => Promise<void>
   /** Adopt a picked host directory as a real Workspace before targeting a Session. */
   createWorkspace: (input: { path: string }) => Promise<WorkspaceView>
+  /**
+   * Open the Host's own directory chooser (its OS folder dialog) and resolve to
+   * the chosen absolute path, or null when the operator cancels.
+   *
+   * Absent on a host that exposes no directory capability. The composed
+   * directory flow still owns the interaction whenever it is present; this is
+   * the fallback that keeps "choose a folder" available without one.
+   */
+  pickDirectory?: () => Promise<string | null>
   /** Render this plugin's remote section without adding an import to the upstream fork. */
   renderRemoteSection: (props: RemoteSectionProps) => JSX.Element
 }

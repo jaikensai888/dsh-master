@@ -32,6 +32,12 @@ export interface AddWorkspaceDialogProps {
   readonly t: (key: string, params?: Record<string, unknown>) => string
   readonly onSubmit: (path: string) => void
   readonly onClose: () => void
+  /**
+   * Open the host's own folder dialog and resolve to the chosen path (null when
+   * cancelled). Offered only when the path is resolved on this machine: a remote
+   * node's directories are not reachable through the local chooser.
+   */
+  readonly pickDirectory?: (() => Promise<string | null>) | undefined
 }
 
 /**
@@ -40,20 +46,46 @@ export interface AddWorkspaceDialogProps {
  * @param props - visibility, target label, submit state and callbacks.
  * @returns the dialog element.
  */
-export function AddWorkspaceDialog({ open, target, busy, error, t, onSubmit, onClose }: AddWorkspaceDialogProps): ReactElement {
+export function AddWorkspaceDialog({ open, target, busy, error, t, onSubmit, onClose, pickDirectory }: AddWorkspaceDialogProps): ReactElement {
   const [draft, setDraft] = useState('')
   const [composing, setComposing] = useState(false)
+  /** True while the host's folder dialog is open for this surface. */
+  const [picking, setPicking] = useState(false)
+  /** Why the host chooser could not be used; shown next to the field. */
+  const [pickError, setPickError] = useState<string | undefined>(undefined)
   // Each opening starts from an empty field: a previous attempt's path is not a
   // suggestion for this one, and a stale value would be re-submitted by Enter.
   useEffect(() => {
     if (!open) return
     setDraft('')
     setComposing(false)
+    setPickError(undefined)
   }, [open])
   const trimmed = draft.trim()
   const submit = (): void => {
     if (busy || trimmed === '') return
     onSubmit(trimmed)
+  }
+  /**
+   * Browse this machine's folders and put the choice in the field.
+   *
+   * Filling the field (rather than submitting) keeps the explicit "Add" step:
+   * the operator sees the absolute path the host will be asked to register and
+   * can adjust it. A cancelled dialog changes nothing; a refusal is reported in
+   * place, and typing stays available underneath.
+   */
+  const browse = (): void => {
+    if (pickDirectory === undefined || busy || picking) return
+    setPicking(true)
+    setPickError(undefined)
+    pickDirectory().then((path) => {
+      if (path === null || path === '') return
+      setDraft(path)
+    }).catch((reason: unknown) => {
+      setPickError(t('addWorkspace.pickUnavailable', {
+        reason: reason instanceof Error ? reason.message : String(reason),
+      }))
+    }).finally(() => { setPicking(false) })
   }
   return (
     <Modal
@@ -73,25 +105,33 @@ export function AddWorkspaceDialog({ open, target, busy, error, t, onSubmit, onC
     >
       <div className={css.addForm}>
         <label className={css.addLabel} htmlFor="dsh-master-add-workspace-path">{t('addWorkspace.label')}</label>
-        <input
-          id="dsh-master-add-workspace-path"
-          className={css.addInput}
-          value={draft}
-          placeholder={t('addWorkspace.placeholder')}
-          autoFocus
-          spellCheck={false}
-          disabled={busy}
-          onChange={(event) => { setDraft(event.target.value) }}
-          onCompositionStart={() => { setComposing(true) }}
-          onCompositionEnd={() => { setComposing(false) }}
-          onKeyDown={(event) => {
-            // Enter submits, except while an IME composition is still choosing candidates.
-            if (event.key !== 'Enter' || composing) return
-            event.preventDefault()
-            submit()
-          }}
-        />
+        <div className={css.addInputRow}>
+          <input
+            id="dsh-master-add-workspace-path"
+            className={css.addInput}
+            value={draft}
+            placeholder={t('addWorkspace.placeholder')}
+            autoFocus
+            spellCheck={false}
+            disabled={busy}
+            onChange={(event) => { setDraft(event.target.value) }}
+            onCompositionStart={() => { setComposing(true) }}
+            onCompositionEnd={() => { setComposing(false) }}
+            onKeyDown={(event) => {
+              // Enter submits, except while an IME composition is still choosing candidates.
+              if (event.key !== 'Enter' || composing) return
+              event.preventDefault()
+              submit()
+            }}
+          />
+          {pickDirectory === undefined ? null : (
+            <Button variant="outline" disabled={busy || picking} onClick={browse}>
+              {picking ? t('addWorkspace.opening') : t('addWorkspace.browse')}
+            </Button>
+          )}
+        </div>
         <div className={css.addHint}>{t('addWorkspace.hint', { target })}</div>
+        {pickError === undefined ? null : <div className={css.addError} role="alert">{pickError}</div>}
         {error === undefined ? null : <div className={css.addError} role="alert">{error}</div>}
       </div>
     </Modal>

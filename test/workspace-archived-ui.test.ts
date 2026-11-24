@@ -60,6 +60,8 @@ const translations: Record<string, string> = {
   'addWorkspace.submit': '添加',
   'addWorkspace.pending': '正在添加…',
   'addWorkspace.failed': '添加工作区失败',
+  'addWorkspace.browse': '浏览…',
+  'addWorkspace.opening': '打开中…',
   'cancel': '取消',
   'close': '关闭',
 }
@@ -199,5 +201,21 @@ describe('the add-workspace path dialog', () => {
     expect(markup).toContain('添加工作区失败 · workspace/not-found')
     expect(markup).toContain('正在添加…')
     expect(markup).toContain('disabled=""')
+  })
+
+  it('offers a browse button only where this machine resolves the path', () => {
+    const local = renderToStaticMarkup(createElement(AddWorkspaceDialog, {
+      open: true, target: '本机', busy: false, error: undefined, t,
+      onSubmit: () => undefined, onClose: () => undefined,
+      pickDirectory: () => Promise.resolve(null),
+    }))
+    expect(local).toContain('浏览…')
+    // A remote node's directories are not reachable through this machine's
+    // chooser, so the typed path stays the only route there.
+    const remote = renderToStaticMarkup(createElement(AddWorkspaceDialog, {
+      open: true, target: 'office1', busy: false, error: undefined, t,
+      onSubmit: () => undefined, onClose: () => undefined,
+    }))
+    expect(remote).not.toContain('浏览…')
   })
 })

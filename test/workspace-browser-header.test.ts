@@ -33,7 +33,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
   }
 })
 
-import { WorkspaceBrowser } from '../src/workspace/rows/WorkspaceBrowser.js'
+import { WorkspaceBrowser, addWorkspaceRoute } from '../src/workspace/rows/WorkspaceBrowser.js'
 
 /** A hook over one immutable snapshot. */
 function hook<T>(snapshot: T) {
@@ -148,5 +148,16 @@ describe('the local workspace header', () => {
     expect(body).toBeGreaterThan(-1)
     expect(viewport.indexOf('data-dsh-local-list')).toBeGreaterThan(body)
     expect(viewport.indexOf('data-fake-remote')).toBeGreaterThan(body)
+  })
+
+  it('prefers the composed flow, then the host chooser, then the typed path', () => {
+    // The composed directory flow is the documented seam: while it occupies the
+    // hole it owns picking.
+    expect(addWorkspaceRoute(true, () => Promise.resolve(null))).toBe('flow')
+    // Without it, the host chooser still answers the request instead of making
+    // the operator type an absolute path.
+    expect(addWorkspaceRoute(false, () => Promise.resolve(null))).toBe('picker')
+    // A host with neither keeps the affordance, as a typed path.
+    expect(addWorkspaceRoute(false, undefined)).toBe('path')
   })
 })

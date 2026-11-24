@@ -82,6 +82,25 @@ function sectionScrollContract(useSectionScroller: UseSectionScroller | undefine
   return document.querySelector('[data-sidebar-scrollport]') === null ? 'column' : 'viewport'
 }
 
+/**
+ * Which interaction the add-workspace trigger runs.
+ *
+ * - `flow`: a composed directory flow occupies the hole and owns picking (its
+ *   own native chooser or in-app browser, with new-folder support).
+ * - `picker`: no flow, but the host exposes its own folder dialog.
+ * - `path`: neither, so the typed-path dialog is the only route left.
+ *
+ * The order matters: the flow is the documented seam and the richer surface;
+ * the host chooser keeps "choose a folder" working in compositions the flow
+ * cannot serve; typing is the last resort, not the default.
+ */
+export type AddWorkspaceRoute = 'flow' | 'picker' | 'path'
+
+export function addWorkspaceRoute(flowAvailable: boolean, pickDirectory: unknown): AddWorkspaceRoute {
+  if (flowAvailable) return 'flow'
+  return typeof pickDirectory === 'function' ? 'picker' : 'path'
+}
+
 /** Fold one Workspace without charging its provisional New Session against the ordinary-row limit. */
 function collapsedSessionRows(sessions: readonly SessionNode[]): {
   rows: readonly SessionNode[]
@@ -878,6 +897,7 @@ export function WorkspaceBrowser({
   openArchivedSession,
   insertSessionBefore,
   createWorkspace,
+  pickDirectory,
   renderRemoteSection,
   searchSessions,
   searchResultLimit,
@@ -1085,6 +1105,8 @@ export function WorkspaceBrowser({
   const [addPathOpen, setAddPathOpen] = useState(false)
   const [addPathBusy, setAddPathBusy] = useState(false)
   const [addPathError, setAddPathError] = useState<string | undefined>(undefined)
+  /** True while the host's own folder dialog is open for this trigger. */
+  const [pickingPath, setPickingPath] = useState(false)
   const locateWorkspace = (workspaceId: WorkspaceId) => {
     // Registering a directory is the goal, not starting work in it: reveal the
     // row and expand it, leaving the open conversation alone.
@@ -1104,12 +1126,38 @@ export function WorkspaceBrowser({
     }).catch((reason: unknown) => {
       setAddPathBusy(false)
       setAddPathError(`${t('addWorkspace.failed')} · ${reason instanceof Error ? reason.message : String(reason)}`)
+      // A path that came from the chooser has no dialog to report into: raise the
+      // typed-path dialog so the refusal is visible and the path can be corrected.
+      setAddPathOpen(true)
     })
+  }
+  /**
+   * Ask the host for a directory when nothing else can.
+   *
+   * A cancelled dialog is a decision, not a failure: it closes silently. A
+   * chooser the host refuses (a peer without the directory capability) falls
+   * back to the typed-path dialog with the reason, so the affordance never
+   * dead-ends.
+   */
+  const pickWorkspacePath = (): void => {
+    if (pickingPath || addPathBusy || pickDirectory === undefined) return
+    setPickingPath(true)
+    pickDirectory().then((path) => {
+      if (path === null || path === '') return
+      adoptWorkspacePath(path)
+    }).catch((reason: unknown) => {
+      setAddPathError(t('addWorkspace.pickUnavailable', {
+        reason: reason instanceof Error ? reason.message : String(reason),
+      }))
+      setAddPathOpen(true)
+    }).finally(() => { setPickingPath(false) })
   }
   const openAddWorkspace = () => {
     setAddPathError(undefined)
-    if (directoryFlowAvailable) setWsPickerOpen(true)
-    else setAddPathOpen(true)
+    const route = addWorkspaceRoute(directoryFlowAvailable, pickDirectory)
+    if (route === 'flow') setWsPickerOpen(true)
+    else if (route === 'path') setAddPathOpen(true)
+    else pickWorkspacePath()
   }
 
   // Rail search = expand + land in the search box: the flag arms before the
@@ -1366,7 +1414,9 @@ export function WorkspaceBrowser({
                   ref={wsPlusRef}
                   type="button"
                   className={clsx(css.iconButton, extras.addWorkspace)}
-                  aria-label={t('workspace.add')}
+                  aria-label={pickingPath ? t('addWorkspace.picking') : t('workspace.add')}
+                  aria-busy={pickingPath || addPathBusy ? true : undefined}
+                  disabled={pickingPath || addPathBusy}
                   onClick={openAddWorkspace}
                 >
                   <IconProjectAddOutline16 size={16} />
@@ -1463,7 +1513,9 @@ export function WorkspaceBrowser({
               <button
                 type="button"
                 className={css.iconButton}
-                aria-label={t('workspace.add')}
+                aria-label={pickingPath ? t('addWorkspace.picking') : t('workspace.add')}
+                aria-busy={pickingPath || addPathBusy ? true : undefined}
+                disabled={pickingPath || addPathBusy}
                 onClick={openAddWorkspace}
               >
                 <IconProjectAddOutline16 size={18} />
@@ -1497,6 +1549,7 @@ export function WorkspaceBrowser({
           t={t}
           onSubmit={adoptWorkspacePath}
           onClose={() => { if (!addPathBusy) setAddPathOpen(false) }}
+          {...pickDirectory === undefined ? {} : { pickDirectory }}
         />
       </div>
 

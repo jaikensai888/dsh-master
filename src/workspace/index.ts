@@ -241,6 +241,21 @@ export function applyWorkspaceBrowser(
     insertSessionBefore: (workspaceId: string, sessionId: string, before?: string) =>
       workspaces.insertSessionBefore(workspaceId, sessionId, before),
     createWorkspace: (input: { path: string }) => workspaces.create(input),
+    /**
+     * The host's own folder chooser, for compositions where no directory flow
+     * occupies the hole this fork declares. The shipped `ui-workspace` still
+     * enabled is exactly that case: it declares the hole, but only its own entry
+     * can render it, so the fork sees an empty occupancy and used to fall back
+     * to a typed path.
+     */
+    pickDirectory: async () => {
+      // Call through the service object: the implementation reads its
+      // `directoryPicker` collaborator off `this`, so a detached reference throws
+      // "cannot read properties of undefined".
+      const service = uiWorkspace as { pickDirectory?: () => Promise<string | null> }
+      if (typeof service.pickDirectory !== 'function') throw new Error('this host exposes no directory chooser')
+      return service.pickDirectory()
+    },
   })
 
   const pickerInjected = (): Record<string, unknown> => ({
