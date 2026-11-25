@@ -260,3 +260,28 @@ describe('truncate', () => {
     expect(truncate('abcdef', 3)).toBe('abc…')
   })
 })
+
+describe('readSnapshot model selection', () => {
+  it('prefers the next step route and falls back to the last used one', () => {
+    const withNext = readSnapshot(snapshot([], {
+      projections: {
+        asOfSeq: 3,
+        values: {
+          modelSelection: {
+            next: { provider: 'p', model: 'm', reasoningEffort: 'high' },
+            lastUsed: { provider: 'p', model: 'old' },
+          },
+        },
+      },
+    }))
+    expect(withNext?.modelSelection).toEqual({ provider: 'p', model: 'm', reasoningEffort: 'high' })
+
+    const lastOnly = readSnapshot(snapshot([], {
+      projections: { asOfSeq: 3, values: { modelSelection: { next: null, lastUsed: { provider: 'p', model: 'old' } } } },
+    }))
+    expect(lastOnly?.modelSelection).toEqual({ provider: 'p', model: 'old' })
+
+    const none = readSnapshot(snapshot([]))
+    expect(none?.modelSelection).toBeUndefined()
+  })
+})

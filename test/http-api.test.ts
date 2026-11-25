@@ -676,3 +676,43 @@ describe('the follow route', () => {
     expect(response.status).toBe(400)
   })
 })
+
+describe('remote model routes', () => {
+  it('reads the node model catalog for the requested node', async () => {
+    const catalog = {
+      groups: [{ id: 'deepseek-account', name: 'DeepSeek', models: [{ id: 'chat', name: 'Chat' }] }],
+      failures: [],
+      default: { provider: 'deepseek-account', model: 'chat' },
+    }
+    const response = await call(handlerFor(service({
+      fetchModelCatalog: (nodeId: string) => Promise.resolve({ ...catalog, nodeId }),
+    })), fakeRequest({ url: '/dsh-master/api/session/models?nodeId=node-1' }))
+    expect(response.status).toBe(200)
+    expect(response.json).toMatchObject({ ok: true, value: catalog })
+  })
+
+  it('forwards one selection and rejects a blank provider before dispatch', async () => {
+    const calls: unknown[][] = []
+    const response = await call(handlerFor(service({
+      selectSessionModel: (...args: unknown[]) => {
+        calls.push(args)
+        return Promise.resolve({ selected: { provider: 'p', model: 'm', reasoningEffort: 'high' } })
+      },
+    })), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/model',
+      body: JSON.stringify({ nodeId: 'n', sessionId: 's', provider: 'p', model: 'm', reasoningEffort: 'high' }),
+    }))
+    expect(response.status).toBe(200)
+    expect(response.json).toMatchObject({ ok: true, value: { selected: { model: 'm' } } })
+    expect(calls[0]).toEqual(['n', 's', { provider: 'p', model: 'm', reasoningEffort: 'high' }])
+
+    const invalid = await call(handlerFor(service()), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/model',
+      body: JSON.stringify({ nodeId: 'n', sessionId: 's', provider: '   ', model: 'm' }),
+    }))
+    expect(invalid.status).toBe(400)
+    expect(invalid.json).toMatchObject({ ok: false, error: { code: 'master/invalid-arguments' } })
+  })
+})

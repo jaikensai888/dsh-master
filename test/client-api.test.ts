@@ -3,8 +3,10 @@ import {
   archiveRemoteSession,
   createRemoteSession,
   createRemoteWorkspace,
+  fetchModelCatalog,
   followSession,
   renameRemoteSession,
+  selectRemoteModel,
   unarchiveRemoteSession,
 } from '../src/client/api.js'
 import type { MasterStreamRecord } from '../src/protocol.js'
@@ -198,5 +200,42 @@ describe('remote session follow API', () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(2)
     expect(received).toContainEqual({ type: 'data', value: latestSnapshot })
+  })
+})
+
+describe('remote model browser API', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('reads one node catalog through its own route', async () => {
+    const fetchSpy = vi.fn<typeof fetch>()
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      value: { groups: [{ id: 'p', name: 'P', models: [{ id: 'm', name: 'M' }] }], failures: [] },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const catalog = await fetchModelCatalog('node-1')
+    expect(catalog.groups[0]?.models[0]?.id).toBe('m')
+    const [url, init] = fetchSpy.mock.calls[0] ?? []
+    expect(String(url)).toBe('/dsh-master/api/session/models?nodeId=node-1')
+    expect(init?.method ?? 'GET').toBe('GET')
+  })
+
+  it('posts the complete selection and omits an absent effort', async () => {
+    const fetchSpy = vi.fn<typeof fetch>()
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      value: { selected: { provider: 'p', model: 'm' } },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(selectRemoteModel('node-1', 'session-1', { provider: 'p', model: 'm' }))
+      .resolves.toEqual({ selected: { provider: 'p', model: 'm' } })
+    const [url, init] = fetchSpy.mock.calls[0] ?? []
+    expect(String(url)).toBe('/dsh-master/api/session/model')
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(String(init?.body))).toEqual({
+      nodeId: 'node-1', sessionId: 'session-1', provider: 'p', model: 'm',
+    })
   })
 })

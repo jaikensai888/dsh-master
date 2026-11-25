@@ -25,6 +25,7 @@ import {
   IconSendOutlineRegular as IconSendOutline14,
   IconWarningOutlineRegular as IconWarningOutline16,
   MarkdownText,
+  Menu,
   Pill,
   StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -36,11 +37,13 @@ import {
   cancelRemoteQuestion,
   fetchArtifacts,
   fetchFileSupport,
+  fetchModelCatalog,
   fetchPendingQuestions,
   followSession,
+  selectRemoteModel,
   sendPrompt,
 } from './api.js'
-import { AttachmentPicker } from './AttachmentPicker.js'
+import { AttachmentButton, AttachmentChips } from './AttachmentPicker.js'
 import { ArtifactList, mergeArtifacts } from './ArtifactCard.js'
 import { FileChangeCard, TurnChangesCard } from './FileChangeCard.js'
 import {
@@ -77,7 +80,27 @@ import {
   type TurnGroup,
 } from './wire.js'
 import type { FileArtifact } from '../files-protocol.js'
-import type { MasterQuestion, MasterQuestionAnswer, MasterPendingQuestionRequest } from '../protocol.js'
+import type {
+  MasterModelCatalog,
+  MasterModelSelection,
+  MasterPendingQuestionRequest,
+  MasterQuestion,
+  MasterQuestionAnswer,
+} from '../protocol.js'
+
+/**
+ * Whether one Enter keydown submits the draft.
+ *
+ * Shift+Enter breaks the line, and an in-flight IME composition keeps Enter for
+ * its own candidate list — sending there would truncate the word being typed.
+ */
+export function sendsOnEnter(event: {
+  readonly key: string
+  readonly shiftKey: boolean
+  readonly isComposing?: boolean | undefined
+}): boolean {
+  return event.key === 'Enter' && !event.shiftKey && event.isComposing !== true
+}
 
 /** What the view needs to open one session. */
 export interface SessionViewProps {
@@ -615,6 +638,16 @@ export function SessionView(props: SessionViewProps): ReactElement {
   const [artifacts, setArtifacts] = useState<readonly FileArtifact[]>([])
   const [artifactError, setArtifactError] = useState<string | undefined>(undefined)
   const [sendUncertain, setSendUncertain] = useState(false)
+  /** The node's model catalog; undefined until the read settles. */
+  const [modelCatalog, setModelCatalog] = useState<MasterModelCatalog | undefined>(undefined)
+  /** The selection this session reports; the node's default fills in when it has none. */
+  const [modelSelection, setModelSelection] = useState<MasterModelSelection | undefined>(undefined)
+  /** The last catalog read or switch failure, shown next to the composer. */
+  const [modelError, setModelError] = useState<string | undefined>(undefined)
+  const [modelOpen, setModelOpen] = useState(false)
+  const [modelBusy, setModelBusy] = useState(false)
+  /** True between compositionstart and compositionend, so Enter never submits mid-IME. */
+  const composingDraft = useRef(false)
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
   const logRef = useRef<HTMLDivElement | null>(null)
   const jumpToLatest = useRef<(() => void) | undefined>()
@@ -661,8 +694,28 @@ export function SessionView(props: SessionViewProps): ReactElement {
     setArtifacts([])
     setArtifactError(undefined)
     setSendUncertain(false)
+    setModelSelection(undefined)
+    setModelError(undefined)
+    setModelOpen(false)
     abortAllUploads()
   }, [sessionKey, abortAllUploads])
+
+  // The catalog describes the node's own providers, so it is read once per node
+  // and shared by every session opened from it.
+  useEffect(() => {
+    const controller = new AbortController()
+    setModelCatalog(undefined)
+    setModelError(undefined)
+    fetchModelCatalog(nodeId, controller.signal).then((catalog) => {
+      if (!controller.signal.aborted) setModelCatalog(catalog)
+    }).catch((cause: unknown) => {
+      if (controller.signal.aborted) return
+      setModelError(cause instanceof ApiError
+        ? `${cause.code}: ${cause.message}`
+        : cause instanceof Error ? cause.message : String(cause))
+    })
+    return () => { controller.abort() }
+  }, [nodeId])
 
   useEffect(() => {
     const override = props.fileSupportOverride
@@ -766,6 +819,7 @@ export function SessionView(props: SessionViewProps): ReactElement {
             setUnrendered(snapshot.unrendered)
             setHasMore(snapshot.hasMore)
             setCwd(snapshot.cwd)
+            if (snapshot.modelSelection !== undefined) setModelSelection(snapshot.modelSelection)
             return
           }
           const contribution = readEvent(record.value)
@@ -1008,6 +1062,55 @@ export function SessionView(props: SessionViewProps): ReactElement {
     && (attachments.length === 0 || attachmentsUsable)
     && canSubmit(draft, attachments, promptEnabled, sendUncertain)
 
+  // ------------------------------------------------------------- model chip
+  //
+  // The chip reports what the *node* says the session runs: the durable
+  // projection when the session has one, the node's catalog default otherwise.
+  // Rows are flattened to (model, effort) pairs because the popup has no
+  // submenus; a model without advertised efforts stays one row.
+  const modelGroups = modelCatalog?.groups ?? []
+  const activeSelection = modelSelection ?? modelCatalog?.default
+  const activeModel = activeSelection === undefined
+    ? undefined
+    : modelGroups.find(group => group.id === activeSelection.provider)?.models
+      .find(model => model.id === activeSelection.model)
+  const activeEffortName = activeSelection?.reasoningEffort === undefined
+    ? undefined
+    : activeModel?.efforts?.find(effort => effort.id === activeSelection.reasoningEffort)?.name
+  const modelLabel = activeModel === undefined
+    ? activeSelection === undefined ? COPY.modelLoading : activeSelection.model
+    : `${activeModel.name}${activeEffortName === undefined ? '' : ` ${activeEffortName}`}`
+  const modelReady = modelCatalog !== undefined && modelGroups.some(group => group.models.length > 0)
+  const modelItems = modelGroups.flatMap(group => group.models.flatMap(model => {
+    const id = (effort?: string): string => [group.id, model.id, effort ?? ''].join('\u0000')
+    if (model.efforts === undefined || model.efforts.length === 0) {
+      return [{ id: id(), label: model.name }]
+    }
+    return model.efforts.map(effort => ({ id: id(effort.id), label: `${model.name} ${effort.name}` }))
+  }))
+  const modelSelectedId = activeSelection === undefined
+    ? undefined
+    : [activeSelection.provider, activeSelection.model, activeSelection.reasoningEffort ?? ''].join('\u0000')
+  const chooseModel = (id: string): void => {
+    if (modelBusy || !modelReady) return
+    const [provider = '', model = '', effort = ''] = id.split('\u0000')
+    if (provider === '' || model === '') return
+    setModelOpen(false)
+    setModelBusy(true)
+    setModelError(undefined)
+    selectRemoteModel(nodeId, sessionId, {
+      provider,
+      model,
+      ...(effort === '' ? {} : { reasoningEffort: effort }),
+    }).then((value) => {
+      setModelSelection(value.selected)
+    }).catch((cause: unknown) => {
+      setModelError(cause instanceof ApiError
+        ? `${COPY.modelSwitchFailed} · ${cause.code}: ${cause.message}`
+        : `${COPY.modelSwitchFailed} · ${cause instanceof Error ? cause.message : String(cause)}`)
+    }).finally(() => { setModelBusy(false) })
+  }
+
   const phaseText = phase === 'live' ? COPY.live
     : phase === 'ended' ? COPY.ended
       : phase === 'failed' ? COPY.failed
@@ -1103,6 +1206,7 @@ export function SessionView(props: SessionViewProps): ReactElement {
                 </ul>
               </div>
             )}
+            <AttachmentChips attachments={attachments} onRemove={handleRemove} onRetry={handleRetry} />
             <textarea
               className="dsh-master-composer-input"
               aria-label={COPY.composerPlaceholder}
@@ -1110,23 +1214,27 @@ export function SessionView(props: SessionViewProps): ReactElement {
               placeholder={promptEnabled ? COPY.composerPlaceholder : COPY.composerDisabled}
               disabled={!promptEnabled || sending}
               onChange={(event) => { setDraft(event.currentTarget.value) }}
+              onCompositionStart={() => { composingDraft.current = true }}
+              onCompositionEnd={() => { composingDraft.current = false }}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault()
-                  submit()
-                }
+                // Enter sends, Shift+Enter breaks the line, and an IME composition
+                // keeps Enter for its own candidate list. Ctrl/Cmd+Enter still sends.
+                if (!sendsOnEnter({
+                  key: event.key,
+                  shiftKey: event.shiftKey,
+                  isComposing: composingDraft.current || event.nativeEvent.isComposing,
+                })) return
+                event.preventDefault()
+                submit()
               }}
             />
             <div className="dsh-master-composer-toolbar">
               <div className="dsh-master-composer-leading">
-                <AttachmentPicker
-                  attachments={attachments}
+                <AttachmentButton
                   disabled={!attachmentsUsable || !promptEnabled}
-                  disabledReason={attachmentDisabledReason}
                   canAdd={attachments.length < attachmentLimit}
                   onSelect={handleSelect}
-                  onRemove={handleRemove}
-                  onRetry={handleRetry}
+                  {...attachmentDisabledReason === undefined ? {} : { disabledReason: attachmentDisabledReason }}
                 />
                 <RemotePermissionSelect state={access.state} controller={access.controller} enabled={promptEnabled}
                   nodeId={nodeId} sessionId={sessionId} title={props.title} />
@@ -1148,18 +1256,35 @@ export function SessionView(props: SessionViewProps): ReactElement {
                 </span>
               </div>
               <div className="dsh-master-composer-trailing">
-                <span className="dsh-master-label dsh-master-meta dsh-master-send-hint">{COPY.sendHint}</span>
-                <button
-                  type="button"
-                  className="dsh-master-toolbar-select dsh-master-model-select"
-                  data-control="model"
-                  aria-label={COPY.modelUnavailable}
-                  title={COPY.modelUnavailable}
-                  disabled
-                >
-                  <span>{COPY.unavailableShort}</span>
-                  <IconChevronDownOutline14 />
-                </button>
+                {(() => {
+                  const anchor = (
+                    <button
+                      type="button"
+                      className="dsh-master-toolbar-select dsh-master-model-select"
+                      data-control="model"
+                      aria-label={`${COPY.modelLabel}：${modelLabel}`}
+                      title={modelError ?? (modelReady ? modelLabel : COPY.modelLoading)}
+                      aria-busy={modelBusy ? true : undefined}
+                      disabled={!modelReady || modelBusy}
+                      onClick={() => { setModelOpen(!modelOpen) }}
+                    >
+                      <span>{modelReady ? modelLabel : modelError === undefined ? COPY.modelLoading : COPY.unavailableShort}</span>
+                      <IconChevronDownOutline14 />
+                    </button>
+                  )
+                  if (!modelReady) return anchor
+                  return (
+                    <Menu
+                      open={modelOpen && !modelBusy}
+                      side="top"
+                      items={modelItems}
+                      selectedId={modelSelectedId}
+                      anchor={anchor}
+                      onClose={() => { setModelOpen(false) }}
+                      onSelect={chooseModel}
+                    />
+                  )
+                })()}
                 <Button
                   className="dsh-master-send"
                   variant="primary"
@@ -1171,6 +1296,9 @@ export function SessionView(props: SessionViewProps): ReactElement {
                 />
               </div>
             </div>
+            {modelError === undefined || !modelReady ? null : (
+              <div className="dsh-master-model-error" role="alert">{modelError}</div>
+            )}
           </div>
         )}
     </div>

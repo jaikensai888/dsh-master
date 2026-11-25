@@ -686,6 +686,17 @@ export const PANEL_CSS = `
   cursor: not-allowed;
 }
 .dsh-master-model-select { max-width: 172px; }
+.dsh-master-model-select:not(:disabled):hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-master-model-error {
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+  word-break: break-word;
+}
 .dsh-master-model-select span {
   overflow: hidden;
   text-overflow: ellipsis;

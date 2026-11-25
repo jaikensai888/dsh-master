@@ -45,7 +45,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
   }
 })
 
-import { SessionView } from '../src/client/SessionView.js'
+import { SessionView, sendsOnEnter } from '../src/client/SessionView.js'
 
 function renderSession(promptEnabled: boolean): string {
   return renderToStaticMarkup(createElement(SessionView, {
@@ -70,7 +70,17 @@ describe('remote session composer', () => {
       expect(html).toContain(`data-control="${control}"`)
     }
     expect([...html.matchAll(/<button\b(?=[^>]*data-control="attachment")(?=[^>]*disabled="")/gu)]).toHaveLength(1)
-    expect(html).toContain('暂不支持远程会话')
+    // The model chip is a real control now: it waits for the node's catalog and
+    // stays disabled until that read lands.
+    expect(html).toContain('data-control="model"')
+    expect(html).toContain('读取模型…')
+  })
+
+  it('sends on Enter, keeps Shift+Enter and IME composition for the draft', () => {
+    expect(sendsOnEnter({ key: 'Enter', shiftKey: false })).toBe(true)
+    expect(sendsOnEnter({ key: 'Enter', shiftKey: true })).toBe(false)
+    expect(sendsOnEnter({ key: 'Enter', shiftKey: false, isComposing: true })).toBe(false)
+    expect(sendsOnEnter({ key: 'a', shiftKey: false })).toBe(false)
   })
 
   it('disables text entry when remote prompting is unavailable', () => {

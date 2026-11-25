@@ -68,6 +68,18 @@ export interface ConversationRow {
 export interface SnapshotView {
   readonly cwd?: string
   readonly title?: string
+  /**
+   * The model selection the session's own projection recorded.
+   *
+   * `next` is what the following step will use, `lastUsed` what the latest
+   * request used; a session that never selected anything has neither, and the
+   * caller falls back to the node's catalog default.
+   */
+  readonly modelSelection?: {
+    readonly provider: string
+    readonly model: string
+    readonly reasoningEffort?: string
+  }
   readonly rows: readonly ConversationRow[]
   readonly turnEvents: readonly TurnEvent[]
   /** Events in the window this module could not render. */
@@ -338,6 +350,10 @@ export function readSnapshot(value: unknown): SnapshotView | undefined {
   const projections = asRecord(record['projections'])
   const values = asRecord(projections?.['values'])
   const title = values === undefined ? undefined : str(values, 'title')
+  // The agent's durable model-selection projection: `next` is what the following
+  // step will use, `lastUsed` what the latest request used. Both null means the
+  // session never selected a model and the node's default applies.
+  const projectedModel = values === undefined ? undefined : projectedSelection(values['modelSelection'])
   const cwd = header === undefined ? undefined : str(header, 'cwd')
   return {
     rows: mergeRows([], rows),
@@ -346,7 +362,23 @@ export function readSnapshot(value: unknown): SnapshotView | undefined {
     hasMore: record['hasMore'] === true,
     ...(title === undefined || title.trim() === '' ? {} : { title }),
     ...(cwd === undefined || cwd.trim() === '' ? {} : { cwd }),
+    ...(projectedModel === undefined ? {} : { modelSelection: projectedModel }),
   }
+}
+
+/** Read one `{ lastUsed, next }` model-selection projection, preferring the next step's route. */
+function projectedSelection(value: unknown): SnapshotView['modelSelection'] {
+  const projection = asRecord(value)
+  if (projection === undefined) return undefined
+  const read = (entry: unknown): SnapshotView['modelSelection'] => {
+    const row = asRecord(entry)
+    const provider = row === undefined ? undefined : str(row, 'provider')
+    const model = row === undefined ? undefined : str(row, 'model')
+    if (provider === undefined || provider === '' || model === undefined || model === '') return undefined
+    const effort = row === undefined ? undefined : str(row, 'reasoningEffort')
+    return { provider, model, ...(effort === undefined || effort === '' ? {} : { reasoningEffort: effort }) }
+  }
+  return read(projection['next']) ?? read(projection['lastUsed'])
 }
 
 /**

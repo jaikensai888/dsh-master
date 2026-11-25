@@ -170,6 +170,60 @@ export interface MasterRenameSessionValue {
   readonly title: string
 }
 
+/** One adapter-provided reasoning effort of a remote model route. */
+export interface MasterModelEffort {
+  readonly id: string
+  readonly name: string
+}
+
+/**
+ * One model the target node currently advertises.
+ *
+ * The catalog is the node's own LLM registry, so it describes what that machine
+ * can run — not what this browser is configured with.
+ */
+export interface MasterModel {
+  readonly id: string
+  readonly name: string
+  /** Present when the route supports explicit reasoning efforts. */
+  readonly efforts?: readonly MasterModelEffort[]
+  readonly defaultEffort?: string
+}
+
+/** One provider group of the node's model catalog. */
+export interface MasterModelGroup {
+  readonly id: string
+  readonly name: string
+  readonly models: readonly MasterModel[]
+}
+
+/** Provider, model, and optional reasoning effort selecting what a remote step runs. */
+export interface MasterModelSelection {
+  readonly provider: string
+  readonly model: string
+  readonly reasoningEffort?: string
+}
+
+/** `GET /dsh-master/api/session/models?nodeId=…`. */
+export interface MasterModelCatalog {
+  readonly groups: readonly MasterModelGroup[]
+  /** Provider groups whose catalog read failed on the node; they offer nothing to pick. */
+  readonly failures: readonly { readonly id: string; readonly message: string }[]
+  /** Deployment default the node uses for sessions that never selected a model. */
+  readonly default?: MasterModelSelection
+}
+
+/** `POST /dsh-master/api/session/model`. */
+export interface MasterSelectModelRequest extends MasterModelSelection {
+  readonly nodeId: string
+  readonly sessionId: string
+}
+
+/** The normalized selection the node installed for the session. */
+export interface MasterSelectModelValue {
+  readonly selected: MasterModelSelection
+}
+
 /** `POST /dsh-master/api/session/create`. */
 export interface MasterCreateSessionRequest {
   readonly nodeId: string

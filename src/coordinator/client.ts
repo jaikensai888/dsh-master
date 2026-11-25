@@ -26,6 +26,10 @@ import type {
   MasterCreateSessionValue,
   MasterCreateWorkspaceValue,
   MasterError,
+  MasterModel,
+  MasterModelCatalog,
+  MasterModelGroup,
+  MasterModelSelection,
   MasterNode,
   MasterPendingQuestionsValue,
   MasterQuestion,
@@ -33,6 +37,7 @@ import type {
   MasterQuestionAnswer,
   MasterQuestionOption,
   MasterRenameSessionValue,
+  MasterSelectModelValue,
   MasterSession,
   MasterWorkspace,
   MasterWorkspaceSnapshot,
@@ -552,6 +557,60 @@ export class CoordinatorClient {
   }
 
   /**
+   * Read the target node's model catalog.
+   *
+   * The catalog belongs to that machine's LLM registry, so it is fetched per
+   * node and never merged across nodes. It is host-wide (no session identity),
+   * which is why one read serves every session on the node.
+   *
+   * @param nodeId - target node.
+   * @param signal - caller cancellation.
+   * @returns provider-grouped models, unreadable provider groups and the node default.
+   */
+  async fetchModelCatalog(nodeId: string, signal?: AbortSignal): Promise<MasterModelCatalog> {
+    const value = await this.#invokeNode(nodeId, 'session/modelCatalog', {}, signal)
+    return readModelCatalog(value)
+  }
+
+  /**
+   * Select one session's model on its node.
+   *
+   * The node resumes the session when needed and answers with the selection it
+   * installed, which is the value callers must display — provider ids and
+   * effort ids are the node's, not ours.
+   *
+   * @param nodeId - target node.
+   * @param sessionId - target session on that node.
+   * @param selection - provider, model, and optional reasoning effort.
+   * @param signal - caller cancellation.
+   * @returns the selection the node installed.
+   */
+  async selectSessionModel(
+    nodeId: string,
+    sessionId: string,
+    selection: MasterModelSelection,
+    signal?: AbortSignal,
+  ): Promise<MasterSelectModelValue> {
+    const value = await this.#invokeNode(nodeId, 'session/selectModel', {
+      request: {
+        sessionId,
+        provider: selection.provider,
+        model: selection.model,
+        ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
+      },
+    }, signal)
+    const row = asRecord(value)
+    const selected = row === undefined ? undefined : readModelSelection(row['selected'])
+    if (selected === undefined) {
+      throw new MasterUpstreamError(toMasterError(
+        'master/coordinator-unreadable',
+        'session/selectModel did not return the installed selection',
+      ))
+    }
+    return { selected }
+  }
+
+  /**
    * Create or reuse a blank session inside one registered remote workspace.
    *
    * The node validates `workspaceId` against its own registry and performs the
@@ -944,4 +1003,99 @@ async function* readCoordinatorStream(response: Response, endpoint: string): Asy
   } finally {
     await reader.cancel().catch(() => undefined)
   }
+}
+
+/**
+ * Read one provider/model/effort selection.
+ *
+ * Provider and model ids are opaque strings owned by the node; an empty id is
+ * the only invalid form this reader rejects.
+ */
+function readModelSelection(value: unknown): MasterModelSelection | undefined {
+  const row = asRecord(value)
+  const provider = row === undefined ? undefined : str(row, 'provider')
+  const model = row === undefined ? undefined : str(row, 'model')
+  if (provider === undefined || provider === '' || model === undefined || model === '') return undefined
+  const effort = row === undefined ? undefined : str(row, 'reasoningEffort')
+  return { provider, model, ...(effort === undefined || effort === '' ? {} : { reasoningEffort: effort }) }
+}
+
+/** Read one catalog model, keeping its reasoning efforts only when the route advertises them. */
+function readCatalogModel(value: unknown): MasterModel | undefined {
+  const row = asRecord(value)
+  const id = row === undefined ? undefined : str(row, 'id')
+  const name = row === undefined ? undefined : str(row, 'name')
+  if (id === undefined || id === '' || name === undefined || name === '') return undefined
+  const reasoning = row === undefined ? undefined : asRecord(row['reasoning'])
+  const efforts: { id: string; name: string }[] = []
+  const rawEfforts = reasoning?.['efforts']
+  if (Array.isArray(rawEfforts)) {
+    for (const raw of rawEfforts) {
+      const effort = asRecord(raw)
+      const effortId = effort === undefined ? undefined : str(effort, 'id')
+      const effortName = effort === undefined ? undefined : str(effort, 'name')
+      if (effortId === undefined || effortId === '' || effortName === undefined || effortName === '') continue
+      efforts.push({ id: effortId, name: effortName })
+    }
+  }
+  const defaultEffort = reasoning === undefined ? undefined : str(reasoning, 'defaultEffort')
+  return {
+    id,
+    name,
+    ...(efforts.length === 0 ? {} : { efforts }),
+    ...(defaultEffort === undefined || defaultEffort === '' ? {} : { defaultEffort }),
+  }
+}
+
+/**
+ * Validate one node's model catalog at the trust boundary.
+ *
+ * Groups and failures are both optional on the wire, but an answer with neither
+ * is not a catalog: it means the node replied with something else entirely, and
+ * showing an empty selector over it would hide a real breakage.
+ */
+function readModelCatalog(value: unknown): MasterModelCatalog {
+  const row = asRecord(value)
+  if (row === undefined) {
+    throw new MasterUpstreamError(toMasterError(
+      'master/coordinator-unreadable', 'session/modelCatalog did not return a catalog',
+    ))
+  }
+  const groups: MasterModelGroup[] = []
+  const rawGroups = row['groups']
+  if (Array.isArray(rawGroups)) {
+    for (const raw of rawGroups) {
+      const group = asRecord(raw)
+      const id = group === undefined ? undefined : str(group, 'id')
+      const name = group === undefined ? undefined : str(group, 'name')
+      if (id === undefined || id === '' || name === undefined) continue
+      const models: MasterModel[] = []
+      const rawModels = group?.['models']
+      if (Array.isArray(rawModels)) {
+        for (const rawModel of rawModels) {
+          const model = readCatalogModel(rawModel)
+          if (model !== undefined) models.push(model)
+        }
+      }
+      groups.push({ id, name, models })
+    }
+  }
+  const failures: { id: string; message: string }[] = []
+  const rawFailures = row['failures']
+  if (Array.isArray(rawFailures)) {
+    for (const raw of rawFailures) {
+      const failure = asRecord(raw)
+      const id = failure === undefined ? undefined : str(failure, 'id')
+      const message = failure === undefined ? undefined : str(failure, 'message')
+      if (id === undefined || message === undefined) continue
+      failures.push({ id, message })
+    }
+  }
+  if (groups.length === 0 && failures.length === 0) {
+    throw new MasterUpstreamError(toMasterError(
+      'master/coordinator-unreadable', 'session/modelCatalog returned no provider groups',
+    ))
+  }
+  const fallback = readModelSelection(row['default'])
+  return { groups, failures, ...(fallback === undefined ? {} : { default: fallback }) }
 }

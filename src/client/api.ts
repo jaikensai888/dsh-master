@@ -17,11 +17,14 @@ import {
   type MasterArchiveValue,
   type MasterCreateSessionValue,
   type MasterCreateWorkspaceValue,
+  type MasterModelCatalog,
+  type MasterModelSelection,
   type MasterNodesValue,
   type MasterPendingQuestionsValue,
   type MasterQuestionAccepted,
   type MasterQuestionAnswer,
   type MasterRenameSessionValue,
+  type MasterSelectModelValue,
   type MasterSessionsValue,
   type MasterStatus,
   type MasterStreamRecord,
@@ -315,6 +318,57 @@ export async function cancelRemoteQuestion(
     body: JSON.stringify({ nodeId, sessionId, requestId }),
   }))
   return unwrap(await envelopeOf(response) as MasterEnvelope<MasterQuestionAccepted>)
+}
+
+/**
+ * Read one node's model catalog.
+ *
+ * The catalog describes that machine's own providers, so callers key any cache
+ * by node and drop it when the node roster changes.
+ *
+ * @param nodeId - target node.
+ * @param signal - caller cancellation.
+ */
+export async function fetchModelCatalog(
+  nodeId: string,
+  signal?: AbortSignal,
+): Promise<MasterModelCatalog> {
+  const query = new URLSearchParams({ nodeId })
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/models?${query.toString()}`, init(signal, {
+    headers: { accept: 'application/json' },
+  }))
+  return unwrap(await envelopeOf(response) as MasterEnvelope<MasterModelCatalog>)
+}
+
+/**
+ * Select one remote session's model.
+ *
+ * The node answers with the selection it installed; display that value rather
+ * than the one this call sent, because provider and effort ids are its own.
+ *
+ * @param nodeId - target node.
+ * @param sessionId - target session.
+ * @param selection - provider, model, and optional reasoning effort.
+ * @param signal - caller cancellation.
+ */
+export async function selectRemoteModel(
+  nodeId: string,
+  sessionId: string,
+  selection: MasterModelSelection,
+  signal?: AbortSignal,
+): Promise<MasterSelectModelValue> {
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/model`, init(signal, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({
+      nodeId,
+      sessionId,
+      provider: selection.provider,
+      model: selection.model,
+      ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
+    }),
+  }))
+  return unwrap(await envelopeOf(response) as MasterEnvelope<MasterSelectModelValue>)
 }
 
 /**

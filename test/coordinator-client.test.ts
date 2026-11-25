@@ -617,3 +617,56 @@ describe('CoordinatorClient credentials', () => {
     expect(client.baseUrl).toBe('https://second.test')
   })
 })
+
+describe('CoordinatorClient model catalog', () => {
+  it('reads provider groups, reasoning efforts and the node default', async () => {
+    const { client, calls } = clientWith(() => envelope({
+      ok: true,
+      value: {
+        groups: [{
+          id: 'deepseek-account',
+          name: 'DeepSeek',
+          models: [{
+            id: 'chat',
+            name: 'Chat',
+            reasoning: { efforts: [{ id: 'high', name: 'High' }], defaultEffort: 'high' },
+          }],
+        }],
+        failures: [{ id: 'p2', name: 'P2', message: 'no key' }],
+        default: { provider: 'deepseek-account', model: 'chat', reasoningEffort: 'high' },
+      },
+    }))
+    const catalog = await client.fetchModelCatalog('node-1')
+    expect(catalog.groups[0]?.models[0]).toEqual({
+      id: 'chat', name: 'Chat', efforts: [{ id: 'high', name: 'High' }], defaultEffort: 'high',
+    })
+    expect(catalog.failures).toEqual([{ id: 'p2', message: 'no key' }])
+    expect(catalog.default).toEqual({ provider: 'deepseek-account', model: 'chat', reasoningEffort: 'high' })
+    const body = JSON.parse(String(calls[0]?.init.body)) as Record<string, unknown>
+    expect(body).toEqual({ nodeId: 'node-1', endpoint: 'session/modelCatalog', args: {} })
+  })
+
+  it('rejects an answer that is not a catalog', async () => {
+    const { client } = clientWith(() => envelope({ ok: true, value: { groups: [], failures: [] } }))
+    await expect(client.fetchModelCatalog('node-1')).rejects.toMatchObject({
+      code: 'master/coordinator-unreadable',
+    })
+  })
+
+  it('selects a model through the session request shape and returns the installed value', async () => {
+    const { client, calls } = clientWith(() => envelope({
+      ok: true,
+      value: { selected: { provider: 'p', model: 'm', reasoningEffort: 'high' } },
+    }))
+    const value = await client.selectSessionModel('node-1', 'session-1', {
+      provider: 'p', model: 'm', reasoningEffort: 'high',
+    })
+    expect(value.selected).toEqual({ provider: 'p', model: 'm', reasoningEffort: 'high' })
+    const body = JSON.parse(String(calls[0]?.init.body)) as Record<string, unknown>
+    expect(body).toEqual({
+      nodeId: 'node-1',
+      endpoint: 'session/selectModel',
+      args: { request: { sessionId: 'session-1', provider: 'p', model: 'm', reasoningEffort: 'high' } },
+    })
+  })
+})

@@ -25,11 +25,14 @@ import type {
   MasterCreateSessionValue,
   MasterCreateWorkspaceValue,
   MasterError,
+  MasterModelCatalog,
+  MasterModelSelection,
   MasterNodesValue,
   MasterPendingQuestionsValue,
   MasterQuestionAccepted,
   MasterQuestionAnswer,
   MasterRenameSessionValue,
+  MasterSelectModelValue,
   MasterSessionsValue,
   MasterStatus,
 } from './protocol.js'
@@ -285,6 +288,51 @@ export class MasterService {
       ))
     }
     return this.#client.renameSession(nodeId, sessionId, trimmed, signal)
+  }
+
+  /**
+   * Read one node's model catalog.
+   *
+   * No prompt gate: reading what a machine can run executes nothing, and the
+   * selector must be able to say "this node offers no models" instead of
+   * disappearing behind a disabled control.
+   *
+   * @param nodeId - target node.
+   * @param signal - caller cancellation.
+   */
+  fetchModelCatalog(nodeId: string, signal?: AbortSignal): Promise<MasterModelCatalog> {
+    if (nodeId.trim() === '') {
+      throw new MasterUpstreamError(toFailure('master/invalid-arguments', 'nodeId is required'))
+    }
+    return this.#client.fetchModelCatalog(nodeId, signal)
+  }
+
+  /**
+   * Select one session's model on its node.
+   *
+   * Like rename, this touches session state without running a turn, so it is not
+   * behind `allowPrompt`: the node resumes the session and installs the
+   * selection for the next step.
+   */
+  selectSessionModel(
+    nodeId: string,
+    sessionId: string,
+    selection: MasterModelSelection,
+    signal?: AbortSignal,
+  ): Promise<MasterSelectModelValue> {
+    if (nodeId.trim() === '' || sessionId.trim() === '') {
+      throw new MasterUpstreamError(toFailure(
+        'master/invalid-arguments',
+        'nodeId and sessionId are required non-empty strings',
+      ))
+    }
+    if (selection.provider.trim() === '' || selection.model.trim() === '') {
+      throw new MasterUpstreamError(toFailure(
+        'master/invalid-arguments',
+        'provider and model are required non-empty strings',
+      ))
+    }
+    return this.#client.selectSessionModel(nodeId, sessionId, selection, signal)
   }
 
   /** Read session-scoped permissions and approvals on the selected node. */

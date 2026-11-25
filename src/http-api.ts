@@ -40,6 +40,14 @@ export const MAX_PROMPT_BODY_BYTES = 256 * 1024
 /** Longest node, workspace, or session identity accepted by the create route. */
 export const MAX_SESSION_ID_LENGTH = 200
 
+/**
+ * Longest provider, model, or reasoning-effort identity accepted by the model route.
+ *
+ * These are opaque node-owned strings; the bound only keeps a malformed body from
+ * travelling to the node at all.
+ */
+export const MAX_MODEL_ID_LENGTH = 200
+
 /** Everything the route handler reads from its host. */
 export interface MasterRouteDeps {
   /** The service the routes call. Read through a getter so a remount is picked up. */
@@ -702,6 +710,94 @@ export function createMasterRouteHandler(
         }
         try {
           const value = await service.renameSession(nodeId, sessionId, title)
+          sendJson(response, 200, { ok: true, value })
+        } catch (error) {
+          const mapped = classify(error)
+          sendFailure(response, mapped.status, mapped.error)
+        }
+        return
+      }
+
+      if (route === '/api/session/models') {
+        if (method !== 'GET' && method !== 'HEAD') {
+          response.setHeader('allow', 'GET, HEAD')
+          sendFailure(response, 405, failure('master/method-not-allowed', `${method} is not allowed here`))
+          return
+        }
+        const nodeId = requiredQuery(url, 'nodeId')
+        if (nodeId === undefined) {
+          sendFailure(response, 400, failure('master/invalid-arguments', 'nodeId is required'))
+          return
+        }
+        const service = deps.service()
+        if (service === undefined) {
+          sendFailure(response, 503, failure('master/unavailable', 'the master service is not mounted'))
+          return
+        }
+        try {
+          sendJson(response, 200, { ok: true, value: await service.fetchModelCatalog(nodeId) })
+        } catch (error) {
+          const mapped = classify(error)
+          sendFailure(response, mapped.status, mapped.error)
+        }
+        return
+      }
+
+      if (route === '/api/session/model') {
+        if (method !== 'POST') {
+          response.setHeader('allow', 'POST')
+          sendFailure(response, 405, failure('master/method-not-allowed', `${method} is not allowed here`))
+          return
+        }
+        const service = deps.service()
+        if (service === undefined) {
+          sendFailure(response, 503, failure('master/unavailable', 'the master service is not mounted'))
+          return
+        }
+        let body: Record<string, unknown>
+        try {
+          body = await readJsonBody(request)
+        } catch (error) {
+          const code = error instanceof Error && error.name.startsWith('master/')
+            ? error.name
+            : 'master/invalid-arguments'
+          const message = error instanceof Error ? error.message : 'unreadable request body'
+          sendFailure(response, code === 'master/too-large' ? 413 : 400, failure(code, message))
+          return
+        }
+        const nodeId = bodyText(body, 'nodeId')
+        const sessionId = bodyText(body, 'sessionId')
+        const provider = bodyText(body, 'provider')
+        const model = bodyText(body, 'model')
+        const rawEffort = body['reasoningEffort']
+        if (nodeId === undefined || sessionId === undefined || provider === undefined || model === undefined
+          || (rawEffort !== undefined && typeof rawEffort !== 'string')) {
+          sendFailure(response, 400, failure(
+            'master/invalid-arguments',
+            'nodeId, sessionId, provider and model are required',
+          ))
+          return
+        }
+        const reasoningEffort = typeof rawEffort === 'string' ? rawEffort.trim() : ''
+        if (provider.trim() === '' || model.trim() === '') {
+          sendFailure(response, 400, failure('master/invalid-arguments', 'provider and model must not be blank'))
+          return
+        }
+        for (const [name, value] of [['provider', provider], ['model', model], ['reasoningEffort', reasoningEffort]] as const) {
+          if (value.length > MAX_MODEL_ID_LENGTH) {
+            sendFailure(response, 400, failure(
+              'master/invalid-arguments',
+              `${name} must not exceed ${String(MAX_MODEL_ID_LENGTH)} characters`,
+            ))
+            return
+          }
+        }
+        try {
+          const value = await service.selectSessionModel(nodeId, sessionId, {
+            provider: provider.trim(),
+            model: model.trim(),
+            ...(reasoningEffort === '' ? {} : { reasoningEffort }),
+          })
           sendJson(response, 200, { ok: true, value })
         } catch (error) {
           const mapped = classify(error)
