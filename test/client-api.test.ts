@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   archiveRemoteSession,
+  cancelRemoteSession,
   createRemoteSession,
   createRemoteWorkspace,
   fetchModelCatalog,
+  fetchSessionPage,
   followSession,
   renameRemoteSession,
   selectRemoteModel,
@@ -237,5 +239,58 @@ describe('remote model browser API', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       nodeId: 'node-1', sessionId: 'session-1', provider: 'p', model: 'm',
     })
+  })
+})
+
+describe('remote cancel browser API', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('posts the session identity to the cancel route', async () => {
+    const fetchSpy = vi.fn<typeof fetch>()
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      value: { accepted: true },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await cancelRemoteSession('node-1', 'session-1')
+    const [url, init] = fetchSpy.mock.calls[0] ?? []
+    expect(String(url)).toBe('/dsh-master/api/session/cancel')
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(String(init?.body))).toEqual({ nodeId: 'node-1', sessionId: 'session-1' })
+  })
+})
+
+describe('remote session page browser API', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('posts the exclusive cursor and the message budget', async () => {
+    const fetchSpy = vi.fn<typeof fetch>()
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      value: { records: [{ type: 'event' }], hasMore: true },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const page = await fetchSessionPage('node-1', 'session-1', { beforeSeq: 42, throughSeq: 99, maxMessages: 20 })
+    expect(page.hasMore).toBe(true)
+    const [url, init] = fetchSpy.mock.calls[0] ?? []
+    expect(String(url)).toBe('/dsh-master/api/session/page')
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(String(init?.body))).toEqual({
+      nodeId: 'node-1', sessionId: 'session-1', beforeSeq: 42, throughSeq: 99, maxMessages: 20,
+    })
+  })
+
+  it('omits the cursor when paging the tail', async () => {
+    const fetchSpy = vi.fn<typeof fetch>()
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+      ok: true, value: { records: [], hasMore: false },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await fetchSessionPage('node-1', 'session-1', {})
+    const init = fetchSpy.mock.calls[0]?.[1]
+    expect(JSON.parse(String(init?.body))).toEqual({ nodeId: 'node-1', sessionId: 'session-1', maxMessages: 30 })
   })
 })

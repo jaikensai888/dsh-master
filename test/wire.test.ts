@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hasPendingUserQuestion, readEvent, readSnapshot, readStreamFrame, truncate } from '../src/client/wire.js'
+import { hasPendingUserQuestion, readEvent, readPage, readSnapshot, readStreamFrame, truncate, turnLifecycle } from '../src/client/wire.js'
 
 /** Wrap one event as the wire envelope both the snapshot window and the live tail use. */
 function entry(seq: number, type: string, data: unknown): unknown {
@@ -283,5 +283,51 @@ describe('readSnapshot model selection', () => {
 
     const none = readSnapshot(snapshot([]))
     expect(none?.modelSelection).toBeUndefined()
+  })
+})
+
+describe('turnLifecycle', () => {
+  const snapshotWith = (types: readonly string[]): unknown => snapshot(
+    types.map((type, index) => entry(index + 1, type, { turn: 1, step: 1 })),
+  )
+
+  it('answers from the last boundary inside the opening window', () => {
+    expect(turnLifecycle(snapshotWith(['turn/start', 'step/start']))).toBe('running')
+    expect(turnLifecycle(snapshotWith(['turn/start', 'step/start', 'turn/end']))).toBe('idle')
+    expect(turnLifecycle(snapshotWith([]))).toBeUndefined()
+  })
+
+  it('answers from one live event and ignores everything else', () => {
+    expect(turnLifecycle(entry(9, 'turn/start', { turn: 2 }))).toBe('running')
+    expect(turnLifecycle(entry(9, 'turn/end', { turn: 2 }))).toBe('idle')
+    expect(turnLifecycle(entry(9, 'step/start', { turn: 2, step: 1 }))).toBeUndefined()
+    expect(turnLifecycle({ type: 'assistant-stream', frame: { type: 'start' } })).toBeUndefined()
+    expect(turnLifecycle(undefined)).toBeUndefined()
+  })
+})
+
+describe('backwards page parsing', () => {
+  it('parses a page with the same reader as the opening window', () => {
+    const page = readPage([
+      entry(3, 'user/message', { id: 'm3', role: 'user', content: [{ type: 'text', text: 'older' }] }),
+      entry(4, 'turn/end', { turn: 1 }),
+    ])
+    expect(page?.oldestSeq).toBe(3)
+    expect(page?.rows.length).toBeGreaterThan(0)
+    expect(page?.turnEvents.map(event => event.seq)).toEqual([4])
+  })
+
+  it('reports the oldest seq and the cursor of a snapshot', () => {
+    const view = readSnapshot(snapshot([
+      entry(5, 'user/message', { message: { role: 'user', content: [{ type: 'text', text: 'hi' }] } }),
+      entry(6, 'turn/start', { turn: 1 }),
+    ], { cursor: 9 }))
+    expect(view?.cursor).toBe(9)
+    expect(view?.oldestSeq).toBe(5)
+  })
+
+  it('rejects a value that is not a record array', () => {
+    expect(readPage(undefined)).toBeUndefined()
+    expect(readPage({ records: [] })).toBeUndefined()
   })
 })

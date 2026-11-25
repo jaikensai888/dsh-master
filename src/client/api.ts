@@ -25,6 +25,7 @@ import {
   type MasterQuestionAnswer,
   type MasterRenameSessionValue,
   type MasterSelectModelValue,
+  type MasterSessionPageValue,
   type MasterSessionsValue,
   type MasterStatus,
   type MasterStreamRecord,
@@ -369,6 +370,62 @@ export async function selectRemoteModel(
     }),
   }))
   return unwrap(await envelopeOf(response) as MasterEnvelope<MasterSelectModelValue>)
+}
+
+/**
+ * Stop the turn running on one remote session.
+ *
+ * The node's receipt only means it admitted the request to the live agent; the
+ * transcript's own `turn/end` is the proof. Callers keep showing "running" until
+ * the follow stream reports it.
+ *
+ * @param nodeId - target node.
+ * @param sessionId - target session.
+ * @param signal - caller cancellation.
+ */
+export async function cancelRemoteSession(
+  nodeId: string,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/cancel`, init(signal, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ nodeId, sessionId }),
+  }))
+  unwrap(await envelopeOf(response) as MasterEnvelope<unknown>)
+}
+
+/**
+ * Read one backwards page of a remote session log.
+ *
+ * The node answers with raw records and `hasMore`; the browser parses them with
+ * the same reader the follow window uses, so a row keeps one shape no matter
+ * which page delivered it.
+ *
+ * @param nodeId - target node.
+ * @param sessionId - target session.
+ * @param options - exclusive `beforeSeq`, inclusive `throughSeq`, message budget.
+ * @param signal - caller cancellation.
+ */
+export async function fetchSessionPage(
+  nodeId: string,
+  sessionId: string,
+  options: { readonly beforeSeq?: number; readonly throughSeq?: number; readonly maxMessages?: number },
+  signal?: AbortSignal,
+): Promise<MasterSessionPageValue> {
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/page`, init(signal, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({
+      nodeId,
+      sessionId,
+      ...(options.beforeSeq === undefined ? {} : { beforeSeq: options.beforeSeq }),
+      ...(options.throughSeq === undefined ? {} : { throughSeq: options.throughSeq }),
+      maxMessages: options.maxMessages ?? 30,
+    }),
+  }))
+  return unwrap(await envelopeOf(response) as MasterEnvelope<MasterSessionPageValue>)
 }
 
 /**

@@ -22,6 +22,7 @@ import { readSessionAccess, readApprovalResult, readForwardedApprovals, readForw
  */
 
 import type {
+  MasterCancelSessionValue,
   MasterCoordinatorFacts,
   MasterCreateSessionValue,
   MasterCreateWorkspaceValue,
@@ -38,6 +39,7 @@ import type {
   MasterQuestionOption,
   MasterRenameSessionValue,
   MasterSelectModelValue,
+  MasterSessionPageValue,
   MasterSession,
   MasterWorkspace,
   MasterWorkspaceSnapshot,
@@ -233,6 +235,14 @@ export class CoordinatorClient {
   readonly #resolveApiToken: (() => Promise<string | undefined>) | undefined
   readonly #timeoutMs: number
   readonly #fetch: typeof fetch
+  /**
+   * Per-node knowledge of whether `session/page` accepts a turn-window hint.
+   *
+   * The hint is a newer field: a node whose DSH predates it rejects the whole
+   * request as invalid input, so the first refusal teaches us to leave it out
+   * for that node from then on.
+   */
+  readonly #pageWindows = new Map<string, boolean>()
 
   /**
    * @param options - endpoint, credential, deadline, and the fetch implementation.
@@ -608,6 +618,91 @@ export class CoordinatorClient {
       ))
     }
     return { selected }
+  }
+
+  /**
+   * Read one backwards page of a session log.
+   *
+   * The page is asked for in message units and, where the node supports it,
+   * snapped to a turn boundary so a page never ends in the middle of a turn.
+   * `throughSeq` is the inclusive cut the open window was read at; older nodes
+   * require it, newer ones treat it as optional. A node that predates
+   * `turnWindow` refuses the whole request as invalid input, so that one refusal
+   * switches this node to the plain form for every later page.
+   *
+   * Records are forwarded verbatim: the browser's own reader parses them, and
+   * modelling node events here would break the "unknown fields survive" rule the
+   * rest of this client keeps.
+   *
+   * @param nodeId - target node.
+   * @param sessionId - target session on that node.
+   * @param options - exclusive `beforeSeq`, inclusive `throughSeq`, message budget.
+   * @param signal - caller cancellation.
+   * @returns the raw records plus whether older ones remain.
+   */
+  async fetchSessionPage(
+    nodeId: string,
+    sessionId: string,
+    options: { readonly beforeSeq?: number; readonly throughSeq?: number; readonly maxMessages: number },
+    signal?: AbortSignal,
+  ): Promise<MasterSessionPageValue> {
+    const supportsWindow = this.#pageWindows.get(nodeId) !== false
+    const args = (turnWindow: boolean): Readonly<Record<string, unknown>> => ({
+      request: {
+        address: { kind: 'session', sessionId },
+        ...(options.throughSeq === undefined ? {} : { throughSeq: options.throughSeq }),
+        ...(options.beforeSeq === undefined ? {} : { beforeSeq: options.beforeSeq }),
+        maxMessages: options.maxMessages,
+        ...(turnWindow
+          ? { turnWindow: { minMessages: Math.min(options.maxMessages, 20), minTurns: 1 } }
+          : {}),
+      },
+    })
+    let value: unknown
+    try {
+      value = await this.#invokeNode(nodeId, 'session/page', args(supportsWindow), signal)
+    } catch (error) {
+      const refused = error instanceof MasterUpstreamError
+        && (error.code === 'gateway/input-invalid' || error.code === 'gateway/bad-request')
+      if (!supportsWindow || !refused) throw error
+      // This node predates the turn window: remember it and ask again without it.
+      this.#pageWindows.set(nodeId, false)
+      value = await this.#invokeNode(nodeId, 'session/page', args(false), signal)
+    }
+    if (supportsWindow) this.#pageWindows.set(nodeId, true)
+    const row = asRecord(value)
+    const records = row?.['records']
+    if (row === undefined || !Array.isArray(records) || typeof row['hasMore'] !== 'boolean') {
+      throw new MasterUpstreamError(toMasterError(
+        'master/coordinator-unreadable',
+        'session/page did not return a record page',
+      ))
+    }
+    return { records, hasMore: row['hasMore'] }
+  }
+
+  /**
+   * Stop the turn currently running on one session.
+   *
+   * The node admits the cancellation to the live agent and answers `accepted`;
+   * the durable `turn/end` (with its stop reason) is what proves the turn really
+   * ended, so callers must not treat this receipt as "stopped".
+   *
+   * @param nodeId - target node.
+   * @param sessionId - target session on that node.
+   * @param signal - caller cancellation.
+   * @returns the node's admission receipt.
+   */
+  async cancelSession(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<MasterCancelSessionValue> {
+    const value = await this.#invokeNode(nodeId, 'session/cancel', { request: { sessionId } }, signal)
+    const row = asRecord(value)
+    if (row === undefined || row['accepted'] !== true) {
+      throw new MasterUpstreamError(toMasterError(
+        'master/coordinator-unreadable',
+        'session/cancel was not acknowledged',
+      ))
+    }
+    return { accepted: true }
   }
 
   /**

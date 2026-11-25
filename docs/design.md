@@ -94,6 +94,8 @@
 | 远程会话重命名 | ✅ 已接入 `session/rename` | 节点 resume 后写用户标题并覆盖自动标题；显示节点规范化后的返回值 |
 | 远程模型切换 | ✅ 已接入 `session/modelCatalog` + `session/selectModel` | 目录按节点读取、不跨节点合并；当前选择取自 follow 快照的 `modelSelection` 投影，缺省回落到节点默认；菜单按「模型 + reasoning effort」平铺（弹层没有子菜单）；节点不支持时降级为只读 chip |
 | 远程输入框 | ✅ 对齐本地外观 | 容器 → 附件行 → 单行 toolbar（＋/权限/排队·插话/模型/发送）；Enter 发送、Shift+Enter 换行、IME 组字期间不发送；状态条（tok/s、账户用量、缓存命中）远程没有数据源，未做 |
+| 向上翻页 | ✅ 已接入 `session/page` | 面板顶部「加载更早的消息」，距顶 96px 自动触发，同一条请求在途时不重复；`beforeSeq` 用当前窗口最小 seq 作独占游标，`turnWindow: { minMessages: ≤20, minTurns: 1 }` 保证页落在整轮边界；页返回后按 key/seq 合并到头部，并用滚动锚定保持视口不动；页无法推进游标（空页或全重复）即视为到底 |
+| 停止本轮 | ✅ 已接入 `session/cancel` | 运行中发送键变方形停止键；`running` 由 follow 流里的 `turn/start` / `turn/end` 推出（快照取窗口内最后一个边界，模型流式帧只作补充）；节点回执只表示“已受理”，按钮保持“正在停止…”直到 `turn/end` 落地；不受 `allowPrompt` 限制 |
 | 会话执行状态 | ⚠️ 圆点 + 15 秒静默刷新 | 三处列表都显示 `running` 圆点；本地实时，远程靠快照刷新，未订阅 `session/control` |
 | 添加工作区 | ✅ 已接入 `workspace/create` | 本地走选择器插槽或宿主路径弹窗；远程只传路径，由节点校验并幂等返回已有工作区 |
 | 查看已归档 / 取消归档 | ✅ 已接入 `workspace/unarchiveSession` | 本地与每个节点各自一份列表（标题 / 工作区 / 更新时间）；取消归档由所属宿主确认，失败保留行并显示具体错误 |

@@ -716,3 +716,66 @@ describe('remote model routes', () => {
     expect(invalid.json).toMatchObject({ ok: false, error: { code: 'master/invalid-arguments' } })
   })
 })
+
+describe('remote cancel route', () => {
+  it('stops the running turn through the node and rejects a missing identity', async () => {
+    const calls: unknown[][] = []
+    const response = await call(handlerFor(service({
+      cancelSession: (...args: unknown[]) => {
+        calls.push(args)
+        return Promise.resolve({ accepted: true })
+      },
+    })), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/cancel',
+      body: JSON.stringify({ nodeId: 'n', sessionId: 's' }),
+    }))
+    expect(response.status).toBe(200)
+    expect(response.json).toMatchObject({ ok: true, value: { accepted: true } })
+    expect(calls[0]).toEqual(['n', 's'])
+
+    const invalid = await call(handlerFor(service()), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/cancel',
+      body: JSON.stringify({ nodeId: 'n' }),
+    }))
+    expect(invalid.status).toBe(400)
+    expect(invalid.json).toMatchObject({ ok: false, error: { code: 'master/invalid-arguments' } })
+  })
+})
+
+describe('remote session page route', () => {
+  it('forwards the exclusive cursor and message budget', async () => {
+    const calls: unknown[][] = []
+    const response = await call(handlerFor(service({
+      fetchSessionPage: (...args: unknown[]) => {
+        calls.push(args)
+        return Promise.resolve({ records: [{ type: 'event' }], hasMore: true })
+      },
+    })), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/page',
+      body: JSON.stringify({ nodeId: 'n', sessionId: 's', beforeSeq: 42, maxMessages: 20 }),
+    }))
+    expect(response.status).toBe(200)
+    expect(response.json).toMatchObject({ ok: true, value: { hasMore: true } })
+    expect(calls[0]).toEqual(['n', 's', { beforeSeq: 42, maxMessages: 20 }])
+  })
+
+  it('rejects a non-positive cursor and an over-limit budget before dispatch', async () => {
+    for (const body of [
+      { nodeId: 'n', sessionId: 's', beforeSeq: 0 },
+      { nodeId: 'n', sessionId: 's', maxMessages: 101 },
+      { nodeId: 'n', sessionId: 's', beforeSeq: 1.5 },
+      { nodeId: 'n' },
+    ]) {
+      const response = await call(handlerFor(service()), fakeRequest({
+        method: 'POST',
+        url: '/dsh-master/api/session/page',
+        body: JSON.stringify(body),
+      }))
+      expect(response.status).toBe(400)
+      expect(response.json).toMatchObject({ ok: false, error: { code: 'master/invalid-arguments' } })
+    }
+  })
+})

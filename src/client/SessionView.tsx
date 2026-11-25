@@ -29,16 +29,18 @@ import {
   Pill,
   StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import {
   ApiError,
   answerRemoteQuestion,
   cancelRemoteQuestion,
+  cancelRemoteSession,
   fetchArtifacts,
   fetchFileSupport,
   fetchModelCatalog,
   fetchPendingQuestions,
+  fetchSessionPage,
   followSession,
   selectRemoteModel,
   sendPrompt,
@@ -73,8 +75,10 @@ import {
   mergeRows,
   mergeTurnEvents,
   readEvent,
+  readPage,
   readSnapshot,
   readStreamFrame,
+  turnLifecycle,
   type ConversationRow,
   type TurnEvent,
   type TurnGroup,
@@ -620,8 +624,18 @@ export function SessionView(props: SessionViewProps): ReactElement {
   const [turnEvents, setTurnEvents] = useState<readonly TurnEvent[]>([])
   const [unrendered, setUnrendered] = useState(0)
   const [hasMore, setHasMore] = useState(false)
+  /** Lowest event seq the panel holds; the cursor a backwards page starts before. */
+  const [oldestSeq, setOldestSeq] = useState<number | undefined>(undefined)
+  /** Inclusive cut the opening window was read at; older nodes require it. */
+  const [throughSeq, setThroughSeq] = useState<number | undefined>(undefined)
+  const [pageLoading, setPageLoading] = useState(false)
+  const [pageError, setPageError] = useState<string | undefined>(undefined)
   const [cwd, setCwd] = useState<string | undefined>(undefined)
   const [streaming, setStreaming] = useState(false)
+  /** A turn is running on the node: a `turn/start` is open and no `turn/end` has landed. */
+  const [running, setRunning] = useState(false)
+  const [stopping, setStopping] = useState(false)
+  const [stopError, setStopError] = useState<string | undefined>(undefined)
   const [phase, setPhase] = useState<Phase>('connecting')
   const [error, setError] = useState<string | undefined>(undefined)
   const [draft, setDraft] = useState('')
@@ -650,6 +664,10 @@ export function SessionView(props: SessionViewProps): ReactElement {
   const composingDraft = useRef(false)
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)
   const logRef = useRef<HTMLDivElement | null>(null)
+  /** Guard for one paging request: state alone lags a burst of scroll events. */
+  const paging = useRef(false)
+  /** Scroll geometry captured before a page is prepended, restored after commit. */
+  const pageAnchor = useRef<{ readonly height: number; readonly top: number } | undefined>(undefined)
   const jumpToLatest = useRef<(() => void) | undefined>()
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const settledQuestions = useRef(new Set<string>())
@@ -697,6 +715,9 @@ export function SessionView(props: SessionViewProps): ReactElement {
     setModelSelection(undefined)
     setModelError(undefined)
     setModelOpen(false)
+    setRunning(false)
+    setStopping(false)
+    setStopError(undefined)
     abortAllUploads()
   }, [sessionKey, abortAllUploads])
 
@@ -796,6 +817,12 @@ export function SessionView(props: SessionViewProps): ReactElement {
     setTurnEvents([])
     setUnrendered(0)
     setHasMore(false)
+    setOldestSeq(undefined)
+    setThroughSeq(undefined)
+    setPageLoading(false)
+    setPageError(undefined)
+    paging.current = false
+    pageAnchor.current = undefined
     setCwd(undefined)
     setStreaming(false)
     setError(undefined)
@@ -812,12 +839,17 @@ export function SessionView(props: SessionViewProps): ReactElement {
           openedOnce.current = true
           return
         case 'data': {
+          const lifecycle = turnLifecycle(record.value)
+          if (lifecycle !== undefined) setRunning(lifecycle === 'running')
           const snapshot = readSnapshot(record.value)
           if (snapshot !== undefined) {
             setRows(snapshot.rows)
             setTurnEvents(snapshot.turnEvents)
             setUnrendered(snapshot.unrendered)
             setHasMore(snapshot.hasMore)
+            setOldestSeq(snapshot.oldestSeq)
+            setThroughSeq(snapshot.cursor ?? snapshot.newestSeq)
+            setPageError(undefined)
             setCwd(snapshot.cwd)
             if (snapshot.modelSelection !== undefined) setModelSelection(snapshot.modelSelection)
             return
@@ -1111,6 +1143,77 @@ export function SessionView(props: SessionViewProps): ReactElement {
     }).finally(() => { setModelBusy(false) })
   }
 
+  /**
+   * Ask the node to stop the running turn.
+   *
+   * The receipt only means the node admitted the request: `running` stays true
+   * until the follow stream's `turn/end` lands, which is also what tells the
+   * transcript the turn is over.
+   */
+  const stopTurn = (): void => {
+    if (stopping) return
+    setStopping(true)
+    setStopError(undefined)
+    cancelRemoteSession(nodeId, sessionId).then(() => undefined).catch((cause: unknown) => {
+      setStopError(cause instanceof ApiError
+        ? `${COPY.stopFailed} · ${cause.code}: ${cause.message}`
+        : `${COPY.stopFailed} · ${cause instanceof Error ? cause.message : String(cause)}`)
+    }).finally(() => { setStopping(false) })
+  }
+  // A model attempt can be in flight while the turn boundary sits outside the
+  // snapshot window, so either signal makes the stop control available.
+  const runningNow = running || streaming
+
+  /**
+   * Load one page of older records above the open window.
+   *
+   * `oldestSeq` is the exclusive cursor: everything the panel holds is at or
+   * above it, so the page must stop before it. A page that cannot move that
+   * cursor (empty, or entirely duplicate) is treated as the end of history —
+   * otherwise the top of the list would keep asking for the same records.
+   */
+  const loadOlder = useCallback((): void => {
+    if (!hasMore || paging.current || oldestSeq === undefined) return
+    const element = logRef.current
+    pageAnchor.current = element === null ? undefined : { height: element.scrollHeight, top: element.scrollTop }
+    paging.current = true
+    setPageLoading(true)
+    setPageError(undefined)
+    fetchSessionPage(nodeId, sessionId, {
+      beforeSeq: oldestSeq,
+      ...(throughSeq === undefined ? {} : { throughSeq }),
+    }).then((page) => {
+      const parsed = readPage(page.records)
+      if (parsed === undefined) throw new Error(COPY.loadOlderFailed)
+      if (parsed.rows.length > 0) setRows(previous => mergeRows(parsed.rows, previous))
+      if (parsed.turnEvents.length > 0) setTurnEvents(previous => mergeTurnEvents(previous, parsed.turnEvents))
+      if (parsed.unrendered > 0) setUnrendered(count => count + parsed.unrendered)
+      if (parsed.oldestSeq === undefined || parsed.oldestSeq >= oldestSeq || !page.hasMore) {
+        setHasMore(false)
+        return
+      }
+      setOldestSeq(parsed.oldestSeq)
+    }).catch((cause: unknown) => {
+      if (cause instanceof Error && cause.name === 'AbortError') return
+      setPageError(cause instanceof ApiError
+        ? `${COPY.loadOlderFailed} · ${cause.code}: ${cause.message}`
+        : `${COPY.loadOlderFailed} · ${cause instanceof Error ? cause.message : String(cause)}`)
+    }).finally(() => {
+      paging.current = false
+      setPageLoading(false)
+    })
+  }, [hasMore, oldestSeq, throughSeq, nodeId, sessionId])
+
+  // Keep the reader where they were: prepending rows must not move the viewport.
+  useLayoutEffect(() => {
+    const anchor = pageAnchor.current
+    if (anchor === undefined) return
+    pageAnchor.current = undefined
+    const element = logRef.current
+    if (element === null) return
+    element.scrollTop = anchor.top + (element.scrollHeight - anchor.height)
+  }, [rows])
+
   const phaseText = phase === 'live' ? COPY.live
     : phase === 'ended' ? COPY.ended
       : phase === 'failed' ? COPY.failed
@@ -1129,9 +1232,28 @@ export function SessionView(props: SessionViewProps): ReactElement {
 
       {error === undefined ? null : <div className="dsh-master-error">{error}</div>}
 
-      <div className="dsh-master-log" ref={logRef} role="region" aria-label={COPY.conversation} tabIndex={0}>
+      <div
+        className="dsh-master-log"
+        ref={logRef}
+        role="region"
+        aria-label={COPY.conversation}
+        tabIndex={0}
+        onScroll={(event) => { if (event.currentTarget.scrollTop < 96) loadOlder() }}
+      >
         <div className="dsh-master-log-column">
-          {hasMore ? <div className="dsh-master-hint">{COPY.loadOlderPending}</div> : null}
+          {hasMore && oldestSeq !== undefined ? (
+            <div className="dsh-master-older">
+              <button
+                type="button"
+                className="dsh-master-older-button"
+                disabled={pageLoading}
+                onClick={loadOlder}
+              >
+                {pageLoading ? COPY.loadingOlder : COPY.loadOlder}
+              </button>
+              {pageError === undefined ? null : <div className="dsh-master-older-error" role="alert">{pageError}</div>}
+            </div>
+          ) : null}
           {rows.length === 0 && turnEvents.length === 0
             ? <div className="dsh-master-hint">{COPY.emptyConversation}</div>
             : null}
@@ -1288,14 +1410,21 @@ export function SessionView(props: SessionViewProps): ReactElement {
                 <Button
                   className="dsh-master-send"
                   variant="primary"
-                  icon={<IconSendOutline14 />}
-                  aria-label={sending ? COPY.sending : COPY.send}
-                  title={sending ? COPY.sending : COPY.sendHint}
-                  disabled={!sendEnabled}
-                  onClick={submit}
+                  icon={runningNow ? <span className="dsh-master-stop-glyph" aria-hidden="true" /> : <IconSendOutline14 />}
+                  aria-label={runningNow
+                    ? stopping ? COPY.stopping : COPY.stop
+                    : sending ? COPY.sending : COPY.send}
+                  title={runningNow
+                    ? stopping ? COPY.stopping : COPY.stop
+                    : sending ? COPY.sending : COPY.sendHint}
+                  disabled={runningNow ? stopping : !sendEnabled}
+                  onClick={runningNow ? stopTurn : submit}
                 />
               </div>
             </div>
+            {stopError === undefined ? null : (
+              <div className="dsh-master-composer-error" role="alert">{stopError}</div>
+            )}
             {modelError === undefined || !modelReady ? null : (
               <div className="dsh-master-model-error" role="alert">{modelError}</div>
             )}

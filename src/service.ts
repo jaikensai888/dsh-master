@@ -22,6 +22,7 @@ import {
 } from './files-protocol.js'
 import type {
   MasterArchiveValue,
+  MasterCancelSessionValue,
   MasterCreateSessionValue,
   MasterCreateWorkspaceValue,
   MasterError,
@@ -33,6 +34,7 @@ import type {
   MasterQuestionAnswer,
   MasterRenameSessionValue,
   MasterSelectModelValue,
+  MasterSessionPageValue,
   MasterSessionsValue,
   MasterStatus,
 } from './protocol.js'
@@ -333,6 +335,43 @@ export class MasterService {
       ))
     }
     return this.#client.selectSessionModel(nodeId, sessionId, selection, signal)
+  }
+
+  /**
+   * Stop the turn running on one remote session.
+   *
+   * Not behind `allowPrompt`: that switch governs starting work, and an operator
+   * who disabled sending still needs a way to stop work someone else started.
+   */
+  cancelSession(nodeId: string, sessionId: string, signal?: AbortSignal): Promise<MasterCancelSessionValue> {
+    if (nodeId.trim() === '' || sessionId.trim() === '') {
+      throw new MasterUpstreamError(toFailure(
+        'master/invalid-arguments',
+        'nodeId and sessionId are required non-empty strings',
+      ))
+    }
+    return this.#client.cancelSession(nodeId, sessionId, signal)
+  }
+
+  /**
+   * Read one backwards page of a remote session log.
+   *
+   * Read-only, so it is not behind `allowPrompt`: paging history executes no
+   * turn and changes no session state.
+   */
+  fetchSessionPage(
+    nodeId: string,
+    sessionId: string,
+    options: { readonly beforeSeq?: number; readonly throughSeq?: number; readonly maxMessages: number },
+    signal?: AbortSignal,
+  ): Promise<MasterSessionPageValue> {
+    if (nodeId.trim() === '' || sessionId.trim() === '') {
+      throw new MasterUpstreamError(toFailure(
+        'master/invalid-arguments',
+        'nodeId and sessionId are required non-empty strings',
+      ))
+    }
+    return this.#client.fetchSessionPage(nodeId, sessionId, options, signal)
   }
 
   /** Read session-scoped permissions and approvals on the selected node. */

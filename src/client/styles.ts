@@ -77,8 +77,42 @@ export const PANEL_CSS = `
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
 }
-.dsh-master-error {
-  margin: 0 8px 8px;
+/* Backwards paging: one control at the head of the log, plus its failure line.
+   The control stays in flow (not sticky) so it scrolls away once history loads. */
+.dsh-master-older {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 10px;
+}
+.dsh-master-older-button {
+  padding: 4px 12px;
+  border: .5px solid var(--dsw-alias-border-l3);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+.dsh-master-older-button:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-master-older-button:disabled {
+  opacity: .6;
+  cursor: default;
+}
+.dsh-master-older-error {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+  text-align: center;
+  word-break: break-word;
+}
+.dsh-master-error {  margin: 0 8px 8px;
   padding: 8px 10px;
   border-radius: 8px;
   border: .5px solid var(--dsw-alias-border-l2);
@@ -690,7 +724,8 @@ export const PANEL_CSS = `
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
-.dsh-master-model-error {
+.dsh-master-model-error,
+.dsh-master-composer-error {
   padding: 0 4px;
   font-size: 12px;
   line-height: 18px;
@@ -715,6 +750,15 @@ export const PANEL_CSS = `
   justify-content: center;
 }
 .dsh-master-send-hint { white-space: nowrap; }
+/* The stop affordance is a glyph, not an icon export: the platform icon table
+   dropped numeric-size names, and a missing component would blank the button. */
+.dsh-master-stop-glyph {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: currentColor;
+}
 
 .dsh-master-settings-card {
   list-style: none;

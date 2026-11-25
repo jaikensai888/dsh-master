@@ -241,7 +241,9 @@ describe('the built client bundle', () => {
 
     exports?.apply?.(self)
 
-    const browserOptions = registrations[0]?.options
+    // The panel registers first, so a failure in the sidebar takeover cannot cost
+    // it its registration; read the browser entry by name rather than by position.
+    const browserOptions = registrations.find(entry => entry.options?.['name'] === 'sidebar.workspaces')?.options
     const browserInject = browserOptions?.['inject']
     expect(typeof browserInject).toBe('function')
     const browserProps = (browserInject as () => Record<string, unknown>)()
@@ -255,15 +257,17 @@ describe('the built client bundle', () => {
     ) => void)('node-1', 'session-1', 'my-desktop', 'plugin design')
     expect(selectedPanels).toEqual(['dsh-master'])
 
-    // Order matters: the workspace surfaces are claimed before the plugin's own panel.
+    // The panel is claimed before the workspace surfaces: an active panel id with
+    // no entry renders as an empty main area, which is worse than a bare sidebar.
     expect(injected).toEqual([
+      'main',
       'sidebar.workspaces',
       'conversation.hero.workspace',
-      'main',
       'plugins.item',
       'plugins.bundle.config',
     ])
     expect(registrations.map(entry => entry.options)).toEqual([
+      { name: 'main', key: 'dsh-master', registrant: 'dsh-master' },
       {
         name: 'sidebar.workspaces',
         // Declaring the directory-flow hole is what keeps "Add workspace…" working
@@ -279,7 +283,6 @@ describe('the built client bundle', () => {
         inject: expect.any(Function),
         locale: 'workspace',
       },
-      { name: 'main', key: 'dsh-master', registrant: 'dsh-master' },
       { name: 'plugins.item', id: 'dsh-master', label: expect.any(Function), locale: 'dsh-master', inject: expect.any(Function) },
       { name: 'plugins.bundle.config', key: 'dsh-master', locale: 'dsh-master', inject: expect.any(Function) },
     ])

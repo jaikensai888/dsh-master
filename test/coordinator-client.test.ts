@@ -670,3 +670,72 @@ describe('CoordinatorClient model catalog', () => {
     })
   })
 })
+
+describe('CoordinatorClient session cancel', () => {
+  it('posts the session request shape and accepts the receipt', async () => {
+    const { client, calls } = clientWith(() => envelope({ ok: true, value: { accepted: true } }))
+    await expect(client.cancelSession('node-1', 'session-1')).resolves.toEqual({ accepted: true })
+    const body = JSON.parse(String(calls[0]?.init.body)) as Record<string, unknown>
+    expect(body).toEqual({
+      nodeId: 'node-1',
+      endpoint: 'session/cancel',
+      args: { request: { sessionId: 'session-1' } },
+    })
+  })
+
+  it('rejects an answer that does not acknowledge the cancellation', async () => {
+    const { client } = clientWith(() => envelope({ ok: true, value: { accepted: false } }))
+    await expect(client.cancelSession('node-1', 'session-1')).rejects.toMatchObject({
+      code: 'master/coordinator-unreadable',
+    })
+  })
+})
+
+describe('CoordinatorClient session page', () => {
+  it('asks for a turn-snapped page and forwards raw records', async () => {
+    const { client, calls } = clientWith(() => envelope({
+      ok: true,
+      value: { records: [{ type: 'event', event: { type: 'user/message', seq: 7 } }], hasMore: true },
+    }))
+    const page = await client.fetchSessionPage('node-1', 'session-1', { beforeSeq: 42, throughSeq: 99, maxMessages: 20 })
+    expect(page.hasMore).toBe(true)
+    expect(page.records).toHaveLength(1)
+    const body = JSON.parse(String(calls[0]?.init.body)) as Record<string, unknown>
+    expect(body).toEqual({
+      nodeId: 'node-1',
+      endpoint: 'session/page',
+      args: {
+        request: {
+          address: { kind: 'session', sessionId: 'session-1' },
+          throughSeq: 99,
+          beforeSeq: 42,
+          maxMessages: 20,
+          turnWindow: { minMessages: 20, minTurns: 1 },
+        },
+      },
+    })
+  })
+
+  it('retries without the turn window when the node predates it', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const { client } = clientWith((call) => {
+      bodies.push(JSON.parse(String(call.init.body)) as Record<string, unknown>)
+      if (bodies.length === 1) {
+        return envelope({ ok: false, error: { code: 'gateway/input-invalid', message: 'boundary validation' } })
+      }
+      return envelope({ ok: true, value: { records: [], hasMore: false } })
+    })
+    await expect(client.fetchSessionPage('node-1', 'session-1', { maxMessages: 20 }))
+      .resolves.toEqual({ records: [], hasMore: false })
+    const first = (bodies[0]?.['args'] as Record<string, unknown> | undefined)?.['request'] as Record<string, unknown>
+    const second = (bodies[1]?.['args'] as Record<string, unknown> | undefined)?.['request'] as Record<string, unknown>
+    expect(first['turnWindow']).toBeDefined()
+    expect(second['turnWindow']).toBeUndefined()
+  })
+
+  it('rejects an answer that is not a page', async () => {
+    const { client } = clientWith(() => envelope({ ok: true, value: { records: 'nope', hasMore: false } }))
+    await expect(client.fetchSessionPage('node-1', 'session-1', { maxMessages: 20 }))
+      .rejects.toMatchObject({ code: 'master/coordinator-unreadable' })
+  })
+})

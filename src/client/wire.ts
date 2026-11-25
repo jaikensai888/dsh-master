@@ -86,6 +86,21 @@ export interface SnapshotView {
   readonly unrendered: number
   /** Whether the node holds older records the panel has not asked for. */
   readonly hasMore: boolean
+  /** Log cut this snapshot was read at; the backwards page asks from here. */
+  readonly cursor?: number
+  /** Lowest event seq in the window; the cursor a backwards page starts before. */
+  readonly oldestSeq?: number
+  /** Highest event seq in the window; the inclusive cut older nodes require. */
+  readonly newestSeq?: number
+}
+
+/** One backwards page of the log, parsed for prepending above the open window. */
+export interface PageView {
+  readonly rows: readonly ConversationRow[]
+  readonly turnEvents: readonly TurnEvent[]
+  readonly unrendered: number
+  /** Lowest event seq this page contributes; absent when it carried no event. */
+  readonly oldestSeq?: number
 }
 
 /** What one appended frame contributes. */
@@ -339,12 +354,19 @@ export function readSnapshot(value: unknown): SnapshotView | undefined {
   const rows: ConversationRow[] = []
   const turnEvents: TurnEvent[] = []
   let unrendered = 0
+  let oldestSeq: number | undefined
+  let newestSeq: number | undefined
   if (Array.isArray(records)) {
     for (const entry of records) {
       const contribution = contributionOf(entry)
       rows.push(...contribution.rows)
       turnEvents.push(...contribution.turnEvents)
       unrendered += contribution.unrendered
+      const seq = eventSeq(entry)
+      if (seq !== undefined) {
+        if (oldestSeq === undefined || seq < oldestSeq) oldestSeq = seq
+        if (newestSeq === undefined || seq > newestSeq) newestSeq = seq
+      }
     }
   }
   const projections = asRecord(record['projections'])
@@ -355,15 +377,58 @@ export function readSnapshot(value: unknown): SnapshotView | undefined {
   // session never selected a model and the node's default applies.
   const projectedModel = values === undefined ? undefined : projectedSelection(values['modelSelection'])
   const cwd = header === undefined ? undefined : str(header, 'cwd')
+  const cursor = num(record, 'cursor')
   return {
     rows: mergeRows([], rows),
     turnEvents: mergeTurnEvents([], turnEvents),
     unrendered,
     hasMore: record['hasMore'] === true,
+    ...(cursor === undefined ? {} : { cursor }),
+    ...(oldestSeq === undefined ? {} : { oldestSeq }),
+    ...(newestSeq === undefined ? {} : { newestSeq }),
     ...(title === undefined || title.trim() === '' ? {} : { title }),
     ...(cwd === undefined || cwd.trim() === '' ? {} : { cwd }),
     ...(projectedModel === undefined ? {} : { modelSelection: projectedModel }),
   }
+}
+
+/**
+ * Read one backwards page of the log.
+ *
+ * The page arrives as the raw records the node returned for `session/page`; this
+ * reader parses them with the same per-event logic the follow window uses, so a
+ * row cannot change shape depending on which page delivered it.
+ *
+ * @param records - the raw `records` array from a page response.
+ * @returns the page's contribution, or `undefined` when it is not an array.
+ */
+export function readPage(records: unknown): PageView | undefined {
+  if (!Array.isArray(records)) return undefined
+  const rows: ConversationRow[] = []
+  const turnEvents: TurnEvent[] = []
+  let unrendered = 0
+  let oldestSeq: number | undefined
+  for (const entry of records) {
+    const contribution = contributionOf(entry)
+    rows.push(...contribution.rows)
+    turnEvents.push(...contribution.turnEvents)
+    unrendered += contribution.unrendered
+    const seq = eventSeq(entry)
+    if (seq !== undefined && (oldestSeq === undefined || seq < oldestSeq)) oldestSeq = seq
+  }
+  return {
+    rows: mergeRows([], rows),
+    turnEvents: mergeTurnEvents([], turnEvents),
+    unrendered,
+    ...(oldestSeq === undefined ? {} : { oldestSeq }),
+  }
+}
+
+/** The durable seq of one event record, when it has one. */
+function eventSeq(entry: unknown): number | undefined {
+  const record = asRecord(entry)
+  const event = record === undefined ? undefined : asRecord(record['event'])
+  return event === undefined ? undefined : num(event, 'seq')
 }
 
 /** Read one `{ lastUsed, next }` model-selection projection, preferring the next step's route. */
@@ -379,6 +444,41 @@ function projectedSelection(value: unknown): SnapshotView['modelSelection'] {
     return { provider, model, ...(effort === undefined || effort === '' ? {} : { reasoningEffort: effort }) }
   }
   return read(projection['next']) ?? read(projection['lastUsed'])
+}
+
+/**
+ * Read the turn lifecycle one follow record implies.
+ *
+ * A snapshot carries the whole opening window, so its last boundary answers for
+ * the whole session; a live record is a single event. `undefined` means the
+ * record says nothing about it — a window can open mid-turn, so callers keep
+ * their previous answer rather than guessing.
+ *
+ * @param record - one follow record (`snapshot` or `event`).
+ * @returns `running` after `turn/start`, `idle` after `turn/end`.
+ */
+export function turnLifecycle(record: unknown): 'running' | 'idle' | undefined {
+  const row = asRecord(record)
+  if (row === undefined) return undefined
+  const type = str(row, 'type')
+  if (type === 'event') return lifecycleOf(asRecord(row['event']))
+  if (type !== 'snapshot') return undefined
+  const records = row['records']
+  if (!Array.isArray(records)) return undefined
+  let state: 'running' | 'idle' | undefined
+  for (const entry of records) {
+    const entryRecord = asRecord(entry)
+    state = lifecycleOf(entryRecord === undefined ? undefined : asRecord(entryRecord['event'])) ?? state
+  }
+  return state
+}
+
+/** Map one durable event type onto the turn boundary it opens or closes. */
+function lifecycleOf(event: Record<string, unknown> | undefined): 'running' | 'idle' | undefined {
+  const type = event === undefined ? undefined : str(event, 'type')
+  if (type === 'turn/start') return 'running'
+  if (type === 'turn/end') return 'idle'
+  return undefined
 }
 
 /**

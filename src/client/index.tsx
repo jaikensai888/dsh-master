@@ -107,6 +107,24 @@ export function apply(ctx: Context): void {
     return () => { disposeWorkspaceStyles() }
   }, 'dsh-master.workspace-styles')
 
+  // The main panel first: a failure in the sidebar takeover below must not cost
+  // the panel its registration, because an active panel id with no entry renders
+  // as an empty main area with no way back.
+  ctx.effect(() => slots.inject(MAIN_SLOT, () => {
+    try {
+      return slots.register({
+        name: MAIN_SLOT,
+        key: PANEL_ID,
+        registrant: 'dsh-master',
+      }, () => <RemotePanel />)
+    } catch (error) {
+      // A live client reload can race the previous registration's disposal. Keep
+      // the rest of the plugin alive and say why the panel is missing.
+      console.warn('dsh-master: main panel registration failed:', error)
+      return () => undefined
+    }
+  }), 'dsh-master.main')
+
   // Take over the sidebar's workspace region. This replaces the shipped
   // `ui-workspace` client half, which the deployment disables — see
   // `src/workspace/index.ts` for why a shadowing entry cannot work.
@@ -116,23 +134,22 @@ export function apply(ctx: Context): void {
   // nested `ctx.inject()` callback can run after renderer boot has already been judged.
   // Cordis guards nested service access too; `remote.directoryPicker` is declared in
   // the inject list because the workspace controller reads that capability directly.
-  ctx.effect(
-    () => applyWorkspaceBrowser(
-      ctx,
-      (message) => { console.warn(message) },
-      layout,
-      (nodeId, sessionId, nodeName, sessionTitle) => {
-        openRemoteSession(layout, nodeId, sessionId, nodeName, sessionTitle)
-      },
-    ),
-    'dsh-master.workspace-browser',
-  )
-
-  ctx.effect(() => slots.inject(MAIN_SLOT, () => slots.register({
-    name: MAIN_SLOT,
-    key: PANEL_ID,
-    registrant: 'dsh-master',
-  }, () => <RemotePanel />)), 'dsh-master.main')
+  ctx.effect(() => {
+    try {
+      return applyWorkspaceBrowser(
+        ctx,
+        (message) => { console.warn(message) },
+        layout,
+        (nodeId, sessionId, nodeName, sessionTitle) => {
+          openRemoteSession(layout, nodeId, sessionId, nodeName, sessionTitle)
+        },
+      )
+    } catch (error) {
+      // One failed registration must not take the panel (registered above) with it.
+      console.warn('dsh-master: workspace browser registration failed:', error)
+      return () => undefined
+    }
+  }, 'dsh-master.workspace-browser')
 
   ctx.inject(['configForms', 'remote.credentials'], (scope) => {
     const forms = (scope as unknown as typeof services).configForms

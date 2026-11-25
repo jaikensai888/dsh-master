@@ -355,3 +355,19 @@ describe('follow node requests', () => {
     expect(FOLLOWING_NODE_CONCURRENCY).toBeGreaterThan(0)
   })
 })
+
+describe('follow status freshness', () => {
+  it('recompiles the running flag when a fresher list snapshot lands', () => {
+    const record = remoteRecord('http://a', 'node-a', 'r1', 10)
+    const runningNow = (running: boolean): FollowingRemoteSnapshot => remoteSnapshot({
+      data: {
+        'node-a': sessionsValue({
+          sessions: [{ sessionId: 'r1', title: 'Remote title', updatedAt: 1, running, blank: false }],
+        }),
+      },
+    })
+    expect(one(followingRows([record], localSnapshot(), runningNow(true), labels)).running).toBe(true)
+    // The next snapshot is the whole truth: a finished turn clears the dot.
+    expect(one(followingRows([record], localSnapshot(), runningNow(false), labels)).running).toBe(false)
+  })
+})

@@ -109,6 +109,24 @@ const EMPTY_FOLLOWED: ReadonlySet<string> = new Set()
  */
 const LIVE_STATUS_INTERVAL_MS = 15_000
 
+/**
+ * How often the follow view re-reads its followed nodes.
+ *
+ * The follow list is a status board: a "running" dot that lags fifteen seconds
+ * reads as broken. Only the followed nodes are queried, so the extra ticks cost
+ * one `session/list` per followed node — the same call the tree already makes.
+ */
+const FOLLOW_STATUS_INTERVAL_MS = 5_000
+
+/**
+ * How long one list read may take before it is abandoned and retried.
+ *
+ * A request that never settles keeps its controller in the in-flight map, which
+ * would exclude that node from every later poll — the stale row would then only
+ * recover through a manual refresh.
+ */
+const STATUS_REQUEST_TIMEOUT_MS = 20_000
+
 /** Local subscription state before the browser supplies it. */
 const EMPTY_LOCAL_SNAPSHOT: FollowingLocalSnapshot = {
   phase: undefined,
@@ -610,6 +628,11 @@ export function RemoteSection({
   /** The follow records this render saw; refresh reads them without re-creating its callback. */
   const followingRef = useRef(following)
   followingRef.current = following
+  /** The roster the follow loop reads without re-arming its timer on every change. */
+  const nodesRef = useRef(nodes)
+  nodesRef.current = nodes
+  const coordinatorFactsRef = useRef(coordinator)
+  coordinatorFactsRef.current = coordinator
   /** The last verified Coordinator origin, so a source switch can drop cached rows. */
   const coordinatorUrl = useRef<string | undefined>(undefined)
   /** True while entering or manually refreshing the follow view blocks remote opens. */
@@ -650,7 +673,15 @@ export function RemoteSection({
       })
     }
     try {
-      const result = await fetchSessions(nodeId, controller.signal)
+      // Bound one read: a request that never settles would otherwise hold the
+      // in-flight slot and keep this node out of every later poll.
+      const timeout = typeof AbortSignal.timeout === 'function'
+        ? AbortSignal.timeout(STATUS_REQUEST_TIMEOUT_MS)
+        : undefined
+      const signal = timeout === undefined || typeof AbortSignal.any !== 'function'
+        ? controller.signal
+        : AbortSignal.any([controller.signal, timeout])
+      const result = await fetchSessions(nodeId, signal)
       if (current()) {
         setData(previous => ({ ...previous, [nodeId]: result }))
         // The authoritative list now carries any blank created from this panel,
@@ -1013,6 +1044,34 @@ export function RemoteSection({
       document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [loadSessions])
+
+  /**
+   * The follow view's own freshness loop.
+   *
+   * The generic tick above is tuned for the browsing tree: fifteen seconds, only
+   * nodes whose first list already landed, and silent failures. A status board
+   * cannot live with any of that, so the follow scope gets a faster loop over
+   * exactly the followed nodes, including a node whose first read failed or hung
+   * (each tick re-issues the read, and a previous request is aborted by
+   * `loadSessions` before the new one starts).
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined' || browseScope?.kind !== 'following') return
+    const refreshFollowing = (): void => {
+      if (document.visibilityState !== 'visible') return
+      const facts = coordinatorFactsRef.current
+      for (const node of followingNodes(followingRef.current, facts?.url, nodesRef.current)) {
+        void loadSessions(node.nodeId, true, true)
+      }
+    }
+    const timer = window.setInterval(refreshFollowing, FOLLOW_STATUS_INTERVAL_MS)
+    // Coming back to the app is exactly when "what is still running?" matters.
+    window.addEventListener('focus', refreshFollowing)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', refreshFollowing)
+    }
+  }, [browseScope?.kind, loadSessions])
 
   const followingRemoteSnapshot: FollowingRemoteSnapshot = {
     coordinator,

@@ -224,6 +224,38 @@ export interface MasterSelectModelValue {
   readonly selected: MasterModelSelection
 }
 
+/** `POST /dsh-master/api/session/cancel`. */
+export interface MasterCancelSessionRequest {
+  readonly nodeId: string
+  readonly sessionId: string
+}
+
+/** The node admitted the cancellation request to the live agent. */
+export interface MasterCancelSessionValue {
+  readonly accepted: true
+}
+
+/** Largest message budget one backwards page may ask for. */
+export const MAX_SESSION_PAGE_MESSAGES = 100
+
+/** `POST /dsh-master/api/session/page`. */
+export interface MasterSessionPageRequest {
+  readonly nodeId: string
+  readonly sessionId: string
+  /** Page records older than this seq; omitted pages from the log end. */
+  readonly beforeSeq?: number
+  /** Inclusive cut the open window was read at; older nodes require it. */
+  readonly throughSeq?: number
+  /** Message budget for this page; the host bounds it. */
+  readonly maxMessages?: number
+}
+
+/** One backwards page of a session log, raw records included. */
+export interface MasterSessionPageValue {
+  readonly records: readonly unknown[]
+  readonly hasMore: boolean
+}
+
 /** `POST /dsh-master/api/session/create`. */
 export interface MasterCreateSessionRequest {
   readonly nodeId: string

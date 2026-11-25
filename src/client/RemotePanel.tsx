@@ -13,13 +13,44 @@
  * @module dsh-master/client/RemotePanel
  */
 
-import { useEffect, useState, useSyncExternalStore } from 'react'
-import type { ReactElement } from 'react'
+import { Component, useEffect, useState, useSyncExternalStore } from 'react'
+import type { ErrorInfo, ReactElement, ReactNode } from 'react'
 import { PANEL_ID, type MasterStatus } from '../protocol.js'
 import { fetchStatus } from './api.js'
 import { COPY } from './copy.js'
 import { getRemoteSelection, subscribeRemoteSelection } from './selection.js'
 import { SessionView } from './SessionView.js'
+
+/** State of the panel's crash guard. */
+interface PanelBoundaryState { readonly error?: Error }
+
+/**
+ * Keep a rendering failure inside this panel visible.
+ *
+ * The slot renderer blanks a slot whose entry throws, which reads exactly like a
+ * missing panel. Catching here keeps the message — and the panel's own frame —
+ * on screen so the failure is diagnosable instead of silent.
+ */
+class PanelBoundary extends Component<{ readonly children: ReactNode }, PanelBoundaryState> {
+  override state: PanelBoundaryState = {}
+
+  static getDerivedStateFromError(error: Error): PanelBoundaryState {
+    return { error }
+  }
+
+  override componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error('dsh-master panel crashed:', error, info.componentStack)
+  }
+
+  override render(): ReactNode {
+    if (this.state.error === undefined) return this.props.children
+    return (
+      <div className="dsh-master-empty" role="alert">
+        {COPY.panelCrashed} · {this.state.error.message}
+      </div>
+    )
+  }
+}
 
 /**
  * Render the selected remote conversation. The left workspace sidebar is the only
@@ -47,14 +78,15 @@ export function RemotePanel(): ReactElement {
       {selection === undefined
         ? <div className="dsh-master-empty">{COPY.pickSomething}</div>
         : (
-          <SessionView
-            key={`${selection.nodeId}/${selection.sessionId}`}
-            nodeId={selection.nodeId}
-            sessionId={selection.sessionId}
-            title={selection.sessionTitle ?? selection.sessionId}
-            nodeName={selection.nodeName ?? selection.nodeId}
-            promptEnabled={status?.promptEnabled === true}
-          />
+          <PanelBoundary key={`${selection.nodeId}/${selection.sessionId}`}>
+            <SessionView
+              nodeId={selection.nodeId}
+              sessionId={selection.sessionId}
+              title={selection.sessionTitle ?? selection.sessionId}
+              nodeName={selection.nodeName ?? selection.nodeId}
+              promptEnabled={status?.promptEnabled === true}
+            />
+          </PanelBoundary>
         )}
     </div>
   )
