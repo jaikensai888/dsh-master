@@ -316,3 +316,14 @@ describe('the compiled workspace stylesheet', () => {
     expect(scopes.size).toBe(5)
   })
 })
+
+describe('follow row selection', () => {
+  it('paints the selected follow row itself, because RowsCss only styles session rows', () => {
+    expect(WORKSPACE_CSS).toMatch(
+      new RegExp(
+        `\\.${RemoteSectionCss.followingRow}\\[aria-selected=['"]true['"]\\]\\s*\\{[^}]*background:\\s*var\\(--dsw-alias-interactive-bg-hover\\)`,
+        'u',
+      ),
+    )
+  })
+})

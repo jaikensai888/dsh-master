@@ -526,6 +526,16 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+/*
+  The selected row keeps the same fill as a selected session row, including
+  while the pointer is elsewhere. `RowsCss.selected` only styles the local and
+  remote session rows (`.sessionRow.selected`), so the follow row — its own
+  module and its own box — must carry this rule or selection is invisible here.
+*/
+.followingRow[aria-selected='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
 .followingUnavailable {
   cursor: default;
   color: var(--dsw-alias-label-dimmed);
