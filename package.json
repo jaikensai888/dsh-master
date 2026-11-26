@@ -1,6 +1,6 @@
 {
   "name": "dsh-master",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DSH plugin: connects to a dsh-coordinator and brings every registered dsh-node — and its sessions — into the local web GUI as a remote workspace.",
   "type": "module",
   "main": "lib/index.js",
