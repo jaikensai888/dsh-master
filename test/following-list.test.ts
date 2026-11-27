@@ -32,6 +32,7 @@ const t = (key: string, params?: Record<string, unknown>): string => {
     'following.archived': '已归档',
     'menu.unfollow': '取消关注',
     'status.running': '进行中',
+    'status.completedUnread': '已完成，待查看',
   }
   return (labels[key] ?? key).replace('{name}', String(params?.['name'] ?? ''))
 }
@@ -45,6 +46,7 @@ const row = (overrides: Partial<FollowingRow> = {}): FollowingRow => ({
   workspace: 'infra',
   status: 'ok',
   running: false,
+  completionUnread: false,
   fresh: true,
   ...overrides,
 })
@@ -192,3 +194,26 @@ function findMenu(element: ReactNode): ReactElement<{
   if (props.items !== undefined) return element as ReturnType<typeof findMenu>
   return findMenu(props.children)
 }
+
+describe('completion dot', () => {
+  it('labels and paints an unread completion', () => {
+    const html = renderList([row({ completionUnread: true })])
+    expect(html).toContain('已完成，待查看')
+    expect(html).toContain(RemoteSectionCss.followingCompleted)
+    expect(html).not.toContain('进行中')
+  })
+
+  it('keeps the running dot when a turn is still running', () => {
+    const html = renderList([row({ running: true, completionUnread: true })])
+    expect(html).toContain('进行中')
+    expect(html).not.toContain('已完成，待查看')
+    expect(html).not.toContain(RemoteSectionCss.followingCompleted)
+  })
+
+  it('renders no state dot for a read row', () => {
+    const html = renderList([row({ completionUnread: false })])
+    expect(html).not.toContain('已完成，待查看')
+    expect(html).not.toContain(RemoteSectionCss.followingCompleted)
+    expect(html).not.toContain('进行中')
+  })
+})

@@ -583,6 +583,16 @@
   width: 16px;
 }
 
+/* Completed but unread: a solid blue dot in the same trailing column as the
+   running indicator, so one row never wears two states. */
+.followingCompleted {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-business-primary);
+}
+
 .followingMain {
   display: flex;
   flex: 1;

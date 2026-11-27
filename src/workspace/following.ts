@@ -102,6 +102,14 @@ export interface FollowingRow {
    */
   readonly running: boolean
   /**
+   * A successful turn finished and its result has not been looked at yet.
+   *
+   * Local rows inherit the host's own unread flag — the same one the session
+   * tree paints — so opening the session clears it exactly like anywhere else.
+   * Remote rows stay false until their node can report a completed event seq.
+   */
+  readonly completionUnread: boolean
+  /**
    * True when the row's display summary came from the current source rather than the
    * record. Only fresh summaries are written back to the browser store.
    */
@@ -121,6 +129,8 @@ export interface FollowingLocalSnapshot {
   readonly byId: Readonly<Record<string, SessionSummary>>
   readonly workspaces: readonly WorkspaceView[]
   readonly archivedSessionIds: readonly string[]
+  /** Live per-session status, including the host's own completion-unread flag. */
+  readonly pendingInteractions?: ReadonlyMap<string, { readonly completionUnread?: boolean }>
 }
 
 /** The remote half of the snapshot: the single remote data owner's state. */
@@ -185,6 +195,7 @@ function localRow(
       workspace: record.workspace,
       status,
       running: false,
+      completionUnread: false,
       fresh: false,
     }
   }
@@ -192,6 +203,9 @@ function localRow(
     ? labels.newSession
     : summary.displayTitle.trim() === '' ? record.title : summary.displayTitle
   const archived = local.archivedSessionIds.includes(sessionId)
+  // The host's own unread flag is authoritative and clears when the session is
+  // opened; `completed` is the fallback for a host that only publishes that.
+  const unread = local.pendingInteractions?.get(sessionId)?.completionUnread
   return {
     ...base,
     title,
@@ -199,6 +213,7 @@ function localRow(
     workspace: workspaceOf(local.workspaces, sessionId)?.title ?? labels.ungrouped,
     status: archived ? 'archived' : 'ok',
     running: archived ? false : summary.running,
+    completionUnread: archived ? false : unread ?? summary.completed === true,
     fresh: true,
   }
 }
@@ -217,6 +232,7 @@ function remoteRow(
     machine: record.machine,
     workspace: record.workspace,
     running: false,
+    completionUnread: false,
     fresh: false,
   }
   const coordinator = remote.coordinator
@@ -243,6 +259,7 @@ function remoteRow(
       workspace: workspaceTitle,
       status: 'archived',
       running: false,
+      completionUnread: false,
       fresh: true,
     }
   }
@@ -258,6 +275,9 @@ function remoteRow(
     workspace: workspaceTitle,
     status: 'ok',
     running: session.running,
+    // Remote completion needs the node's last successful seq (task 2); until a
+    // node reports one, nothing here may claim an unread completion.
+    completionUnread: false,
     fresh: true,
   }
 }

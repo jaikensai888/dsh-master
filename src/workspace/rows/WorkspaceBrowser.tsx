@@ -923,6 +923,10 @@ export function WorkspaceBrowser({
   const workspacePhase = useWorkspaces(state => state.phase)
   const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds)
   const following = useStore(s => s.following)
+  /** Live per-session status; its `completionUnread` is the host's own unread flag. */
+  const pendingInteractions = useSessionPendingInteraction(state => state) as ReadonlyMap<string, {
+    readonly completionUnread?: boolean
+  }>
   const sessionById = useSessions(s => s.byId)
   const sessionPhase = useSessions(s => s.phase)
   // Live occupancy of this surface's directory-flow hole (the same source the
@@ -947,7 +951,8 @@ export function WorkspaceBrowser({
     byId: sessionById,
     workspaces,
     archivedSessionIds,
-  }), [sessionPhase, sessionById, workspaces, archivedSessionIds])
+    pendingInteractions,
+  }), [sessionPhase, sessionById, workspaces, archivedSessionIds, pendingInteractions])
   const [chooserMount, setChooserMount] = useState<HTMLElement | null>(null)
   const [requestChooser, setRequestChooser] = useState(false)
   const currentRemoteSelection = useSyncExternalStore(subscribeRemoteSelection, getRemoteSelection, getRemoteSelection)

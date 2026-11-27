@@ -162,6 +162,47 @@ describe('local follow rows', () => {
     const row = one(followingRows([localRecord('blank', 1)], localSnapshot(), remoteSnapshot(), labels))
     expect(row.title).toBe('新会话')
   })
+
+  it('carries the host completion-unread flag, and an explicit read wins over completed', () => {
+    const base = localSnapshot()
+    const withSummary = (patch: { completed?: boolean }): FollowingLocalSnapshot => ({
+      ...base,
+      byId: { ...base.byId, s1: { ...base.byId['s1']!, ...patch } },
+      pendingInteractions: new Map([['s1', { completionUnread: true }]]),
+    })
+    expect(one(followingRows([localRecord('s1', 1)], withSummary({}), remoteSnapshot(), labels)).completionUnread)
+      .toBe(true)
+
+    const read = {
+      ...withSummary({ completed: true }),
+      pendingInteractions: new Map([['s1', { completionUnread: false }]]),
+    }
+    expect(one(followingRows([localRecord('s1', 1)], read, remoteSnapshot(), labels)).completionUnread).toBe(false)
+
+    // A host that only publishes `completed` still lights the dot.
+    const { pendingInteractions: _ignored, ...completedOnly } = withSummary({ completed: true })
+    expect(one(followingRows([localRecord('s1', 1)], completedOnly, remoteSnapshot(), labels)).completionUnread)
+      .toBe(true)
+  })
+
+  it('never reminds for an archived or missing local row, and keeps running independent', () => {
+    const base = localSnapshot()
+    const unread = new Map([['s1', { completionUnread: true }]])
+    const archived = { ...base, archivedSessionIds: ['s1'], pendingInteractions: unread }
+    expect(one(followingRows([localRecord('s1', 1)], archived, remoteSnapshot(), labels)).completionUnread)
+      .toBe(false)
+    expect(one(followingRows([localRecord('gone', 1)], { ...base, pendingInteractions: unread }, remoteSnapshot(), labels))
+      .completionUnread).toBe(false)
+
+    // Both flags can be true at once; the list decides that running wins visually.
+    const runningUnread = {
+      ...base,
+      byId: { ...base.byId, s1: { ...base.byId['s1']!, running: true } },
+      pendingInteractions: unread,
+    }
+    const row = one(followingRows([localRecord('s1', 1)], runningUnread, remoteSnapshot(), labels))
+    expect(row).toMatchObject({ running: true, completionUnread: true })
+  })
 })
 
 describe('remote follow rows', () => {
@@ -290,11 +331,13 @@ describe('follow list filtering and summaries', () => {
   const rows: FollowingRow[] = [
     {
       key: 'a', target: { source: 'local', sessionId: 'a' }, followedAt: 2,
-      title: 'Deploy pipeline', machine: '本地', workspace: 'infra', status: 'ok', running: true, fresh: true,
+      title: 'Deploy pipeline', machine: '本地', workspace: 'infra', status: 'ok', running: true,
+      completionUnread: false, fresh: true,
     },
     {
       key: 'b', target: { source: 'remote', coordinatorUrl: 'http://a', nodeId: 'n', sessionId: 'b' }, followedAt: 1,
-      title: 'Fix tests', machine: 'Office', workspace: 'web', status: 'offline', running: false, fresh: false,
+      title: 'Fix tests', machine: 'Office', workspace: 'web', status: 'offline', running: false,
+      completionUnread: false, fresh: false,
     },
   ]
 

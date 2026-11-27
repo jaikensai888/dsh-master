@@ -102,6 +102,10 @@ export function FollowingRowItem({ row, selected, menuOpen, onMenuOpenChange, t,
         <span className={css.followingRunning} role="img" aria-label={t('status.running')} title={t('status.running')}>
           <StateDot state="ongoing" />
         </span>
+      ) : row.completionUnread ? (
+        // A successful turn finished and has not been looked at. Running wins when
+        // both are true, and one row keeps exactly one trailing state.
+        <span className={css.followingCompleted} role="img" aria-label={t('status.completedUnread')} title={t('status.completedUnread')} />
       ) : null}
       <span className={css.followingActions}>
         <Menu
