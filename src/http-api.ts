@@ -744,6 +744,32 @@ export function createMasterRouteHandler(
         return
       }
 
+      if (route === '/api/session/skills') {
+        if (method !== 'GET' && method !== 'HEAD') {
+          response.setHeader('allow', 'GET, HEAD')
+          sendFailure(response, 405, failure('master/method-not-allowed', `${method} is not allowed here`))
+          return
+        }
+        const nodeId = requiredQuery(url, 'nodeId')
+        const sessionId = requiredQuery(url, 'sessionId')
+        if (nodeId === undefined || sessionId === undefined) {
+          sendFailure(response, 400, failure('master/invalid-arguments', 'nodeId and sessionId are required'))
+          return
+        }
+        const service = deps.service()
+        if (service === undefined) {
+          sendFailure(response, 503, failure('master/unavailable', 'the master service is not mounted'))
+          return
+        }
+        try {
+          sendJson(response, 200, { ok: true, value: await service.fetchSkillCatalog(nodeId, sessionId) })
+        } catch (error) {
+          const mapped = classify(error)
+          sendFailure(response, mapped.status, mapped.error)
+        }
+        return
+      }
+
       if (route === '/api/session/model') {
         if (method !== 'POST') {
           response.setHeader('allow', 'POST')

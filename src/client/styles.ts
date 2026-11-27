@@ -640,6 +640,56 @@ export const PANEL_CSS = `
   display: flex;
   flex-direction: column;
   gap: 8px;
+  position: relative;
+}
+/* The slash Skill menu floats above the composer, inside the same rounded box. */
+.dsh-master-skill-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 100%;
+  margin-bottom: 6px;
+  max-height: min(40vh, 280px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border: .5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  z-index: 30;
+}
+.dsh-master-skill-status {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.dsh-master-skill-option {
+  display: grid;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.dsh-master-skill-option[aria-selected='true'] { background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-master-skill-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-master-skill-description {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-master-skill-when {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
 }
 .dsh-master-composer:focus-within { border-color: var(--dsw-alias-border-l2); }
 .dsh-master-question-composer {

@@ -60,6 +60,83 @@ describe('official turn process presentation', () => {
     expect(group.failure).toBe('请求失败')
   })
 
+  it('folds a stopped turn process and keeps its partial reply readable exactly once', () => {
+    const value = readSnapshot({ ...fixture, records: [
+      frame(1, 'turn/start', { turn: 1 }),
+      frame(2, 'assistant/message', { turn: 1, step: 1, message: { content: [{ type: 'reasoning', text: '先想一下' }, { type: 'text', text: '准备执行命令' }] } }),
+      frame(3, 'tool/call', { turn: 1, step: 1, callId: 'c1', name: 'pwsh', arguments: '{"command":"ls"}' }),
+      frame(4, 'tool/result', { turn: 1, step: 1, message: { source: { callId: 'c1' }, content: [{ type: 'text', text: 'a.txt' }] } }),
+      frame(5, 'tool/call', { turn: 1, step: 1, callId: 'c2', name: 'pwsh', arguments: '{"command":"pwd"}' }),
+      frame(6, 'tool/result', { turn: 1, step: 1, message: { source: { callId: 'c2' }, content: [{ type: 'text', text: 'G:\\work' }] } }),
+      frame(7, 'assistant/message', { turn: 1, step: 1, message: { content: [{ type: 'text', text: '我先看下目录，' }] }, interrupted: true }),
+      frame(8, 'turn/end', { turn: 1, reason: { kind: 'aborted' } }),
+    ] })!
+    const group = conversationItems(value.rows, value.turnEvents)[0]!
+    if (group.kind !== 'turn-group') throw new Error('missing turn')
+    expect(group).toMatchObject({ status: 'stopped', answer: [] })
+    expect(group.visible.map(row => row.text)).toEqual(['我先看下目录，'])
+    expect(group.process.some(row => row.kind === 'reasoning')).toBe(true)
+    expect(group.process.filter(row => row.kind === 'tool-call')).toHaveLength(2)
+    expect(group.process.some(row => row.text === '我先看下目录，')).toBe(false)
+    // Nothing may be rendered twice once the process is expanded.
+    const keys = [...group.visible, ...group.process, ...group.answer].map(row => row.key)
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it('keeps a failed turn reason and its last reply while folding the process', () => {
+    const value = readSnapshot({ ...fixture, records: [
+      frame(1, 'turn/start', { turn: 1 }),
+      frame(2, 'assistant/message', { turn: 1, step: 1, message: { content: [{ type: 'text', text: '我先检查一下' }] } }),
+      frame(3, 'tool/call', { turn: 1, step: 1, callId: 'bad', name: 'read', arguments: '{}' }),
+      frame(4, 'tool/result', { turn: 1, step: 1, message: { source: { callId: 'bad' }, isError: true, content: [{ type: 'text', text: '找不到文件' }] } }),
+      frame(5, 'turn/end', { turn: 1, reason: { kind: 'error', error: { message: '模型不可用' } } }),
+    ] })!
+    const group = conversationItems(value.rows, value.turnEvents)[0]!
+    if (group.kind !== 'turn-group') throw new Error('missing turn')
+    expect(group).toMatchObject({ status: 'error', failure: '模型不可用', answer: [] })
+    expect(group.visible.map(row => row.text)).toContain('我先检查一下')
+    // The failed tool row stays reachable outside the disclosure, and its detail
+    // remains inside the process exactly once.
+    expect(group.visible.some(row => row.failed === true)).toBe(true)
+    const keys = [...group.visible, ...group.process, ...group.answer].map(row => row.key)
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it('renders nothing as body text when a stopped turn produced no reply', () => {
+    const value = readSnapshot({ ...fixture, records: [
+      frame(1, 'turn/start', { turn: 1 }),
+      frame(2, 'tool/call', { turn: 1, step: 1, callId: 'c1', name: 'pwsh', arguments: '{"command":"ls"}' }),
+      frame(3, 'tool/result', { turn: 1, step: 1, message: { source: { callId: 'c1' }, content: [{ type: 'text', text: 'a.txt' }] } }),
+      frame(4, 'turn/end', { turn: 1, reason: { kind: 'aborted' } }),
+    ] })!
+    const group = conversationItems(value.rows, value.turnEvents)[0]!
+    if (group.kind !== 'turn-group') throw new Error('missing turn')
+    expect(group.visible).toEqual([])
+    expect(group.process).toHaveLength(1)
+  })
+
+  it('folds a live turn\'s finished steps and keeps its pending work and streaming reply', () => {
+    const value = readSnapshot({ ...fixture, records: [
+      frame(1, 'turn/start', { turn: 1 }),
+      frame(2, 'assistant/message', { turn: 1, step: 1, message: { content: [{ type: 'reasoning', text: '想一下' }, { type: 'text', text: '先跑命令' }] } }),
+      frame(3, 'tool/call', { turn: 1, step: 1, callId: 'a', name: 'pwsh', arguments: '{"command":"ls"}' }),
+      frame(4, 'tool/result', { turn: 1, step: 1, message: { source: { callId: 'a' }, content: [{ type: 'text', text: 'a.txt' }] } }),
+      frame(5, 'step/start', { turn: 1, step: 2 }),
+      frame(6, 'tool/call', { turn: 1, step: 2, callId: 'b', name: 'pwsh', arguments: '{"command":"pwd"}' }),
+      frame(7, 'assistant/message', { turn: 1, step: 2, message: { content: [{ type: 'text', text: '正在输出' }] } }),
+    ] })!
+    const group = conversationItems(value.rows, value.turnEvents)[0]!
+    if (group.kind !== 'turn-group') throw new Error('missing turn')
+    expect(group.status).toBe('running')
+    // Finished steps fold; only the live step stays readable.
+    expect(group.process.some(row => row.text === '先跑命令')).toBe(true)
+    expect(group.visible.some(row => row.text === '先跑命令')).toBe(false)
+    expect(group.visible.some(row => row.text === '正在输出')).toBe(true)
+    expect(group.visible.some(row => row.kind === 'tool-call' && row.output === undefined)).toBe(true)
+    expect(group.activity).toContain('思考')
+    expect(group.activity).toContain('执行了命令')
+  })
+
   it('separates reasoning by block type and leaves unclassified old-node messages visible', () => {
     const value = readSnapshot({ ...fixture, records: [frame(1, 'assistant/message', {
       message: { content: [{ type: 'reasoning', text: '思考内容' }, { type: 'text', text: 'Answer in any language' }] },

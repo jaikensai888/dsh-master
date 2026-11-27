@@ -155,7 +155,7 @@ describe('remote turn disclosure', () => {
     expect(html).not.toContain('已编辑')
   })
 
-  it('keeps narration between compact tool summaries, with live progress after the latest activity', () => {
+  it('folds a running turn\'s finished steps and keeps its streaming reply and pending command', () => {
     const view = readSnapshot({ ...fixture, records: [
       frame(1, 'user/message', { content: [{ type: 'text', text: '帮我刷机' }] }),
       frame(2, 'turn/start', { turn: 1 }),
@@ -178,7 +178,7 @@ describe('remote turn disclosure', () => {
     expect(html.indexOf('执行了命令')).toBeLessThan(html.indexOf('COM5 已就绪。'))
     expect(html.indexOf('COM5 已就绪。')).toBeLessThan(html.indexOf('正在运行命令'))
     expect(html.indexOf('正在运行命令')).toBeLessThan(html.indexOf('正在处理'))
-    expect(html).not.toContain('dsh-master-process"')
+    expect(html).toContain('dsh-master-process"')
     expect(html).toContain('<time dateTime="1970-01-01T00:00:01.000Z"')
     expect(html).toMatch(/<details class="dsh-master-context dsh-master-transcript-info">[\s\S]*?Time sampled/u)
 

@@ -6,6 +6,7 @@ import {
   createRemoteWorkspace,
   fetchModelCatalog,
   fetchSessionPage,
+  fetchSkillCatalog,
   followSession,
   renameRemoteSession,
   selectRemoteModel,
@@ -292,5 +293,25 @@ describe('remote session page browser API', () => {
     await fetchSessionPage('node-1', 'session-1', {})
     const init = fetchSpy.mock.calls[0]?.[1]
     expect(JSON.parse(String(init?.body))).toEqual({ nodeId: 'node-1', sessionId: 'session-1', maxMessages: 30 })
+  })
+})
+
+describe('remote skill catalog browser API', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('encodes the session identity and forwards the abort signal', async () => {
+    const fetchSpy = vi.fn<typeof fetch>()
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      value: { skills: [] },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchSpy)
+    const controller = new AbortController()
+
+    const catalog = await fetchSkillCatalog('node 1', 'session/1', controller.signal)
+    expect(catalog).toEqual({ skills: [] })
+    const [url, init] = fetchSpy.mock.calls[0] ?? []
+    expect(String(url)).toBe('/dsh-master/api/session/skills?nodeId=node+1&sessionId=session%2F1')
+    expect(init?.signal).toBeDefined()
   })
 })

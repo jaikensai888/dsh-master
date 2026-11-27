@@ -83,6 +83,15 @@ export interface MasterSession {
    */
   readonly blank: boolean
   readonly cwd?: string
+  /**
+   * Event seq of the session's most recent successful `turn/end`, when the node
+   * publishes one.
+   *
+   * `null` means the node supports the summary and no turn has succeeded yet;
+   * absence means this node has no such summary (older build, or the projection
+   * is not registered), so callers must not treat it as a completion.
+   */
+  readonly lastCompletedSeq?: number | null
 }
 
 /** An authoritative workspace registered on one remote node. */
@@ -248,6 +257,22 @@ export interface MasterSessionPageRequest {
   readonly throughSeq?: number
   /** Message budget for this page; the host bounds it. */
   readonly maxMessages?: number
+}
+
+/** One user-invocable Skill on a node, projected to the fields the picker shows. */
+export interface MasterSkillEntry {
+  /** Kebab-case identifier the composer references as `/name`. */
+  readonly name: string
+  readonly description: string
+  /** Extra routing guidance, shown under the description when present. */
+  readonly whenToUse?: string
+  /** Whether the model can also discover and invoke it; the picker shows both kinds. */
+  readonly modelInvocable: boolean
+}
+
+/** The skills one remote session can be asked to load. */
+export interface MasterSkillCatalog {
+  readonly skills: readonly MasterSkillEntry[]
 }
 
 /** One backwards page of a session log, raw records included. */

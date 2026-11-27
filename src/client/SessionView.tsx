@@ -41,6 +41,7 @@ import {
   fetchModelCatalog,
   fetchPendingQuestions,
   fetchSessionPage,
+  fetchSkillCatalog,
   followSession,
   selectRemoteModel,
   sendPrompt,
@@ -62,6 +63,8 @@ import {
 import { COPY, MARKDOWN_LABELS } from './copy.js'
 import { observeConversationTail } from './conversation-scroll.js'
 import { observeConversationWidth } from './conversation-width.js'
+import { completeSkill, filterSkills, skillFailureKind, skillTrigger } from './skill-picker.js'
+import { SkillMenu, type SkillMenuStatus } from './SkillMenu.js'
 import { resultPreview, toolPreview } from './tool-preview.js'
 import {
   classifyFileSupportError,
@@ -90,6 +93,7 @@ import type {
   MasterPendingQuestionRequest,
   MasterQuestion,
   MasterQuestionAnswer,
+  MasterSkillEntry,
 } from '../protocol.js'
 
 /**
@@ -331,14 +335,17 @@ function TurnProcess({ group, cwd, connected }: {
   readonly connected: boolean
 }): ReactElement {
   const seconds = group.durationMs === undefined ? undefined : Math.max(1, Math.floor(group.durationMs / 1000))
-  const label = group.status === 'error' ? '执行失败'
-    : group.status === 'stopped' ? '已停止'
-      : seconds === undefined ? '已完成' : `已完成，用时 ${seconds} 秒`
+  const activity = group.activity
+  const label = group.status === 'error' ? (activity === undefined ? '执行失败' : `执行失败 · ${activity}`)
+    : group.status === 'stopped' ? (activity === undefined ? '已停止' : `已停止 · ${activity}`)
+      : group.status === 'running' ? (activity ?? '执行过程')
+        : seconds === undefined ? (activity ?? '已完成') : `已完成，用时 ${seconds} 秒`
   const active = connected && group.status === 'running'
   return (
     <div className="dsh-master-turn-group" data-state={group.status}>
-      {group.status === 'running' || group.status === 'unknown' ? null : group.process.length === 0 ? (
-        <div className="dsh-master-turn-status">{label}</div>
+      {group.process.length === 0 ? (
+        group.status === 'running' || group.status === 'unknown' ? null
+          : <div className="dsh-master-turn-status">{label}</div>
       ) : (
         <details className="dsh-master-process">
           <summary className="dsh-master-process-summary">
@@ -1044,9 +1051,93 @@ export function SessionView(props: SessionViewProps): ReactElement {
     startUpload(retried)
   }, [attachments, startUpload])
 
+  /*
+    The `/` Skill picker.
+
+    It is a drafting aid, not a second send path: a selection only rewrites the
+    draft's first token, and every existing rule (Enter/Shift+Enter, IME,
+    attachments, queue/steer) keeps working unchanged. The catalog is read per
+    session and re-read on every open, so a session switch or a transient failure
+    cannot leave a stale list on screen.
+  */
+  const [skillOpen, setSkillOpen] = useState(false)
+  const [skillStatus, setSkillStatus] = useState<SkillMenuStatus>('ready')
+  const [skillCatalog, setSkillCatalog] = useState<readonly MasterSkillEntry[]>([])
+  const [skillPrefix, setSkillPrefix] = useState('')
+  const [skillIndex, setSkillIndex] = useState(0)
+  const skillAbort = useRef<AbortController | undefined>(undefined)
+
+  // A different session must never keep the previous catalog or a menu built
+  // from it: abort the in-flight read and drop the entries with the switch.
+  useEffect(() => {
+    skillAbort.current?.abort()
+    skillAbort.current = undefined
+    setSkillOpen(false)
+    setSkillIndex(0)
+    setSkillCatalog([])
+    setSkillStatus('ready')
+  }, [nodeId, sessionId])
+  useEffect(() => () => { skillAbort.current?.abort() }, [])
+
+  const closeSkillMenu = useCallback((abort = true): void => {
+    if (abort) {
+      skillAbort.current?.abort()
+      skillAbort.current = undefined
+    }
+    setSkillOpen(false)
+    setSkillIndex(0)
+  }, [])
+
+  const loadSkills = useCallback((): void => {
+    skillAbort.current?.abort()
+    const controller = new AbortController()
+    skillAbort.current = controller
+    setSkillStatus('loading')
+    fetchSkillCatalog(nodeId, sessionId, controller.signal).then((catalog) => {
+      if (controller.signal.aborted) return
+      setSkillCatalog(catalog.skills)
+      setSkillStatus(catalog.skills.length === 0 ? 'empty' : 'ready')
+    }).catch((cause: unknown) => {
+      if (controller.signal.aborted) return
+      if (cause instanceof Error && cause.name === 'AbortError') return
+      setSkillCatalog([])
+      setSkillStatus(skillFailureKind(cause instanceof ApiError ? cause.code : undefined))
+    })
+  }, [nodeId, sessionId])
+
+  /** Keep the menu in step with the draft: open on a `/token`, close otherwise. */
+  const syncSkillMenu = (next: string): void => {
+    if (!promptEnabled) {
+      if (skillOpen) closeSkillMenu()
+      return
+    }
+    const trigger = skillTrigger(next)
+    if (trigger === undefined) {
+      if (skillOpen) closeSkillMenu()
+      return
+    }
+    if (!skillOpen) {
+      setSkillOpen(true)
+      setSkillIndex(0)
+      setSkillPrefix(trigger.prefix)
+      loadSkills()
+      return
+    }
+    setSkillPrefix(trigger.prefix)
+    setSkillIndex(0)
+  }
+
+  const chooseSkill = useCallback((skill: MasterSkillEntry): void => {
+    setDraft(previous => completeSkill(previous, skill.name))
+    closeSkillMenu(false)
+  }, [closeSkillMenu])
+
+  const skillCandidates = skillOpen ? filterSkills(skillCatalog, skillPrefix) : []
+
   const submit = useCallback((): void => {
     const text = draft.trim()
     if (text === '' || sending || sendUncertain || !promptEnabled) return
+    if (skillOpen) closeSkillMenu()
     const ids = attachmentIds(attachments)
     if (attachments.length > 0 && (ids.length !== attachments.length || !attachments.every(row => row.status === 'ready'))) {
       setError(COPY.attachmentNeedReady)
@@ -1077,7 +1168,7 @@ export function SessionView(props: SessionViewProps): ReactElement {
       .finally(() => {
         if (sessionKeyRef.current === key) setSending(false)
       })
-  }, [attachments, draft, mode, nodeId, sending, sessionId, sendUncertain, promptEnabled])
+  }, [attachments, closeSkillMenu, draft, mode, nodeId, sending, sessionId, sendUncertain, promptEnabled, skillOpen])
 
   const supportDescribe = fileSupport.status === 'supported' ? fileSupport.describe : undefined
   const attachmentsUsable = supportDescribe !== undefined
@@ -1329,22 +1420,67 @@ export function SessionView(props: SessionViewProps): ReactElement {
               </div>
             )}
             <AttachmentChips attachments={attachments} onRemove={handleRemove} onRetry={handleRetry} />
+            {skillOpen ? (
+              <SkillMenu
+                id="dsh-master-skill-menu"
+                status={skillStatus}
+                skills={skillCandidates}
+                activeIndex={skillIndex}
+                onChoose={chooseSkill}
+                onHover={setSkillIndex}
+              />
+            ) : null}
             <textarea
               className="dsh-master-composer-input"
               aria-label={COPY.composerPlaceholder}
+              aria-expanded={skillOpen || undefined}
+              aria-controls={skillOpen ? 'dsh-master-skill-menu' : undefined}
+              aria-activedescendant={skillOpen && skillCandidates.length > 0
+                ? `dsh-master-skill-menu-${String(Math.min(skillIndex, skillCandidates.length - 1))}`
+                : undefined}
               value={draft}
               placeholder={promptEnabled ? COPY.composerPlaceholder : COPY.composerDisabled}
               disabled={!promptEnabled || sending}
-              onChange={(event) => { setDraft(event.currentTarget.value) }}
+              onChange={(event) => {
+                const next = event.currentTarget.value
+                setDraft(next)
+                syncSkillMenu(next)
+              }}
               onCompositionStart={() => { composingDraft.current = true }}
               onCompositionEnd={() => { composingDraft.current = false }}
+              onBlur={() => { if (skillOpen) closeSkillMenu() }}
               onKeyDown={(event) => {
+                const composing = composingDraft.current || event.nativeEvent.isComposing
+                // While the Skill menu is open it owns the navigation keys and
+                // Enter: Enter selects, it never sends. Esc closes and keeps the
+                // draft. An IME composition keeps every key for its own list.
+                if (skillOpen && !composing) {
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    event.preventDefault()
+                    if (skillCandidates.length > 0) {
+                      const delta = event.key === 'ArrowDown' ? 1 : -1
+                      setSkillIndex(previous => (previous + delta + skillCandidates.length) % skillCandidates.length)
+                    }
+                    return
+                  }
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    closeSkillMenu()
+                    return
+                  }
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault()
+                    const skill = skillCandidates[Math.min(skillIndex, skillCandidates.length - 1)]
+                    if (skill !== undefined) chooseSkill(skill)
+                    return
+                  }
+                }
                 // Enter sends, Shift+Enter breaks the line, and an IME composition
                 // keeps Enter for its own candidate list. Ctrl/Cmd+Enter still sends.
                 if (!sendsOnEnter({
                   key: event.key,
                   shiftKey: event.shiftKey,
-                  isComposing: composingDraft.current || event.nativeEvent.isComposing,
+                  isComposing: composing,
                 })) return
                 event.preventDefault()
                 submit()

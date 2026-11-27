@@ -570,14 +570,49 @@ export interface TurnGroup {
   readonly visible: readonly ConversationRow[]
   /** Distinct files this turn applied changes to, or absent when it changed none. */
   readonly changes?: FileChangeSummary
+  /** Short description of the folded process ("执行了命令，已读取文件"), for the disclosure label. */
+  readonly activity?: string
   readonly durationMs?: number
   readonly failure?: string
   readonly compatibility?: string
 }
 
+/**
+ * Describe the folded process in the words the local disclosure uses.
+ *
+ * The label is built from what actually happened, so a stopped turn reads
+ * "已停止 · 执行了命令，修改了文件" instead of a bare status, and the same
+ * description serves a live turn's folded earlier steps.
+ *
+ * @param rows - the rows folded into the process.
+ * @returns a short description, or `undefined` when nothing is describable.
+ */
+function activityDescription(rows: readonly ConversationRow[]): string | undefined {
+  const parts: string[] = []
+  const add = (part: string): void => {
+    if (!parts.includes(part)) parts.push(part)
+  }
+  for (const row of rows) {
+    if (row.kind === 'reasoning') {
+      add('思考')
+      continue
+    }
+    if (row.kind !== 'tool-call') continue
+    if (row.change !== undefined) {
+      add('修改了文件')
+      continue
+    }
+    if (/^(pwsh|bash|shell|exec_command|terminal)$/u.test(row.text)) add('执行了命令')
+    else if (/^(read|read_file|read_image)$/u.test(row.text)) add('已读取文件')
+    else if (/^(grep|glob)$/u.test(row.text)) add('已搜索代码')
+    else add('调用了工具')
+  }
+  if (parts.length === 0) return undefined
+  return parts.length <= 3 ? parts.join('，') : `${parts.slice(0, 3).join('，')}等`
+}
+
 /** Mirrors official latestAnswer: only the latest step without tool calls can answer a completed turn. */
-export function conversationItems(rows: readonly ConversationRow[], events: readonly TurnEvent[]): (ConversationRow | TurnGroup)[] {
-  const turns = new Map<number, TurnEvent[]>()
+export function conversationItems(rows: readonly ConversationRow[], events: readonly TurnEvent[]): (ConversationRow | TurnGroup)[] {  const turns = new Map<number, TurnEvent[]>()
   const rowTurns = new Map<string, number>()
   for (const event of events) {
     const members = turns.get(event.turn) ?? []
@@ -599,18 +634,40 @@ export function conversationItems(rows: readonly ConversationRow[], events: read
     const canAnswer = status === 'completed' && !incomplete && lastReply !== undefined && !lastReply.interrupted
       && !facts.some(event => event.step === lastStep && event.hasToolCalls)
     const answerKeys = new Set(canAnswer ? lastReply.replyKeys : [])
-    const visible = members.filter(row => status !== 'completed' || incomplete || row.failed === true || row.kind === 'notice'
-      || row.kind === 'tool-call' && row.text === 'ask_user_question' && row.output === undefined)
+    /** A card the user must act on stays reachable even inside a finished turn. */
+    const pendingQuestion = (row: ConversationRow): boolean =>
+      row.kind === 'tool-call' && row.text === 'ask_user_question' && row.output === undefined
+    // A stopped or failed turn keeps the last reply it actually produced readable
+    // and folds everything else behind the disclosure — the local view does not
+    // replay a cancelled turn's thinking and commands as body text. A live turn
+    // folds the same way but keeps its pending work and the step that is still
+    // streaming visible, so progress is readable without a log dump. Only a turn
+    // whose events cannot be trusted stays flat.
+    const partial = status === 'stopped' || status === 'error'
+      ? [...members].reverse().find(row => row.kind === 'assistant' && row.text.trim() !== '')
+      : undefined
+    const live = status === 'running'
+    const lastStepKeys = new Set(facts.filter(event => event.step === lastStep).flatMap(event => event.rowKeys))
+    const allVisible = status === 'unknown' || incomplete
+    const visible = allVisible
+      ? members
+      : members.filter(row => row.kind === 'notice' || row.failed === true || pendingQuestion(row)
+        || (live && row.kind === 'tool-call' && row.output === undefined)
+        || (live && row.kind === 'assistant' && lastStepKeys.has(row.key))
+        || (partial !== undefined && row.key === partial.key))
     const visibleKeys = new Set(visible.map(row => row.key))
+    const process = members.filter(row => !answerKeys.has(row.key) && !visibleKeys.has(row.key))
     const durationMs = start?.time !== undefined && end?.time !== undefined && end.time >= start.time ? end.time - start.time : undefined
     const changes = turnChanges(turn, members.flatMap(row => row.change === undefined ? [] : [row.change]))
+    const activity = activityDescription(process)
     groups.set(turn, {
       kind: 'turn-group', key: `turn:${turn}`, status,
-      process: members.filter(row => !answerKeys.has(row.key) && !visibleKeys.has(row.key)),
+      process,
       answer: members.filter(row => answerKeys.has(row.key) && !visibleKeys.has(row.key)),
       visible,
       ...(changes === undefined ? {} : { changes }),
       ...(durationMs === undefined ? {} : { durationMs }),
+      ...(activity === undefined ? {} : { activity }),
       ...(end?.failure === undefined ? {} : { failure: end.failure }),
       ...(incomplete || status === 'unknown' ? { compatibility: '回合或步骤信息不完整，保留逐条记录。' } : {}),
     })

@@ -35,6 +35,7 @@ import type {
   MasterRenameSessionValue,
   MasterSelectModelValue,
   MasterSessionPageValue,
+  MasterSkillCatalog,
   MasterSessionsValue,
   MasterStatus,
 } from './protocol.js'
@@ -307,6 +308,27 @@ export class MasterService {
       throw new MasterUpstreamError(toFailure('master/invalid-arguments', 'nodeId is required'))
     }
     return this.#client.fetchModelCatalog(nodeId, signal)
+  }
+
+  /**
+   * Read the user-invocable skills of one remote session.
+   *
+   * Read-only: it lists metadata and loads no skill body, so it is not behind
+   * `allowPrompt`. The browser only names the session; the endpoint is fixed
+   * here so a client cannot reach other node Remotes through this path.
+   */
+  fetchSkillCatalog(
+    nodeId: string,
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<MasterSkillCatalog> {
+    if (nodeId.trim() === '' || sessionId.trim() === '') {
+      throw new MasterUpstreamError(toFailure(
+        'master/invalid-arguments',
+        'nodeId and sessionId are required non-empty strings',
+      ))
+    }
+    return this.#client.fetchSkillCatalog(nodeId, sessionId, signal)
   }
 
   /**

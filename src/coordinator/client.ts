@@ -40,6 +40,8 @@ import type {
   MasterRenameSessionValue,
   MasterSelectModelValue,
   MasterSessionPageValue,
+  MasterSkillCatalog,
+  MasterSkillEntry,
   MasterSession,
   MasterWorkspace,
   MasterWorkspaceSnapshot,
@@ -218,6 +220,22 @@ function sessionTitle(row: Record<string, unknown>, sessionId: string): string {
   const title = values === undefined ? undefined : str(values, 'title')
   if (title !== undefined && title.trim() !== '') return title
   return sessionId.length > 12 ? `${sessionId.slice(0, 8)}…` : sessionId
+}
+
+/**
+ * Read the node's last successful completion sequence from a list row.
+ *
+ * `null` means the node supports the summary and has no successful turn yet;
+ * an absent field (or a malformed value) means no summary is available, so a
+ * caller must keep its previous baseline instead of inventing one.
+ */
+function readLastCompletedSeq(row: Record<string, unknown>): number | null | undefined {
+  const projections = asRecord(row['projections'])
+  const values = projections === undefined ? undefined : asRecord(projections['values'])
+  if (values === undefined || !Object.hasOwn(values, 'lastCompletedSeq')) return undefined
+  const value = values['lastCompletedSeq']
+  if (value === null) return null
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
 }
 
 /**
@@ -436,6 +454,7 @@ export class CoordinatorClient {
       const sessionId = row === undefined ? undefined : str(row, 'sessionId')
       if (row === undefined || sessionId === undefined) return []
       const cwd = str(row, 'cwd')
+      const lastCompletedSeq = readLastCompletedSeq(row)
       return [{
         sessionId,
         title: sessionTitle(row, sessionId),
@@ -443,6 +462,7 @@ export class CoordinatorClient {
         running: bool(row, 'running') ?? false,
         blank: bool(row, 'blank') ?? false,
         ...(cwd === undefined ? {} : { cwd }),
+        ...(lastCompletedSeq === undefined ? {} : { lastCompletedSeq }),
       }]
     })
   }
@@ -580,6 +600,28 @@ export class CoordinatorClient {
   async fetchModelCatalog(nodeId: string, signal?: AbortSignal): Promise<MasterModelCatalog> {
     const value = await this.#invokeNode(nodeId, 'session/modelCatalog', {}, signal)
     return readModelCatalog(value)
+  }
+
+  /**
+   * Read the user-invocable skills visible to one session.
+   *
+   * The session — not the node — decides the catalog: its working directory and
+   * agent preset select which skills the composer may offer. The node returns
+   * metadata plus a path this client deliberately drops; the browser needs only
+   * the four projected fields.
+   *
+   * @param nodeId - target node.
+   * @param sessionId - target session on that node.
+   * @param signal - caller cancellation.
+   * @returns the projected catalog, possibly empty.
+   */
+  async fetchSkillCatalog(
+    nodeId: string,
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<MasterSkillCatalog> {
+    const value = await this.#invokeNode(nodeId, 'skills/list', { request: { sessionId } }, signal)
+    return readSkillCatalog(value)
   }
 
   /**
@@ -1149,6 +1191,50 @@ function readCatalogModel(value: unknown): MasterModel | undefined {
  * is not a catalog: it means the node replied with something else entirely, and
  * showing an empty selector over it would hide a real breakage.
  */
+/** The upstream rule for a skill identifier; the composer references it as `/name`. */
+const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
+
+/**
+ * Read one `skills/list` answer.
+ *
+ * Strict on purpose: a skill the composer cannot address (bad name, missing
+ * description, wrong flag type) is a broken catalog, not a row to skip — a
+ * half-listed menu makes a missing skill look absent. Only whitelisted fields
+ * survive, so a node's `path`/`content` never reaches the browser.
+ * @param value - raw Remote result.
+ * @returns the projected catalog.
+ */
+function readSkillCatalog(value: unknown): MasterSkillCatalog {
+  const row = asRecord(value)
+  const rawSkills = row?.['skills']
+  if (!Array.isArray(rawSkills)) {
+    throw new MasterUpstreamError(toMasterError(
+      'master/coordinator-unreadable', 'skills/list did not return a skills array',
+    ))
+  }
+  const skills: MasterSkillEntry[] = []
+  for (const raw of rawSkills) {
+    const entry = asRecord(raw)
+    const name = entry === undefined ? undefined : str(entry, 'name')
+    const description = entry === undefined ? undefined : str(entry, 'description')
+    const whenToUse = entry === undefined ? undefined : str(entry, 'whenToUse')
+    const modelInvocable = entry?.['modelInvocable']
+    if (name === undefined || !SKILL_NAME_PATTERN.test(name)
+      || typeof description !== 'string' || typeof modelInvocable !== 'boolean') {
+      throw new MasterUpstreamError(toMasterError(
+        'master/coordinator-unreadable', 'skills/list returned a malformed skill entry',
+      ))
+    }
+    skills.push({
+      name,
+      description,
+      ...(whenToUse === undefined || whenToUse === '' ? {} : { whenToUse }),
+      modelInvocable,
+    })
+  }
+  return { skills }
+}
+
 function readModelCatalog(value: unknown): MasterModelCatalog {
   const row = asRecord(value)
   if (row === undefined) {

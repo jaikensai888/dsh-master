@@ -95,6 +95,22 @@ describe('CoordinatorClient.listSessions', () => {
     expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ nodeId: 'node-7' })
     expect(calls[0]?.url).toBe('http://127.0.0.1:39472/api/sessions')
   })
+
+  it('keeps a valid lastCompletedSeq, including the explicit null baseline', async () => {
+    const rowsFor = (seq: unknown): Record<string, unknown> => ({
+      items: [{ sessionId: 's1', updatedAt: 0, running: false, blank: false, projections: { asOfSeq: 9, values: { lastCompletedSeq: seq } } }],
+    })
+    const read = async (seq: unknown): Promise<unknown> => {
+      const { client } = clientWith(() => envelope({ ok: true, value: rowsFor(seq) }))
+      return (await client.listSessions('node-1'))[0]
+    }
+    expect((await read(12) as { lastCompletedSeq?: unknown }).lastCompletedSeq).toBe(12)
+    expect((await read(null) as { lastCompletedSeq?: unknown }).lastCompletedSeq).toBeNull()
+    // Malformed or absent values are "no summary", never a completion.
+    for (const bad of ['12', -1, 1.5, undefined]) {
+      expect((await read(bad) as { lastCompletedSeq?: unknown }).lastCompletedSeq).toBeUndefined()
+    }
+  })
 })
 
 describe('CoordinatorClient.createSession', () => {
@@ -737,5 +753,54 @@ describe('CoordinatorClient session page', () => {
     const { client } = clientWith(() => envelope({ ok: true, value: { records: 'nope', hasMore: false } }))
     await expect(client.fetchSessionPage('node-1', 'session-1', { maxMessages: 20 }))
       .rejects.toMatchObject({ code: 'master/coordinator-unreadable' })
+  })
+})
+
+describe('CoordinatorClient skill catalog', () => {
+  it('asks the node for the session catalog and projects only the picker fields', async () => {
+    const { client, calls } = clientWith(() => envelope({
+      ok: true,
+      value: {
+        skills: [
+          { name: 'review', description: 'Review a change', whenToUse: 'before merging', modelInvocable: false, path: 'C:/skills/review', content: 'secret' },
+        ],
+      },
+    }))
+    const catalog = await client.fetchSkillCatalog('node-1', 'session-9')
+    expect(catalog.skills).toEqual([
+      { name: 'review', description: 'Review a change', whenToUse: 'before merging', modelInvocable: false },
+    ])
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+      nodeId: 'node-1',
+      endpoint: 'skills/list',
+      args: { request: { sessionId: 'session-9' } },
+    })
+  })
+
+  it('treats an empty catalog as success and keeps user-only skills', async () => {
+    const empty = clientWith(() => envelope({ ok: true, value: { skills: [] } })).client
+    await expect(empty.fetchSkillCatalog('node-1', 'session-1')).resolves.toEqual({ skills: [] })
+    const userOnly = clientWith(() => envelope({
+      ok: true,
+      value: { skills: [{ name: 'deploy', description: 'Deploy', modelInvocable: false }] },
+    })).client
+    await expect(userOnly.fetchSkillCatalog('node-1', 'session-1')).resolves.toMatchObject({
+      skills: [{ name: 'deploy', modelInvocable: false }],
+    })
+  })
+
+  it('rejects a missing skills array and malformed entries', async () => {
+    for (const value of [
+      {},
+      { skills: 'nope' },
+      { skills: [{ name: 'Bad Name', description: 'x', modelInvocable: true }] },
+      { skills: [{ name: 'ok', description: 7, modelInvocable: true }] },
+      { skills: [{ name: 'ok', description: 'x', modelInvocable: 'yes' }] },
+      { skills: [{ description: 'x', modelInvocable: true }] },
+    ]) {
+      const { client } = clientWith(() => envelope({ ok: true, value }))
+      await expect(client.fetchSkillCatalog('node-1', 'session-1'))
+        .rejects.toMatchObject({ code: 'master/coordinator-unreadable' })
+    }
   })
 })

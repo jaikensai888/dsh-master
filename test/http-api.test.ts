@@ -779,3 +779,40 @@ describe('remote session page route', () => {
     }
   })
 })
+
+describe('remote skill catalog route', () => {
+  it('forwards the session identity to the service', async () => {
+    const calls: unknown[][] = []
+    const response = await call(handlerFor(service({
+      fetchSkillCatalog: (...args: unknown[]) => {
+        calls.push(args)
+        return Promise.resolve({ skills: [{ name: 'review', description: 'Review', modelInvocable: true }] })
+      },
+    })), fakeRequest({
+      method: 'GET',
+      url: '/dsh-master/api/session/skills?nodeId=n1&sessionId=s1',
+    }))
+    expect(response.status).toBe(200)
+    expect(response.json).toMatchObject({ ok: true, value: { skills: [{ name: 'review' }] } })
+    expect(calls[0]).toEqual(['n1', 's1'])
+  })
+
+  it('rejects a missing identity and an unsupported method', async () => {
+    for (const url of [
+      '/dsh-master/api/session/skills?nodeId=n1',
+      '/dsh-master/api/session/skills?sessionId=s1',
+      '/dsh-master/api/session/skills',
+    ]) {
+      const response = await call(handlerFor(service()), fakeRequest({ method: 'GET', url }))
+      expect(response.status).toBe(400)
+      expect(response.json).toMatchObject({ ok: false, error: { code: 'master/invalid-arguments' } })
+    }
+    const response = await call(handlerFor(service()), fakeRequest({
+      method: 'POST',
+      url: '/dsh-master/api/session/skills?nodeId=n1&sessionId=s1',
+      body: '{}',
+    }))
+    expect(response.status).toBe(405)
+    expect(response.json).toMatchObject({ ok: false, error: { code: 'master/method-not-allowed' } })
+  })
+})

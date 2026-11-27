@@ -26,6 +26,7 @@ import {
   type MasterRenameSessionValue,
   type MasterSelectModelValue,
   type MasterSessionPageValue,
+  type MasterSkillCatalog,
   type MasterSessionsValue,
   type MasterStatus,
   type MasterStreamRecord,
@@ -339,6 +340,28 @@ export async function fetchModelCatalog(
     headers: { accept: 'application/json' },
   }))
   return unwrap(await envelopeOf(response) as MasterEnvelope<MasterModelCatalog>)
+}
+
+/**
+ * Read the user-invocable skills of one remote session.
+ *
+ * The session decides the catalog (its working directory and agent preset), so
+ * the request always names it; the browser receives metadata only.
+ *
+ * @param nodeId - target node.
+ * @param sessionId - target session.
+ * @param signal - caller cancellation.
+ */
+export async function fetchSkillCatalog(
+  nodeId: string,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<MasterSkillCatalog> {
+  const query = new URLSearchParams({ nodeId, sessionId })
+  const response = await fetch(`${ROUTE_PREFIX}/api/session/skills?${query.toString()}`, init(signal, {
+    headers: { accept: 'application/json' },
+  }))
+  return unwrap(await envelopeOf(response) as MasterEnvelope<MasterSkillCatalog>)
 }
 
 /**
